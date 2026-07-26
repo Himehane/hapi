@@ -115,9 +115,10 @@ function CodexImportIcon(props: { className?: string }) {
             strokeLinejoin="round"
             className={props.className}
         >
-            {/* 中文注释：入口图标改成纯更新箭头，弱化“聊天”含义，避免用户误解成会话本身而不是导入动作。 */}
-            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-            <path d="M21 3v6h-6" />
+            {/* 中文注释：导入图标使用“下载进托盘”样式，与刷新按钮的循环箭头区分开，避免两个相邻按钮看起来一样。 */}
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
         </svg>
     )
 }
@@ -136,8 +137,8 @@ function RefreshIcon(props: { className?: string }) {
             strokeLinejoin="round"
             className={props.className}
         >
-            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-            <path d="M21 3v6h-6" />
+            <path d="M21 12a9 9 0 1 1-2.64-6.36L21 8" />
+            <path d="M21 3v5h-5" />
         </svg>
     )
 }
@@ -545,7 +546,7 @@ function SessionsPage() {
         <>
             <div className="flex h-full min-h-0">
             <div
-                className={`${isSessionsIndex ? 'flex' : 'hidden lg:flex'} w-full shrink-0 flex-col bg-[var(--app-bg)]`}
+                className={`${isSessionsIndex ? 'flex' : 'hidden split:flex'} w-full shrink-0 flex-col bg-[var(--app-bg)]`}
                 style={{ '--sidebar-w': `${sidebar.width}px` } as React.CSSProperties}
             >
                 <div className="bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
@@ -632,12 +633,12 @@ function SessionsPage() {
 
             {/* Resize handle - desktop only */}
             <div
-                className="sidebar-resize-handle hidden lg:block shrink-0"
+                className="sidebar-resize-handle hidden split:block shrink-0"
                 data-dragging={sidebar.isDragging || undefined}
                 onPointerDown={sidebar.onPointerDown}
             />
 
-            <div className={`${isSessionsIndex ? 'hidden lg:flex' : 'flex'} min-w-0 flex-1 flex-col bg-[var(--app-bg)]`}>
+            <div className={`${isSessionsIndex ? 'hidden split:flex' : 'flex'} min-w-0 flex-1 flex-col bg-[var(--app-bg)]`}>
                 <div className="flex-1 min-h-0">
                     <Outlet />
                 </div>
@@ -970,11 +971,26 @@ function SessionPage() {
     } = useSkills(api, sessionId)
 
     const getAutocompleteSuggestions = useCallback(async (query: string) => {
+        if (query.startsWith('@')) {
+            if (agentType !== 'codex' || !api || !sessionId) return []
+            const search = query.slice(1)
+            const response = await api.searchSessionFiles(sessionId, search, 50)
+            if (!response.success || !response.files) return []
+            return response.files.map((file) => {
+                const mentionText = `@"${file.fullPath.replace(/(["\\])/g, '\\$1')}"`
+                return {
+                    key: mentionText,
+                    text: mentionText,
+                    label: `@${file.fileName}`,
+                    description: file.filePath || file.fullPath
+                }
+            })
+        }
         if (query.startsWith('$')) {
             return await getSkillSuggestions(query)
         }
         return await getSlashSuggestions(query)
-    }, [getSkillSuggestions, getSlashSuggestions])
+    }, [agentType, api, sessionId, getSkillSuggestions, getSlashSuggestions])
 
     const refreshSelectedSession = useCallback(() => {
         void refetchSession()
