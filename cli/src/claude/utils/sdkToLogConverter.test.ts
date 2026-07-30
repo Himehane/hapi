@@ -69,6 +69,52 @@ describe('SDKToLogConverter', () => {
             expect(logMessage?.type).toBe('user')
             expect((logMessage as any).message.content).toHaveLength(2)
         })
+
+        it('should mark synthetic user messages as meta', () => {
+            // Skill injections arrive over stream-json as plain-text user messages
+            // flagged with isSynthetic. The on-disk transcript flags the same event
+            // with isMeta, which is what every downstream filter looks for.
+            const sdkMessage: SDKUserMessage = {
+                type: 'user',
+                isSynthetic: true,
+                message: {
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: 'Base directory for this skill: /home/user/.claude/skills/foo' }
+                    ]
+                }
+            }
+
+            const logMessage = converter.convert(sdkMessage)
+
+            expect(logMessage?.type).toBe('user')
+            expect(logMessage?.isMeta).toBe(true)
+        })
+
+        it('should preserve isMeta on user messages', () => {
+            const sdkMessage: SDKUserMessage = {
+                type: 'user',
+                isMeta: true,
+                message: {
+                    role: 'user',
+                    content: 'injected context'
+                }
+            }
+
+            expect(converter.convert(sdkMessage)?.isMeta).toBe(true)
+        })
+
+        it('should not mark genuine user messages as meta', () => {
+            const sdkMessage: SDKUserMessage = {
+                type: 'user',
+                message: {
+                    role: 'user',
+                    content: 'Hello Claude'
+                }
+            }
+
+            expect(converter.convert(sdkMessage)?.isMeta).toBeUndefined()
+        })
     })
 
     describe('Assistant messages', () => {
@@ -1038,6 +1084,63 @@ describe('SDKToLogConverter', () => {
                 tool_use_id: 'toolu_x',
                 content: 'done'
             } as unknown as SDKMessage)).toBeTruthy()
+        })
+    })
+
+    describe('Sidechain parentToolUseId preservation (subagent trace grouping fix)', () => {
+        it('preserves parent_tool_use_id as parentToolUseId on sidechain user messages', () => {
+            const sdkMessage = {
+                type: 'user',
+                parent_tool_use_id: 'toolu_abc123',
+                message: { role: 'user', content: 'sidechain prompt' }
+            } as unknown as SDKUserMessage
+
+            const logMessage = converter.convert(sdkMessage) as any
+
+            expect(logMessage?.isSidechain).toBe(true)
+            expect(logMessage?.parentToolUseId).toBe('toolu_abc123')
+        })
+
+        it('preserves parent_tool_use_id on sidechain assistant messages (subagent turns)', () => {
+            const sdkMessage = {
+                type: 'assistant',
+                parent_tool_use_id: 'toolu_abc123',
+                message: {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'subagent reply' }]
+                }
+            } as unknown as SDKAssistantMessage
+
+            const logMessage = converter.convert(sdkMessage) as any
+
+            expect(logMessage?.isSidechain).toBe(true)
+            expect(logMessage?.parentToolUseId).toBe('toolu_abc123')
+        })
+
+        it('does not set parentToolUseId on non-sidechain (top-level) messages', () => {
+            const sdkMessage: SDKUserMessage = {
+                type: 'user',
+                message: { role: 'user', content: 'top-level message' }
+            }
+
+            const logMessage = converter.convert(sdkMessage) as any
+
+            expect(logMessage?.isSidechain).toBe(false)
+            expect(logMessage?.parentToolUseId).toBeUndefined()
+        })
+
+        it('preserves parentToolUseId on interrupted sidechain tool results', () => {
+            const logMessage = converter.generateInterruptedToolResult('toolu_child', 'toolu_parent') as any
+
+            expect(logMessage?.isSidechain).toBe(true)
+            expect(logMessage?.parentToolUseId).toBe('toolu_parent')
+        })
+
+        it('does not set parentToolUseId on interrupted top-level tool results', () => {
+            const logMessage = converter.generateInterruptedToolResult('toolu_child') as any
+
+            expect(logMessage?.isSidechain).toBe(false)
+            expect(logMessage?.parentToolUseId).toBeUndefined()
         })
     })
 

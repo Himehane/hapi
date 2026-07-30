@@ -235,14 +235,22 @@ export class SDKToLogConverter {
         const timestamp = new Date().toISOString()
         let parentUuid = this.lastUuid;
         let isSidechain = false;
+        // Preserved (not just consumed) so the web tracer can group sidechain
+        // messages directly by the spawning Agent tool_use id, instead of relying
+        // solely on the SDK emitting a prompt-holding sidechain root to exact-match
+        // against. Some subagents (e.g. background/task_started) never emit that
+        // root, orphaning every child that only carries this id.
+        let parentToolUseId: string | undefined;
         if (sdkMessage.parent_tool_use_id) {
             isSidechain = true;
+            parentToolUseId = (sdkMessage as any).parent_tool_use_id;
             parentUuid = this.sidechainLastUUID.get((sdkMessage as any).parent_tool_use_id) ?? null;
             this.sidechainLastUUID.set((sdkMessage as any).parent_tool_use_id!, uuid);
         }
         const baseFields = {
             parentUuid: parentUuid,
             isSidechain: isSidechain,
+            parentToolUseId,
             userType: 'external' as const,
             cwd: this.context.cwd,
             sessionId: this.context.sessionId,
@@ -261,6 +269,16 @@ export class SDKToLogConverter {
                     ...baseFields,
                     type: 'user',
                     message: userMsg.message
+                }
+
+                // Claude Code injects its own user-role turns (skill bodies, compact
+                // continuation summaries). Over stream-json they are flagged
+                // `isSynthetic`, while the on-disk transcript the local launcher reads
+                // flags them `isMeta`. Normalize to `isMeta` so both paths hit the same
+                // downstream filters — otherwise the injected text reaches the web UI
+                // and is rendered as if the human had typed it.
+                if (userMsg.isSynthetic === true || userMsg.isMeta === true) {
+                    logMessage.isMeta = true
                 }
 
                 // Check if this is a tool result and add mode if available
@@ -506,6 +524,7 @@ export class SDKToLogConverter {
         const logMessage: RawJSONLines = {
             type: 'user',
             isSidechain: isSidechain,
+            parentToolUseId: parentToolUseId ?? undefined,
             uuid,
             message: {
                 role: 'user',

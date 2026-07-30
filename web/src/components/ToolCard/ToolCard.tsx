@@ -198,16 +198,19 @@ export function formatSubagentModelLabel(model: string): string {
  * the same "seenModels" pattern `aggregateResponseGroups`
  * (web/src/lib/assistant-runtime.ts) already uses for top-level multi-turn
  * message metadata, reused here rather than inventing a new convention — then
- * formats each for display and joins them.
+ * formats each for display and joins them. When a backend does not expose
+ * child messages, an explicit per-invocation model is still authoritative.
+ * The caller/session model is deliberately never used as a fallback.
  */
-export function getSubagentModel(children: ChatBlock[]): string | null {
+export function getSubagentModel(children: ChatBlock[], explicitModel?: string | null): string | null {
     const seenModels: string[] = []
     for (const child of children) {
         if ('model' in child && child.model && !seenModels.includes(child.model)) {
             seenModels.push(child.model)
         }
     }
-    return seenModels.length > 0 ? seenModels.map(formatSubagentModelLabel).join(', ') : null
+    if (seenModels.length > 0) return seenModels.map(formatSubagentModelLabel).join(', ')
+    return explicitModel ? formatSubagentModelLabel(explicitModel) : null
 }
 
 function getTaskSummaryChildren(block: ToolCallBlock): { visible: ToolCallBlock[]; remaining: number } | null {
@@ -261,9 +264,13 @@ function renderTaskSummary(
 
 function renderToolInput(block: ToolCallBlock, surface: 'inline' | 'dialog' = 'inline'): ReactNode {
     const collapseLongContent = surface === 'inline'
+    // The inline surface renders inside a role="button" preview, so the
+    // wrap toggle's <button> would nest inside an interactive ancestor
+    // (invalid HTML / hydration violation). Suppress it for inline; the
+    // dialog surface (button-free) keeps the toggle.
     const codeBlockSurfaceProps = surface === 'dialog'
         ? { size: 'comfortable' as const, scrollY: true }
-        : {}
+        : { showWrapToggle: false }
     const toolName = block.tool.name
     const input = block.tool.input
 
@@ -416,7 +423,9 @@ function ToolCardInner(props: ToolCardProps) {
     const toolTitle = presentation.title
     const subtitle = presentation.subtitle ?? props.block.tool.description
     const taskSummary = renderTaskSummary(props.block, props.metadata, t)
-    const subagentModel = isSubagentToolName(toolName) ? getSubagentModel(props.block.children) : null
+    const subagentModel = isSubagentToolName(toolName)
+        ? getSubagentModel(props.block.children, getInputStringAny(props.block.tool.input, ['model']))
+        : null
     const isCodexAgentCard = toolName === 'CodexAgent'
     const useCompactTerminalCard = shouldUseCompactTerminalToolCard(toolName, props.terminalToolDisplayMode)
     const showInline = shouldShowInlineToolCardBody(toolName, presentation.minimal, props.terminalToolDisplayMode)
@@ -431,6 +440,11 @@ function ToolCardInner(props: ToolCardProps) {
         || ((permission.status === 'denied' || permission.status === 'canceled') && Boolean(permission.reason))
     ))
     const hasBody = showInline || taskSummary !== null || showsPermissionFooter
+    // Header/content padding already supplies 12-16px below timing; add only
+    // the remainder needed to match the detail dialog's 16px section gap.
+    const inlineBodySpacing = props.block.tool.state === 'pending'
+        ? 'mt-3'
+        : (subtitle ? 'mt-1' : 'mt-0')
     const stateColor = toolStatusColorClass(props.block.tool.state)
     const { suppressFocusRing, onTriggerPointerDown, onTriggerKeyDown, onTriggerBlur } = usePointerFocusRing()
     const openDetails = () => setDetailsOpen(true)
@@ -512,8 +526,8 @@ function ToolCardInner(props: ToolCardProps) {
                             {header}
                         </button>
                     </DialogTrigger>
-                    <DialogContent className="max-w-2xl" aria-describedby={undefined}>
-                        <DialogHeader>
+                    <DialogContent className="max-w-2xl" closeButtonClassName="top-2" aria-describedby={undefined}>
+                        <DialogHeader className="text-left">
                             <DialogTitle>{toolTitle}</DialogTitle>
                         </DialogHeader>
                         <ToolDetailDialogContent block={props.block} metadata={props.metadata} />
@@ -532,7 +546,10 @@ function ToolCardInner(props: ToolCardProps) {
                     {showInline ? (
                         CompactToolView ? (
                             <div
-                                className="mt-3 cursor-pointer rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
+                                className={cn(
+                                    inlineBodySpacing,
+                                    'cursor-pointer rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]'
+                                )}
                                 role="button"
                                 tabIndex={0}
                                 onClick={openDetailsFromInlinePreview}
@@ -541,7 +558,7 @@ function ToolCardInner(props: ToolCardProps) {
                                 <CompactToolView block={props.block} metadata={props.metadata} surface="inline" />
                             </div>
                         ) : (
-                            <div className="mt-3 flex flex-col gap-3">
+                            <div className={cn(inlineBodySpacing, 'flex flex-col gap-4')}>
                                 <div
                                     className="cursor-pointer rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
                                     role="button"
