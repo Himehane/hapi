@@ -23,9 +23,15 @@ import {
     minFutureScheduledAtBySessionIds,
     countMessages,
     markMessagesInvoked,
+    markUninvokedImmediateMessages,
     mergeSessionMessages,
+    moveUninvokedScheduledMessages,
+    moveUninvokedMessages,
     copyMessageToSession as copyStoredMessageToSession,
+    copyMessagesToSession as copyStoredMessagesToSession,
     getAllMessages,
+    getMessagesAfterSeq,
+    truncateMessagesFromLocalId,
     type CancelQueuedMessageResult,
     type LookupQueuedMessageResult,
     type LocalMessageState,
@@ -51,8 +57,19 @@ export class MessageStore {
         return copyStoredMessageToSession(this.db, sessionId, message)
     }
 
+    copyMessagesToSession(
+        sessionId: string,
+        messages: Array<Pick<StoredMessage, 'content' | 'createdAt' | 'localId' | 'invokedAt' | 'scheduledAt'>>
+    ): number {
+        return copyStoredMessagesToSession(this.db, sessionId, messages)
+    }
+
     getAllMessages(sessionId: string): StoredMessage[] {
         return getAllMessages(this.db, sessionId)
+    }
+
+    getMessagesAfterSeq(sessionId: string, afterSeq: number): StoredMessage[] {
+        return getMessagesAfterSeq(this.db, sessionId, afterSeq)
     }
 
     getMessages(sessionId: string, limit: number = 200): StoredMessage[] {
@@ -140,7 +157,32 @@ export class MessageStore {
         return markMessagesInvoked(this.db, sessionId, localIds, invokedAt)
     }
 
+    markUninvokedImmediateMessages(sessionId: string, invokedAt: number): string[] {
+        return markUninvokedImmediateMessages(this.db, sessionId, invokedAt)
+    }
+
+    moveUninvokedScheduledMessages(fromSessionId: string, toSessionId: string): number {
+        return moveUninvokedScheduledMessages(this.db, fromSessionId, toSessionId)
+    }
+
+    moveUninvokedMessages(fromSessionId: string, toSessionId: string): number {
+        return moveUninvokedMessages(this.db, fromSessionId, toSessionId)
+    }
+
     mergeSessionMessages(fromSessionId: string, toSessionId: string): { moved: number; oldMaxSeq: number; newMaxSeq: number } {
         return mergeSessionMessages(this.db, fromSessionId, toSessionId)
+    }
+
+    truncateMessagesFromLocalId(
+        sessionId: string,
+        localId: string,
+        replacement: Array<{
+            content: unknown
+            localId?: string | null
+            createdAt?: number
+            invokedAt?: number | null
+        }> = []
+    ): { deleted: number; inserted: number; epoch: number } {
+        return truncateMessagesFromLocalId(this.db, sessionId, localId, replacement)
     }
 }

@@ -63,6 +63,17 @@ export type CreateMachineResponse = z.infer<typeof CreateMachineResponseSchema>
 export const GetSessionResponseSchema = CreateSessionResponseSchema
 export type GetSessionResponse = CreateSessionResponse
 
+export const ClearOpencodeSessionResponseSchema = z.object({
+    ok: z.literal(true),
+    sessionId: z.string()
+})
+export type ClearOpencodeSessionResponse = z.infer<typeof ClearOpencodeSessionResponseSchema>
+
+export const ClearOpencodeSessionCallbackRequestSchema = z.object({
+    replacementSessionId: z.string()
+})
+export type ClearOpencodeSessionCallbackRequest = z.infer<typeof ClearOpencodeSessionCallbackRequestSchema>
+
 export type AuthResponse = {
     token: string
     user: {
@@ -427,6 +438,45 @@ export const SendMessageRequestSchema = z.object({
 
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>
 
+export const ForkConversationRequestSchema = z.object({
+    messageLocalId: z.string().min(1).optional()
+})
+
+export type ForkConversationRequest = z.infer<typeof ForkConversationRequestSchema>
+
+export type ForkConversationResponse = {
+    sessionId: string
+}
+
+export const RewindConversationRequestSchema = z.object({
+    messageLocalId: z.string().min(1)
+})
+
+export type RewindConversationRequest = z.infer<typeof RewindConversationRequestSchema>
+
+export type RewindConversationResponse = {
+    success: true
+}
+
+/** CLI → hub RPC result for native fork (before HAPI child binding). */
+export type ForkConversationRpcResult = {
+    nativeSessionId: string
+    /** When true, hub must spawn with --fork-session (Claude). */
+    forkSession?: boolean
+}
+
+export type RewindConversationRpcResult = {
+    success: true
+    /** Truncate HAPI transcript at/after this localId, then accept rehydrated history. */
+    truncateFromLocalId: string
+    messages?: Array<{
+        content: unknown
+        localId?: string | null
+        createdAt?: number
+        invokedAt?: number | null
+    }>
+}
+
 export const QueuedStateRequestSchema = z.object({
     localIds: z.array(z.string().min(1)).max(1000)
 })
@@ -458,7 +508,8 @@ export const SpawnSessionRequestSchema = z.object({
 export type SpawnSessionRequest = z.infer<typeof SpawnSessionRequestSchema>
 
 export const MachineListDirectoryRequestSchema = z.object({
-    path: z.string().min(1)
+    path: z.string().min(1),
+    includeHidden: z.boolean().optional()
 })
 
 export type MachineListDirectoryRequest = z.infer<typeof MachineListDirectoryRequestSchema>
@@ -690,4 +741,36 @@ export type SqliteStorageUsageResponse = {
     walBytes: number
     shmBytes: number
     totalBytes: number
+}
+
+export type UsageSummaryBucket = {
+    key: string
+    inputTokens: number
+    outputTokens: number
+    cacheReadTokens: number
+    cacheCreationTokens: number
+    totalTokens: number
+    uncachedTokens: number
+    requests: number
+}
+
+export type UsageSummaryResponse = {
+    range: {
+        from: number | null
+        to: number | null
+    }
+    totals: {
+        inputTokens: number
+        outputTokens: number
+        cacheReadTokens: number
+        cacheCreationTokens: number
+        totalTokens: number
+        uncachedTokens: number
+        requests: number
+        sessions: number
+    }
+    daily: Array<UsageSummaryBucket & { key: string }>
+    byAgent: UsageSummaryBucket[]
+    byModel: UsageSummaryBucket[]
+    updatedAt: number
 }

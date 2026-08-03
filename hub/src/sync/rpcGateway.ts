@@ -140,6 +140,13 @@ export class RpcGateway {
         await this.sessionRpc(sessionId, RPC_METHODS.KillSession, {})
     }
 
+    async stopRunnerSession(machineId: string, sessionId: string): Promise<'stopped' | 'already_gone' | 'still_alive'> {
+        const result = await this.machineRpc(machineId, RPC_METHODS.StopSession, { sessionId })
+        const status = result && typeof result === 'object' ? (result as { status?: unknown }).status : undefined
+        if (status === 'stopped' || status === 'already_gone' || status === 'still_alive') return status
+        throw new Error('Unexpected stop-session response')
+    }
+
     async handoffSessionToLocal(sessionId: string): Promise<void> {
         await this.sessionRpc(sessionId, RPC_METHODS.HandoffLocal, {})
     }
@@ -158,7 +165,8 @@ export class RpcGateway {
         permissionMode?: PermissionMode,
         serviceTier?: string,
         existingSessionId?: string,
-        collaborationMode?: CodexCollaborationMode
+        collaborationMode?: CodexCollaborationMode,
+        forkSession?: boolean
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         try {
             const result = await this.machineRpc(
@@ -179,7 +187,8 @@ export class RpcGateway {
                     serviceTier,
                     existingSessionId,
                     sessionId: existingSessionId,
-                    collaborationMode
+                    collaborationMode,
+                    forkSession: forkSession === true
                 }
             )
             if (result && typeof result === 'object') {
@@ -215,8 +224,8 @@ export class RpcGateway {
         }
     }
 
-    async listMachineDirectory(machineId: string, path: string): Promise<RpcListDirectoryResponse> {
-        const result = await this.machineRpc(machineId, RPC_METHODS.ListMachineDirectory, { path }) as RpcListDirectoryResponse | unknown
+    async listMachineDirectory(machineId: string, path: string, includeHidden?: boolean): Promise<RpcListDirectoryResponse> {
+        const result = await this.machineRpc(machineId, RPC_METHODS.ListMachineDirectory, { path, includeHidden }) as RpcListDirectoryResponse | unknown
         if (!result || typeof result !== 'object') {
             return { success: false, error: 'Unexpected list-directory result' }
         }
@@ -357,6 +366,30 @@ export class RpcGateway {
      *  a single entry point instead of per-method wrappers. */
     async callPiRpc<T = unknown>(sessionId: string, method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<T> {
         return await this.sessionRpc(sessionId, method, params ?? {}, timeoutMs ?? DEFAULT_RPC_TIMEOUT_MS) as T
+    }
+
+    async forkConversation(
+        sessionId: string,
+        params: { messageLocalId?: string }
+    ): Promise<import('@hapi/protocol/apiTypes').ForkConversationRpcResult> {
+        return await this.sessionRpc(
+            sessionId,
+            RPC_METHODS.ForkConversation,
+            params,
+            120_000
+        ) as import('@hapi/protocol/apiTypes').ForkConversationRpcResult
+    }
+
+    async rewindConversation(
+        sessionId: string,
+        params: { messageLocalId: string }
+    ): Promise<import('@hapi/protocol/apiTypes').RewindConversationRpcResult> {
+        return await this.sessionRpc(
+            sessionId,
+            RPC_METHODS.RewindConversation,
+            params,
+            120_000
+        ) as import('@hapi/protocol/apiTypes').RewindConversationRpcResult
     }
 
     async listOpencodeReasoningEffortOptionsForSession(sessionId: string): Promise<RpcListOpencodeReasoningEffortOptionsResponse> {
