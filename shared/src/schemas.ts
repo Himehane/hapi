@@ -1,8 +1,14 @@
 import { z } from 'zod'
+import { COPILOT_AGENT_MODES, type CopilotAgentMode } from './copilotModes'
 import { CODEX_COLLABORATION_MODES, PERMISSION_MODES } from './modes'
 
 export const PermissionModeSchema = z.enum(PERMISSION_MODES)
 export const CodexCollaborationModeSchema = z.enum(CODEX_COLLABORATION_MODES)
+/** Accept legacy `fleet` (was briefly a peer mode) and coerce to interactive. */
+export const CopilotAgentModeSchema = z.union([
+    z.enum(COPILOT_AGENT_MODES),
+    z.literal('fleet').transform((): CopilotAgentMode => 'interactive'),
+])
 export const SessionEndReasonSchema = z.enum(['completed', 'terminated', 'error', 'handoff', 'cleared'])
 export type SessionEndReason = z.infer<typeof SessionEndReasonSchema>
 
@@ -64,6 +70,7 @@ export const MetadataSchema = z.object({
     geminiSessionId: z.string().optional(),
     opencodeSessionId: z.string().optional(),
     grokSessionId: z.string().optional(),
+    agySessionId: z.string().optional(),
     cursorSessionId: z.string().optional(),
     cursorSessionProtocol: z.enum(['acp', 'stream-json']).optional(),
     // Drives the web `CursorMigrationBanner`:
@@ -74,6 +81,7 @@ export const MetadataSchema = z.object({
     // tiann/hapi#873.
     cursorMigrationState: z.enum(['in_progress', 'ambiguous']).optional(),
     kimiSessionId: z.string().optional(),
+    copilotSessionId: z.string().optional(),
     piSessionId: z.string().optional(),
     piResumeAttempt: z.object({
         state: z.enum(['resuming', 'terminating', 'quarantined']),
@@ -86,6 +94,11 @@ export const MetadataSchema = z.object({
             archivedBy: z.string().optional(),
             archiveReason: z.string().optional(),
         }).optional(),
+    }).optional(),
+    ptyResumeAttempt: z.object({
+        state: z.enum(['resuming', 'quarantined']),
+        machineId: z.string(),
+        startedAt: z.number(),
     }).optional(),
     tools: z.array(z.string()).optional(),
     slashCommands: z.array(z.string()).optional(),
@@ -107,7 +120,11 @@ export const MetadataSchema = z.object({
     // Durable in-progress state for runner-backed OpenCode /clear.
     opencodeClearOperation: OpencodeClearOperationSchema.optional(),
     preferredPermissionMode: PermissionModeSchema.optional(),
+    preferredCopilotAgentMode: CopilotAgentModeSchema.optional(),
     flavor: z.string().nullish(),
+    // Launch mode, surfaced so the web can show the agent-terminal toggle only
+    // for PTY sessions (a 'remote'/SDK session has no agent PTY to view).
+    startingMode: z.enum(['local', 'remote', 'pty']).nullish(),
     capabilities: SessionCapabilitiesSchema.optional(),
     conversationHistoryPoints: z.record(z.string(), z.literal(true)).optional(),
     // Native locators for historical fork/rewind (e.g. Grok prompt indexes).
@@ -115,6 +132,9 @@ export const MetadataSchema = z.object({
     conversationHistoryIndexes: z.record(z.string(), z.number().int().nonnegative()).optional(),
     // Codex localId → turnId mapping (durable across runner relaunches).
     conversationHistoryTurns: z.record(z.string(), z.string().min(1)).optional(),
+    // Pi localId → append-only session entry id mapping. Pi entry ids are the
+    // only stable native boundary accepted by its fork API.
+    conversationHistoryEntryIds: z.record(z.string(), z.string().min(1)).optional(),
     // Set when native rewind succeeded but HAPI truncate/hydrate failed.
     conversationHistoryDiverged: z.boolean().optional(),
     worktree: WorktreeMetadataSchema.optional(),
@@ -160,6 +180,10 @@ export type AgentStateCompletedRequest = z.infer<typeof AgentStateCompletedReque
 
 export const AgentStateSchema = z.object({
     controlledByUser: z.boolean().nullish(),
+    // The mode the session was started in. Persisted so reopen/resume can
+    // re-spawn in the same mode — notably 'pty', which has no agent terminal
+    // otherwise (a reopened PTY session would silently fall back to 'remote').
+    startingMode: z.enum(['local', 'remote', 'pty']).nullish(),
     requests: z.record(z.string(), AgentStateRequestSchema).nullish(),
     completedRequests: z.record(z.string(), AgentStateCompletedRequestSchema).nullish()
 })
@@ -271,30 +295,81 @@ export const SessionSchema = z.object({
     agentStateVersion: z.number(),
     thinking: z.boolean(),
     thinkingAt: z.number(),
+    activeTurnStartedAt: z.number().nullable().optional(),
     backgroundTaskCount: z.number().optional(),
     todos: TodosSchema.optional(),
     teamState: TeamStateSchema.optional(),
+    // Watermarks for structured SSE patches (PR #897). Dual EventSource
+    // connections can deliver todos/teamState out of order; caches reject
+    // stale patches with version <= these fields. Optional so older
+    // full-session payloads and hand-built Session literals stay valid.
+    todosUpdatedAt: z.number().optional(),
+    teamStateUpdatedAt: z.number().optional(),
     model: z.string().nullable().optional().default(null),
     modelReasoningEffort: z.string().nullable().optional().default(null),
     effort: z.string().nullable().optional().default(null),
     serviceTier: z.string().nullable().optional().default(null),
     permissionMode: PermissionModeSchema.optional(),
-    collaborationMode: CodexCollaborationModeSchema.optional()
+    collaborationMode: CodexCollaborationModeSchema.optional(),
+    copilotAgentMode: CopilotAgentModeSchema.optional()
 })
 
 export type Session = z.infer<typeof SessionSchema>
 
+// Versioned wrappers mirror the socket.io `update-session` broadcast shape so
+// metadata/agentState always travel as an atomic (version, value) pair — the
+// version is the only safe way for downstream caches to reject stale patches.
+const VersionedMetadataPatchSchema = z.object({
+    version: z.number(),
+    value: MetadataSchema.nullable()
+})
+
+const VersionedAgentStatePatchSchema = z.object({
+    version: z.number(),
+    value: AgentStateSchema.nullable()
+})
+
+// Same dual-SSE race as metadata/agentState: global + session EventSources
+// have no shared order. Version = store `todos_updated_at` /
+// `team_state_updated_at`. Normal TodoWrite / team writes stamp message
+// `createdAt`; rewind/fork `replaceSessionTodos` ratchets the watermark
+// so a lagged pre-rewind patch cannot resurrect deleted todos.
+const VersionedTodosPatchSchema = z.object({
+    version: z.number(),
+    value: TodosSchema
+})
+
+const VersionedTeamStatePatchSchema = z.object({
+    version: z.number(),
+    // `null` value = TeamDelete clear. Discriminator remains "key present".
+    value: TeamStateSchema.nullable()
+})
+
 export const SessionPatchSchema = z.object({
     active: z.boolean().optional(),
     thinking: z.boolean().optional(),
+    activeTurnStartedAt: z.number().nullable().optional(),
     activeAt: z.number().optional(),
     updatedAt: z.number().optional(),
+    // Structured-patch fields for the second half of #884. Letting the four
+    // hub-side emit-sites in cli/sessionHandlers.ts (todos, teamState,
+    // metadata, agentState writes) carry their delta means the web client's
+    // SSE handler can patch the cache in place instead of falling through to
+    // the invalidation fallback that triggers per-session REST refetches.
+    // Versioned wrappers for metadata/agentState mirror the socket.io
+    // `update-session` broadcast shape — the version field is the only safe
+    // way for downstream caches to reject stale patches.
+    metadata: VersionedMetadataPatchSchema.optional(),
+    agentState: VersionedAgentStatePatchSchema.optional(),
+    todos: VersionedTodosPatchSchema.optional(),
+    teamState: VersionedTeamStatePatchSchema.optional(),
     model: z.string().nullable().optional(),
     modelReasoningEffort: z.string().nullable().optional(),
     effort: z.string().nullable().optional(),
     serviceTier: z.string().nullable().optional(),
     permissionMode: PermissionModeSchema.optional(),
     collaborationMode: CodexCollaborationModeSchema.optional(),
+    copilotAgentMode: CopilotAgentModeSchema.optional(),
     backgroundTaskCount: z.number().optional(),
     // tiann/hapi#893 (scratchlist v2). Bumped whenever any entry on the
     // session_scratchlist table mutates. Web client uses the change as a

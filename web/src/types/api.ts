@@ -1,5 +1,6 @@
 import type {
     CodexCollaborationMode,
+    CopilotAgentMode,
     DecryptedMessage as ProtocolDecryptedMessage,
     Machine,
     RunnerState,
@@ -10,6 +11,8 @@ import type {
 } from '@hapi/protocol/types'
 
 export type {
+    AgyModelsResponse,
+    AgyModelSummary,
     CodexModelsResponse,
     CodexModelSummary,
     CommandResponse,
@@ -22,6 +25,8 @@ export type {
     GitCommandResponse,
     GrokModelsResponse,
     GrokModelSummary,
+    CopilotModelsResponse,
+    CopilotModelSummary,
     GrokReasoningEffortResponse,
     GrokReasoningEffortOption,
     ListDirectoryResponse,
@@ -49,6 +54,7 @@ export type {
     AgentState,
     AttachmentMetadata,
     CodexCollaborationMode,
+    CopilotAgentMode,
     Metadata,
     PermissionMode,
     Machine,
@@ -82,6 +88,7 @@ export type SessionMetadataSummary = {
     machineId?: string
     tools?: string[]
     flavor?: string | null
+    startingMode?: 'local' | 'remote' | 'pty' | null
     capabilities?: {
         terminal?: boolean
         conversationHistory?: {
@@ -93,6 +100,7 @@ export type SessionMetadataSummary = {
     conversationHistoryPoints?: Record<string, true>
     conversationHistoryIndexes?: Record<string, number>
     conversationHistoryTurns?: Record<string, string>
+    conversationHistoryEntryIds?: Record<string, string>
     conversationHistoryDiverged?: boolean
     worktree?: WorktreeMetadata
 }

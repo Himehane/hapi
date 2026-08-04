@@ -9,6 +9,7 @@ import type {
     CodexDesktopStatusResponse,
     CodexArchiveSessionResponse,
     CodexCollaborationMode,
+    CopilotAgentMode,
     FileSearchResponse,
     MachinesResponse,
     MessagesResponse,
@@ -25,6 +26,7 @@ import type {
     SessionsResponse
 } from '@/types/api'
 import type {
+    AgyModelsResponse,
     CodexModelsResponse,
     CursorMigrateOutcome,
     CursorMigrateToAcpRequest,
@@ -34,6 +36,7 @@ import type {
     FileReadResponse,
     GitCommandResponse,
     GrokModelsResponse,
+    CopilotModelsResponse,
     GrokReasoningEffortResponse,
     ListDirectoryResponse,
     MachineListDirectoryResponse,
@@ -46,7 +49,7 @@ import type {
     UsageSummaryResponse,
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
-import type { AgentFlavor } from '@hapi/protocol'
+import type { AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
 import type { CancelMessageResponse } from '@hapi/protocol/schemas'
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
 
@@ -432,14 +435,22 @@ export class ApiClient {
         )
     }
 
-    async sendMessage(sessionId: string, text: string, localId?: string | null, attachments?: AttachmentMetadata[], scheduledAt?: number | null): Promise<void> {
+    async sendMessage(
+        sessionId: string,
+        text: string,
+        localId?: string | null,
+        attachments?: AttachmentMetadata[],
+        scheduledAt?: number | null,
+        deliveryMode?: MessageDeliveryMode,
+    ): Promise<void> {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
             method: 'POST',
             body: JSON.stringify({
                 text,
                 localId: localId ?? undefined,
                 attachments: attachments ?? undefined,
-                scheduledAt: scheduledAt ?? undefined
+                scheduledAt: scheduledAt ?? undefined,
+                deliveryMode: deliveryMode ?? undefined,
             })
         })
     }
@@ -698,7 +709,9 @@ export class ApiClient {
         effort?: string,
         permissionMode?: PermissionMode,
         serviceTier?: 'fast' | 'standard',
-        collaborationMode?: 'default' | 'plan'
+        collaborationMode?: CodexCollaborationMode,
+        copilotAgentMode?: CopilotAgentMode,
+        startingMode?: 'remote' | 'pty'
     ): Promise<SpawnResponse> {
         return await this.request<SpawnResponse>(`/api/machines/${encodeURIComponent(machineId)}/spawn`, {
             method: 'POST',
@@ -713,9 +726,17 @@ export class ApiClient {
                 effort,
                 permissionMode,
                 serviceTier,
-                collaborationMode
+                collaborationMode,
+                copilotAgentMode,
+                startingMode
             })
         })
+    }
+
+    async getMachineAgyModels(machineId: string): Promise<AgyModelsResponse> {
+        return await this.request<AgyModelsResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/agy-models`
+        )
     }
 
     async getMachineCodexModels(machineId: string): Promise<CodexModelsResponse> {
@@ -768,10 +789,29 @@ export class ApiClient {
         )
     }
 
+    async getMachineCopilotModelsForCwd(machineId: string, cwd: string): Promise<CopilotModelsResponse> {
+        return await this.request<CopilotModelsResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/copilot-models?cwd=${encodeURIComponent(cwd)}`
+        )
+    }
+
     async getSessionGrokModels(sessionId: string): Promise<GrokModelsResponse> {
         return await this.request<GrokModelsResponse>(
             `/api/sessions/${encodeURIComponent(sessionId)}/grok-models`
         )
+    }
+
+    async getSessionCopilotModels(sessionId: string): Promise<CopilotModelsResponse> {
+        return await this.request<CopilotModelsResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/copilot-models`
+        )
+    }
+
+    async setCopilotAgentMode(sessionId: string, mode: CopilotAgentMode): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/copilot-agent-mode`, {
+            method: 'POST',
+            body: JSON.stringify({ mode })
+        })
     }
 
     async getSessionGrokReasoningEffortOptions(sessionId: string): Promise<GrokReasoningEffortResponse> {

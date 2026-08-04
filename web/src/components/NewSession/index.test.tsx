@@ -15,7 +15,11 @@ const mocks = vi.hoisted(() => ({
     notification: vi.fn(),
     checkPathsExists: vi.fn(),
     codexModelsLoading: false,
-    directoryExists: undefined as boolean | undefined
+    agyModelsLoading: false,
+    agyModels: [{ modelId: 'gemini-3.6-flash-low', name: 'Gemini 3.6 Flash (Low)' }],
+    directoryExists: undefined as boolean | undefined,
+    copilotModels: [] as Array<{ modelId: string; name?: string }>,
+    copilotModelsLoading: false
 }))
 
 vi.mock('@/lib/use-translation', () => ({
@@ -77,6 +81,15 @@ vi.mock('@/hooks/queries/useCodexModels', () => ({
         error: null
     })
 }))
+vi.mock('@/hooks/queries/useAgyModels', () => ({
+    useAgyModels: () => ({
+        availableModels: mocks.agyModels,
+        currentModelId: null,
+        isLoading: mocks.agyModelsLoading,
+        error: null,
+        refetch: vi.fn()
+    })
+}))
 vi.mock('@/hooks/queries/useCursorModelsForMachine', () => ({
     useCursorModelsForMachine: () => ({
         availableModels: [],
@@ -105,6 +118,14 @@ vi.mock('@/hooks/queries/useGrokModelsForCwd', () => ({
         error: null
     })
 }))
+vi.mock('@/hooks/queries/useCopilotModelsForCwd', () => ({
+    useCopilotModelsForCwd: () => ({
+        availableModels: mocks.copilotModels,
+        currentModelId: null,
+        isLoading: mocks.copilotModelsLoading,
+        error: null
+    })
+}))
 vi.mock('../../utils/formatRunnerSpawnError', () => ({
     formatRunnerSpawnError: () => null
 }))
@@ -115,18 +136,34 @@ vi.mock('./DirectorySection', () => ({ DirectorySection: () => null }))
 vi.mock('./MachineSelector', () => ({ MachineSelector: () => null }))
 vi.mock('./SessionTypeSelector', () => ({ SessionTypeSelector: () => null }))
 vi.mock('./GrokPermissionModeSelector', () => ({ GrokPermissionModeSelector: () => null }))
+vi.mock('./CodexFamilyPermissionModeSelector', () => ({ CodexFamilyPermissionModeSelector: () => null }))
+vi.mock('./CopilotAgentModeSelector', () => ({ CopilotAgentModeSelector: () => null }))
 vi.mock('./YoloToggle', () => ({ YoloToggle: () => null }))
 vi.mock('./OpencodeModelSelector', () => ({ OpencodeModelSelector: () => null }))
+vi.mock('./AgyModelSelector', () => ({
+    AgyModelSelector: (props: { selectedModel: string | null; onModelChange: (model: string | null) => void }) => (
+        <button type="button" data-testid="agy-model" onClick={() => props.onModelChange('gemini-3.6-flash-low')}>
+            {props.selectedModel ?? 'auto'}
+        </button>
+    )
+}))
 vi.mock('./LaunchEffortSelector', () => ({
     LaunchEffortSelector: (props: { effort: string }) => (
         <div data-testid="launch-effort">{props.effort}</div>
     )
 }))
 vi.mock('./ModelSelector', () => ({
-    ModelSelector: (props: { model: string; onModelChange: (model: string) => void }) => (
-        <button type="button" data-testid="model" onClick={() => props.onModelChange('gpt-5.6-terra')}>
-            {props.model}
-        </button>
+    ModelSelector: (props: {
+        model: string
+        options?: Array<{ value: string; label: string }>
+        onModelChange: (model: string) => void
+    }) => (
+        <>
+            <button type="button" data-testid="model" onClick={() => props.onModelChange('gpt-5.6-terra')}>
+                {props.model}
+            </button>
+            <div data-testid="model-options">{props.options?.map((option) => option.label).join(',')}</div>
+        </>
     )
 }))
 vi.mock('./ReasoningEffortSelector', () => ({
@@ -137,10 +174,11 @@ vi.mock('./ReasoningEffortSelector', () => ({
     )
 }))
 vi.mock('./ActionButtons', () => ({
-    ActionButtons: (props: { onCreate: () => void; canCreate: boolean }) => (
-        <button type="button" data-testid="create" disabled={!props.canCreate} onClick={props.onCreate}>
-            create
-        </button>
+    ActionButtons: (props: { onCreate: () => void; onChooseFolder?: () => void; canCreate: boolean }) => (
+        <>
+            <button type="button" data-testid="create" disabled={!props.canCreate} onClick={props.onCreate}>create</button>
+            {props.onChooseFolder ? <button type="button" data-testid="browse" onClick={props.onChooseFolder}>browse</button> : null}
+        </>
     )
 }))
 
@@ -159,7 +197,11 @@ describe('NewSession launch preferences', () => {
         mocks.checkPathsExists.mockReset()
         mocks.checkPathsExists.mockImplementation(async () => ({ 'C:\\repo': mocks.directoryExists }))
         mocks.codexModelsLoading = false
+        mocks.agyModelsLoading = false
+        mocks.agyModels = [{ modelId: 'gemini-3.6-flash-low', name: 'Gemini 3.6 Flash (Low)' }]
         mocks.directoryExists = true
+        mocks.copilotModels = []
+        mocks.copilotModelsLoading = false
         savePreferredAgent('codex')
     })
 
@@ -186,6 +228,54 @@ describe('NewSession launch preferences', () => {
             expect(screen.getByTestId('model')).toHaveTextContent('gpt-5.6-sol')
             expect(screen.getByTestId('reasoning')).toHaveTextContent('xhigh')
         })
+    })
+
+    it('shows discovered Copilot models for the selected directory', async () => {
+        mocks.copilotModels = [
+            { modelId: 'gpt-5.6', name: 'GPT-5.6' },
+            { modelId: 'auto', name: 'Auto' }
+        ]
+
+        render(
+            <NewSession
+                api={api}
+                machines={[machine]}
+                initialMachineId="machine-1"
+                initialDirectory="C:\\repo"
+                onSuccess={mocks.onSuccess}
+                onCancel={() => {}}
+            />
+        )
+
+        fireEvent.click(screen.getByLabelText('Copilot'))
+
+        await waitFor(() => {
+            expect(screen.getByTestId('model-options')).toHaveTextContent('Auto,GPT-5.6')
+        })
+    })
+
+    it('disables creation while a remembered Copilot model is being validated', async () => {
+        mocks.copilotModelsLoading = true
+        savePreferredAgent('copilot')
+        savePreferredLaunchSettings('machine-1', 'copilot', {
+            model: 'gpt-5.6',
+            cursorSelectedBase: 'auto',
+            effort: 'auto',
+            modelReasoningEffort: 'default'
+        })
+
+        render(
+            <NewSession
+                api={api}
+                machines={[machine]}
+                initialMachineId="machine-1"
+                initialDirectory="C:\\repo"
+                onSuccess={mocks.onSuccess}
+                onCancel={() => {}}
+            />
+        )
+
+        await waitFor(() => expect(screen.getByTestId('create')).toBeDisabled())
     })
 
     it.each([
@@ -282,6 +372,72 @@ describe('NewSession launch preferences', () => {
         })
     })
 
+    it('restores the AGY model from a browse-return draft', async () => {
+        savePreferredAgent('agy')
+        saveNewSessionFormDraft({
+            agent: 'agy', model: 'gemini-3.6-flash-low', cursorSelectedBase: 'auto', machineId: 'machine-1',
+            effort: 'auto', modelReasoningEffort: 'default', serviceTier: 'standard', collaborationMode: 'default',
+            copilotAgentMode: 'interactive', yoloMode: false, codexFamilyPermissionMode: 'default',
+            grokPermissionMode: 'default', sessionType: 'simple', worktreeName: ''
+        })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('gemini-3.6-flash-low'))
+    })
+
+    it('falls back to Default when a browse-return AGY model is no longer advertised', async () => {
+        savePreferredAgent('agy')
+        saveNewSessionFormDraft({
+            agent: 'agy', model: 'removed-model', cursorSelectedBase: 'auto', machineId: 'machine-1',
+            effort: 'auto', modelReasoningEffort: 'default', serviceTier: 'standard', collaborationMode: 'default',
+            copilotAgentMode: 'interactive', yoloMode: false, codexFamilyPermissionMode: 'default',
+            grokPermissionMode: 'default', sessionType: 'simple', worktreeName: ''
+        })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('auto'))
+    })
+
+    it('falls back to Default when a preferred AGY model is no longer advertised', async () => {
+        savePreferredAgent('agy')
+        savePreferredLaunchSettings('machine-1', 'agy', { model: 'removed-model', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'default' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('auto'))
+    })
+
+    it('blocks Create while a remembered AGY model is awaiting catalog validation', async () => {
+        savePreferredAgent('agy')
+        savePreferredLaunchSettings('machine-1', 'agy', { model: 'gemini-3.6-flash-low', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'default' })
+        mocks.agyModelsLoading = true
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(screen.getByTestId('create')).toBeDisabled())
+    })
+
+    it('persists the selected AGY model only after a successful launch', async () => {
+        savePreferredAgent('agy')
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'agy-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        fireEvent.click(screen.getByTestId('agy-model'))
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('agy-session'))
+        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: 'gemini-3.6-flash-low' }))
+        expect(loadPreferredLaunchSettings('machine-1', 'agy')?.model).toBe('gemini-3.6-flash-low')
+    })
+
+    it('does not overwrite AGY model preference after a failed launch', async () => {
+        savePreferredAgent('agy')
+        savePreferredLaunchSettings('machine-1', 'agy', { model: 'gemini-3.5-flash-low', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'default' })
+        mocks.agyModels = [
+            { modelId: 'gemini-3.5-flash-low', name: 'Gemini 3.5 Flash (Low)' },
+            { modelId: 'gemini-3.6-flash-low', name: 'Gemini 3.6 Flash (Low)' }
+        ]
+        mocks.spawnSession.mockResolvedValue({ type: 'error', message: 'spawn failed' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('gemini-3.5-flash-low'))
+        fireEvent.click(screen.getByTestId('agy-model'))
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.notification).toHaveBeenCalledWith('error'))
+        expect(loadPreferredLaunchSettings('machine-1', 'agy')?.model).toBe('gemini-3.5-flash-low')
+    })
+
     it('spawns only once when Create is activated twice during directory validation', async () => {
         let finishDirectoryCheck!: (result: Record<string, boolean>) => void
         mocks.checkPathsExists.mockReturnValue(new Promise((resolve) => {
@@ -350,7 +506,9 @@ describe('NewSession launch preferences', () => {
             modelReasoningEffort: 'max',
             serviceTier: 'standard',
             collaborationMode: 'default',
+            copilotAgentMode: 'interactive',
             yoloMode: false,
+            codexFamilyPermissionMode: 'default',
             grokPermissionMode: 'default',
             sessionType: 'simple',
             worktreeName: ''
