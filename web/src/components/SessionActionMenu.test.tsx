@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { I18nProvider } from '@/lib/i18n-context'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
+import { SESSION_REFERENCE_STEER_SUFFIX } from '@hapi/protocol/sessionCitation'
 
 vi.mock('@/hooks/usePlatform', () => ({
     usePlatform: () => ({
@@ -37,6 +38,40 @@ function renderMenu(overrides: Partial<React.ComponentProps<typeof SessionAction
 
 beforeEach(() => {
     vi.clearAllMocks()
+})
+
+describe('SessionActionMenu - Pin action', () => {
+    it('renders project and global pin actions', () => {
+        const onSetPinMode = vi.fn()
+        const { rerender } = renderMenu({ onSetPinMode, sessionPinned: false, sessionGlobalPinned: false })
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Pin in project' }))
+        expect(onSetPinMode).toHaveBeenCalledWith('project')
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Pin globally' }))
+        expect(onSetPinMode).toHaveBeenCalledWith('global')
+
+        rerender(
+            <I18nProvider>
+                <SessionActionMenu
+                    isOpen={true}
+                    onClose={vi.fn()}
+                    sessionId="session-1"
+                    sessionTitle="Session 1"
+                    sessionActive={false}
+                    sessionPinned={true}
+                    sessionGlobalPinned={true}
+                    onSetPinMode={onSetPinMode}
+                    onRename={vi.fn()}
+                    onArchive={vi.fn()}
+                    onDelete={vi.fn()}
+                    anchorPoint={{ x: 0, y: 0 }}
+                />
+            </I18nProvider>
+        )
+        expect(screen.getByRole('menuitem', { name: 'Unpin from project' })).toBeInTheDocument()
+        expect(screen.getByRole('menuitem', { name: 'Unpin globally' })).toBeInTheDocument()
+    })
 })
 
 describe('SessionActionMenu - Reopen action', () => {
@@ -138,6 +173,24 @@ describe('SessionActionMenu - Codex sync action', () => {
     })
 })
 
+describe('SessionActionMenu - Pi sync action', () => {
+    it('renders, fires, and closes Sync Pi history when a handler is provided', () => {
+        const onSyncPi = vi.fn()
+        const onClose = vi.fn()
+        renderMenu({ onSyncPi, onClose })
+
+        fireEvent.click(screen.getByRole('menuitem', { name: /Sync Pi history/ }))
+
+        expect(onSyncPi).toHaveBeenCalledOnce()
+        expect(onClose).toHaveBeenCalledOnce()
+    })
+
+    it('hides Sync Pi history when no handler is provided', () => {
+        renderMenu({ onSyncPi: undefined })
+        expect(screen.queryByRole('menuitem', { name: /Sync Pi history/ })).toBeNull()
+    })
+})
+
 describe('SessionActionMenu - Copy reference action', () => {
     it('renders the Copy reference item', () => {
         renderMenu()
@@ -164,7 +217,7 @@ describe('SessionActionMenu - Copy reference action', () => {
         expect(onClose).toHaveBeenCalledTimes(1)
         await vi.waitFor(() => {
             expect(writeText).toHaveBeenCalledWith(
-                'See session "upstream issue/pr discovery" (/sessions/abc-def) for context'
+                `See session "upstream issue/pr discovery" (/sessions/abc-def) for context.${SESSION_REFERENCE_STEER_SUFFIX}`
             )
         })
     })

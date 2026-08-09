@@ -6,8 +6,10 @@ import {
     ConversationOutlinePanel,
     captureScrollAnchor,
     getHistoryCoverageRetryDelay,
+    getPullToLoadState,
     getScrollIntent,
     hasAppliedHistoryVersion,
+    isNestedScrollEvent,
     locateOutlineTargetMessage,
     prependMissingUserSnapshot,
     restoreScrollAnchor,
@@ -32,6 +34,28 @@ const outlineItems: ConversationOutlineItem[] = [
         createdAt: 2000
     }
 ]
+
+describe('nested scroll event ownership', () => {
+    it('recognizes events from a nested scroll viewport and its descendants', () => {
+        const nested = document.createElement('div')
+        nested.dataset.hapiNestedScroll = 'true'
+        const child = document.createElement('span')
+        child.textContent = 'reasoning'
+        nested.append(child)
+        document.body.append(nested)
+
+        const nestedEvent = new Event('wheel')
+        Object.defineProperty(nestedEvent, 'target', { value: nested })
+        const childEvent = new Event('keydown')
+        Object.defineProperty(childEvent, 'target', { value: child })
+
+        expect(isNestedScrollEvent(new WheelEvent('wheel'))).toBe(false)
+        expect(isNestedScrollEvent(nestedEvent)).toBe(true)
+        expect(isNestedScrollEvent(childEvent)).toBe(true)
+
+        nested.remove()
+    })
+})
 
 function rect(values: Pick<DOMRect, 'top' | 'bottom'> & Partial<DOMRect>): DOMRect {
     return {
@@ -169,8 +193,21 @@ describe('scroll anchor helpers', () => {
             clientHeight: 530
         })).toMatchObject({
             distanceFromBottom: 12,
-            isNearBottom: true,
+            isNearBottom: false,
             isScrollingUp: true
+        })
+    })
+
+    it('does not resume tail-following merely because downward reading is close to the bottom', () => {
+        expect(getScrollIntent({
+            scrollTop: 610,
+            previousScrollTop: 590,
+            scrollHeight: 1232,
+            clientHeight: 530
+        })).toMatchObject({
+            distanceFromBottom: 92,
+            isNearBottom: false,
+            isScrollingUp: false
         })
     })
 
@@ -199,7 +236,18 @@ describe('scroll anchor helpers', () => {
             distanceFromBottom: 182,
             isScrollingUp: true
         })
-        expect(shouldCancelInitialScrollSettling(intent)).toBe(true)
+        expect(shouldCancelInitialScrollSettling(intent, true)).toBe(true)
+    })
+
+    it('keeps initial scroll settling for programmatic upward movement', () => {
+        const intent = getScrollIntent({
+            scrollTop: 0,
+            previousScrollTop: 700,
+            scrollHeight: 1232,
+            clientHeight: 530
+        })
+
+        expect(shouldCancelInitialScrollSettling(intent, false)).toBe(false)
     })
 
     it('keeps initial scroll settling for negligible movement at the bottom', () => {
@@ -214,7 +262,7 @@ describe('scroll anchor helpers', () => {
             distanceFromBottom: 0,
             isScrollingUp: false
         })
-        expect(shouldCancelInitialScrollSettling(intent)).toBe(false)
+        expect(shouldCancelInitialScrollSettling(intent, false)).toBe(false)
     })
 
     it('restores the captured message to the same viewport offset', () => {
@@ -261,6 +309,13 @@ describe('top-triggered history loading', () => {
     it('defers an intersection signal until the initial scroll-settling deadline', () => {
         expect(getHistoryCoverageRetryDelay(2_800, 1_000)).toBe(1_816)
         expect(getHistoryCoverageRetryDelay(900, 1_000)).toBe(16)
+    })
+
+    it('shows pull feedback at 16px and arms release loading at 64px', () => {
+        expect(getPullToLoadState(15)).toBe('idle')
+        expect(getPullToLoadState(16)).toBe('pulling')
+        expect(getPullToLoadState(63)).toBe('pulling')
+        expect(getPullToLoadState(64)).toBe('ready')
     })
 })
 

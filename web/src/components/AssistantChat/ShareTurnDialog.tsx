@@ -4,26 +4,25 @@ import { useTranslation } from '@/lib/use-translation'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { ZoomableLightbox } from '@/components/ZoomableLightbox'
 import { safeCopyToClipboard } from '@/lib/clipboard'
+import type { ShareTurnMetadataItem } from '@/lib/shareTurnMetadata'
 
 type ShareTurnDialogProps = {
     isOpen: boolean
     title: string
-    flavor: string | null
-    modelLabel: string | null
-    reasoningLabel: string | null
-    showFastBadge: boolean
-    worktreeBranch: string | null
+    metadataItems: ShareTurnMetadataItem[]
     sourceSnapshots: Array<{
         html: string
         text: string
         role?: 'user' | 'assistant'
     }>
+    sourceContentWidth?: number | null
     onClose: () => void
 }
 
 type ShareTurnSnapshot = ShareTurnDialogProps['sourceSnapshots'][number]
 
 const SHARE_EXPORT_WIDTH = 960
+const SHARE_EXPORT_HORIZONTAL_PADDING = 40
 const SHARE_EXPORT_SCALE = 2
 const MAX_EXPORT_PIXELS = 24_000_000
 const SHARE_HIDDEN_CONTENT_SELECTOR = '[data-hapi-share-exclude="true"], .aui-reasoning-group'
@@ -143,10 +142,18 @@ function getShareFileName(title: string): string {
     return `HAPI-${sanitizeShareFileNamePart(title)}-${formatShareTimestamp()}.png`
 }
 
-function prepareExportElement(element: HTMLElement): HTMLElement {
+function prepareExportElement(element: HTMLElement, exportWidth: number, preserveSourceLayout: boolean): HTMLElement {
     const captureElement = element.cloneNode(true)
     if (!(captureElement instanceof HTMLElement)) {
         throw new Error('Failed to prepare shared image')
+    }
+
+    for (const code of Array.from(captureElement.querySelectorAll<HTMLElement>('code'))) {
+        if (code.closest('pre')) continue
+        const textWrapper = document.createElement('span')
+        textWrapper.dataset.hapiInlineCodeText = 'true'
+        while (code.firstChild) textWrapper.appendChild(code.firstChild)
+        code.appendChild(textWrapper)
     }
 
     const elementStyle = getComputedStyle(element)
@@ -162,16 +169,16 @@ function prepareExportElement(element: HTMLElement): HTMLElement {
         'left:0',
         'top:0',
         'z-index:-1',
-        `width:${SHARE_EXPORT_WIDTH}px`,
-        `max-width:${SHARE_EXPORT_WIDTH}px`,
+        `width:${exportWidth}px`,
+        `max-width:${exportWidth}px`,
         'box-sizing:border-box',
         'transform:none',
+        'zoom:1',
         'pointer-events:none',
         'overflow:visible',
         '-webkit-text-size-adjust:100%',
         'text-size-adjust:100%',
-        'font-size:14px',
-        'line-height:1.6',
+        ...(preserveSourceLayout ? [] : ['font-size:14px', 'line-height:1.6']),
         `background:${backgroundColor}`,
         `color:${color}`
     ].join(';')
@@ -184,8 +191,10 @@ function prepareExportElement(element: HTMLElement): HTMLElement {
             box-sizing: border-box !important;
             -webkit-text-size-adjust: 100% !important;
             text-size-adjust: 100% !important;
-            font-size: 14px !important;
-            line-height: 1.6 !important;
+            ${preserveSourceLayout ? '' : `
+                font-size: 14px !important;
+                line-height: 1.6 !important;
+            `}
         }
         .hapi-share-export-root [data-hapi-share-exclude="true"],
         .hapi-share-export-root .aui-reasoning-group,
@@ -193,6 +202,29 @@ function prepareExportElement(element: HTMLElement): HTMLElement {
         .hapi-share-export-root [data-hapi-share-export-exclude="true"] {
             display: none !important;
         }
+        .hapi-share-export-root,
+        .hapi-share-export-root * {
+            /* html2canvas-pro renders non-zero letter spacing one grapheme at
+               a time and switches CJK glyphs to an ideographic baseline.
+               Mixed CJK/Latin text then no longer shares the browser's single
+               shaped baseline. Zero spacing keeps each text run intact. */
+            letter-spacing: 0 !important;
+        }
+        .hapi-share-export-root :not(pre) > code {
+            position: relative !important;
+            /* html2canvas-pro paints an inline element's background using its
+               full inherited line box. Collapse the code element's own line
+               box to its em square so the existing block padding produces the
+               same pill height as the browser for both message roles. */
+            line-height: 1em !important;
+        }
+        .hapi-share-export-root [data-hapi-inline-code-text="true"] {
+            /* Move only the monospace glyphs. Keep the inline-code border and
+               background in the same position as the browser layout. */
+            position: relative !important;
+            top: -1px !important;
+        }
+        ${preserveSourceLayout ? '' : `
         .hapi-share-export-root img,
         .hapi-share-export-root video,
         .hapi-share-export-root canvas,
@@ -229,6 +261,7 @@ function prepareExportElement(element: HTMLElement): HTMLElement {
         .hapi-share-export-root button:has(img) > :not(img) {
             display: none !important;
         }
+        `}
         .hapi-share-export-root .sr-only {
             display: none !important;
         }
@@ -236,18 +269,11 @@ function prepareExportElement(element: HTMLElement): HTMLElement {
             display: block !important;
             height: 0.75rem !important;
         }
-        .hapi-share-export-root .aui-md-code:not(.aui-md-codeblockcode) {
-            display: inline-block !important;
-            width: auto !important;
-            max-width: 100% !important;
-            white-space: normal !important;
-            overflow-wrap: anywhere !important;
-            direction: ltr !important;
-            unicode-bidi: isolate !important;
-            text-align: left !important;
-            vertical-align: baseline !important;
-            padding-left: 0.2em !important;
-            padding-right: 0.2em !important;
+        .hapi-share-export-root [data-hapi-code-body="true"] {
+            scrollbar-width: none !important;
+        }
+        .hapi-share-export-root [data-hapi-code-body="true"]::-webkit-scrollbar {
+            display: none !important;
         }
     `
     captureElement.prepend(style)
@@ -368,15 +394,18 @@ async function waitForExportReady(root: HTMLElement): Promise<void> {
     await nextFrame()
 }
 
-async function elementToPngBlob(element: HTMLElement): Promise<Blob> {
-    const { default: html2canvas } = await import('html2canvas-pro')
+async function elementToPngBlob(
+    element: HTMLElement,
+    exportWidth: number,
+    preserveSourceLayout: boolean
+): Promise<Blob> {
     const frame = document.createElement('iframe')
     frame.setAttribute('aria-hidden', 'true')
     frame.style.cssText = [
         'position:fixed',
         'left:-10000px',
         'top:0',
-        `width:${SHARE_EXPORT_WIDTH}px`,
+        `width:${exportWidth}px`,
         'height:1000px',
         'border:0',
         'opacity:0',
@@ -403,7 +432,7 @@ async function elementToPngBlob(element: HTMLElement): Promise<Blob> {
     frameDocument.body.setAttribute('style', [
         document.body.getAttribute('style') ?? '',
         'margin:0',
-        `width:${SHARE_EXPORT_WIDTH}px`,
+        `width:${exportWidth}px`,
         'min-height:1000px',
         'overflow:visible',
         'background:transparent'
@@ -415,7 +444,7 @@ async function elementToPngBlob(element: HTMLElement): Promise<Blob> {
 
     copyLoadedStyleSheets(document, frameDocument)
 
-    const captureElement = prepareExportElement(element)
+    const captureElement = prepareExportElement(element, exportWidth, preserveSourceLayout)
     captureElement.style.position = 'static'
     captureElement.style.left = 'auto'
     captureElement.style.top = 'auto'
@@ -428,8 +457,10 @@ async function elementToPngBlob(element: HTMLElement): Promise<Blob> {
         const captureHeight = captureElement.scrollHeight
         const maxScale = Math.sqrt(MAX_EXPORT_PIXELS / Math.max(1, captureWidth * captureHeight))
         const scale = Math.min(SHARE_EXPORT_SCALE, maxScale)
+        const backgroundColor = getComputedStyle(captureElement).backgroundColor || '#ffffff'
+        const { default: html2canvas } = await import('html2canvas-pro')
         canvas = await html2canvas(captureElement, {
-            backgroundColor: getComputedStyle(captureElement).backgroundColor || '#ffffff',
+            backgroundColor,
             foreignObjectRendering: false,
             imageTimeout: 15000,
             logging: false,
@@ -438,7 +469,7 @@ async function elementToPngBlob(element: HTMLElement): Promise<Blob> {
             useCORS: true,
             width: captureWidth,
             height: captureHeight,
-            windowWidth: Math.max(SHARE_EXPORT_WIDTH, captureWidth),
+            windowWidth: Math.max(exportWidth, captureWidth),
             windowHeight: Math.max(document.documentElement.clientHeight, captureHeight),
         })
     } finally {
@@ -501,6 +532,16 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
         naturalHeight: number
     } | null>(null)
     const showNativeShareButton = true
+    const usesCoarsePrimaryPointer = window.matchMedia('(pointer: coarse)').matches
+    const preserveSourceLayout = Boolean(
+        props.sourceContentWidth
+        && props.sourceContentWidth > 0
+        && window.matchMedia('(min-width: 640px)').matches
+        && !usesCoarsePrimaryPointer
+    )
+    const exportWidth = preserveSourceLayout
+        ? Math.min(1240, Math.max(480, Math.ceil((props.sourceContentWidth ?? 0) + SHARE_EXPORT_HORIZONTAL_PADDING)))
+        : SHARE_EXPORT_WIDTH
 
     useLayoutEffect(() => {
         setReady(false)
@@ -558,7 +599,7 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
 
         let cancelled = false
         setPreparedBlob(null)
-        void elementToPngBlob(capture).then((blob) => {
+        void elementToPngBlob(capture, exportWidth, preserveSourceLayout).then((blob) => {
             if (!cancelled) setPreparedBlob(blob)
         }).catch((err) => {
             if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to create image')
@@ -566,7 +607,7 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
         return () => {
             cancelled = true
         }
-    }, [props.isOpen, props.sourceSnapshots, ready, restoreTick, previewRevision])
+    }, [props.isOpen, props.sourceSnapshots, props.metadataItems, ready, restoreTick, previewRevision, exportWidth, preserveSourceLayout])
 
     const handlePreviewClick = (event: ReactMouseEvent<HTMLElement>) => {
         const target = event.target
@@ -662,7 +703,7 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
         setBusy(mode)
         setError(null)
         try {
-            const blob = await elementToPngBlob(capture)
+            const blob = await elementToPngBlob(capture, exportWidth, preserveSourceLayout)
             await action(blob)
             if (mode === 'copy') setCopied(true)
         } catch (err) {
@@ -693,39 +734,40 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
                                 display: block !important;
                                 height: 0.75rem !important;
                             }
-                            .hapi-share-preview-root .hapi-share-media-grid:not([data-hapi-image-count="1"]) {
-                                display: grid !important;
-                                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-                                align-items: start !important;
-                                width: 100% !important;
-                            }
-                            .hapi-share-preview-root .hapi-share-media-grid:not([data-hapi-image-count="1"]) > button,
-                            .hapi-share-preview-root .hapi-share-media-grid:not([data-hapi-image-count="1"]) > button > img {
-                                width: 100% !important;
-                                min-width: 0 !important;
+                            .hapi-share-preview-root .hapi-share-media-grid[data-hapi-image-count="2"] {
+                                flex-wrap: nowrap !important;
                             }
                             .hapi-share-preview-root .hapi-share-media-grid > button {
                                 height: auto !important;
                                 align-self: start !important;
+                                flex-shrink: 1 !important;
+                                min-width: 0 !important;
                                 cursor: zoom-in !important;
                                 pointer-events: auto !important;
+                            }
+                            .hapi-share-preview-root .hapi-share-media-grid > button > img {
+                                width: auto !important;
+                                max-width: 100% !important;
+                                height: auto !important;
                             }
                         `}</style>
                         <div className="mb-4 border-b border-[var(--app-divider)] pb-3">
                             <div className="min-w-0">
                                 <div className="truncate text-lg font-semibold">{props.title}</div>
-                                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--app-hint)]">
-                                    <span className="inline-flex items-center gap-1">
-                                        <AgentFlavorIcon flavor={props.flavor} className="h-3.5 w-3.5 shrink-0" />
-                                        {props.flavor?.trim() || 'unknown'}
-                                    </span>
-                                    {props.modelLabel ? <span>{props.modelLabel}</span> : null}
-                                    {props.reasoningLabel ? <span>{props.reasoningLabel}</span> : null}
-                                    {props.showFastBadge ? <span className="text-[#34C759]">fast</span> : null}
-                                    {props.worktreeBranch ? (
-                                        <span>{t('session.item.worktree')}: {props.worktreeBranch}</span>
-                                    ) : null}
-                                </div>
+                                {props.metadataItems.length > 0 ? (
+                                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--app-hint)]">
+                                        {props.metadataItems.map((item) => item.key === 'agent' ? (
+                                            <span key={item.key} className="inline-flex items-center gap-1">
+                                                <AgentFlavorIcon flavor={item.flavor} className="h-3.5 w-3.5 shrink-0" />
+                                                {item.text}
+                                            </span>
+                                        ) : (
+                                            <span key={item.key} className={item.key === 'fastMode' ? 'text-[#34C759]' : undefined}>
+                                                {item.text}
+                                            </span>
+                                        ))}
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
                         <div ref={bodyRef} data-hapi-share-body="true" className="flex flex-col gap-3" />

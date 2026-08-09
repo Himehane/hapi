@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { compress } from 'hono/compress'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { join } from 'node:path'
@@ -7,6 +8,7 @@ import { serveStatic } from 'hono/bun'
 import { getConfiguration } from '../configuration'
 import { PROTOCOL_VERSION } from '@hapi/protocol'
 import { buildGeminiLiveSetupMessage, QWEN_REALTIME_MODEL } from '@hapi/protocol/voice'
+import { getProviderEnvironment } from '../config/providerCredentials'
 import { createQwenProxyWebSocketHandler } from './qwenProxyHandler'
 import { decodeVoiceSystemPromptParam } from '../voiceSystemPromptParam'
 import type { SyncEngine } from '../sync/syncEngine'
@@ -19,15 +21,20 @@ import { createMessagesRoutes } from './routes/messages'
 import { createPermissionsRoutes } from './routes/permissions'
 import { createMachinesRoutes } from './routes/machines'
 import { createStorageRoutes } from './routes/storage'
+import { createUsageRoutes } from './routes/usage'
 import { createGitRoutes } from './routes/git'
 import { createCliRoutes } from './routes/cli'
 import { createCodexDesktopRoutes } from './routes/codexDesktop'
+import { createPiSessionRoutes } from './routes/piSessions'
 import { createPushRoutes } from './routes/push'
 import { createDevicesRoutes } from './routes/devices'
 import { createVoiceRoutes } from './routes/voice'
+import { createHubSettingsRoutes } from './routes/hubSettings'
 import type { SSEManager } from '../sse/sseManager'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
 import type { Server as BunServer, ServerWebSocket } from 'bun'
+import { applyDefaultWsCompression } from './wsCompression'
+import { acceptsGzip } from './sseCompression'
 import type { Server as SocketEngine } from '@socket.io/bun-engine'
 import { jwtVerify } from 'jose'
 import type { WebSocketData } from '@socket.io/bun-engine'
@@ -232,11 +239,34 @@ function createWebApp(options: {
     const corsOriginOption = corsOrigins.includes('*') ? '*' : corsOrigins
     const corsMiddleware = cors({
         origin: corsOriginOption,
-        allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-        allowHeaders: ['authorization', 'content-type']
+        allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        // last-event-id: browsers attach it to EventSource reconnects for
+        // SSE replay; allow it in case a browser preflights the request.
+        allowHeaders: ['authorization', 'content-type', 'last-event-id']
     })
     app.use('/api/*', corsMiddleware)
     app.use('/cli/*', corsMiddleware)
+
+    // Gzip JSON API responses. Over the relay tunnel every byte is metered
+    // twice (the SNI proxy copies in both directions), and API payloads are
+    // repetitive JSON that compresses to roughly a quarter of its size.
+    //
+    // This deliberately does not touch /api/events: streamSSE sets
+    // Transfer-Encoding, which hono's compress() skips, and that stream is
+    // already gzipped by compressSseResponse with an explicit sync flush.
+    // Binary uploads/downloads are skipped too - compress() only handles
+    // content types it knows are compressible.
+    //
+    // Gated on the q-aware parser because hono's compress() matches the
+    // Accept-Encoding value by substring: `gzip;q=0` - an explicit refusal -
+    // would otherwise still get a gzip body it cannot consume.
+    const gzipCompress = compress({ encoding: 'gzip' })
+    app.use('/api/*', async (c, next) => {
+        if (acceptsGzip(c.req.header('Accept-Encoding'))) {
+            return gzipCompress(c, next)
+        }
+        return next()
+    })
 
     app.route('/cli', createCliRoutes(options.getSyncEngine))
 
@@ -250,15 +280,21 @@ function createWebApp(options: {
     app.route('/api', createPermissionsRoutes(options.getSyncEngine))
     app.route('/api', createMachinesRoutes(options.getSyncEngine))
     app.route('/api', createStorageRoutes(configuration.dbPath))
+    app.route('/api', createHubSettingsRoutes(configuration.dataDir))
+    app.route('/api', createUsageRoutes(options.store))
     app.route('/api', createGitRoutes(options.getSyncEngine))
     // 中文注释：这里提供两类 Codex 辅助能力：扫描本地 transcript 以导入到 Hapi，以及按需重启 Codex Desktop 客户端。
     app.route('/api', createCodexDesktopRoutes({
         store: options.store,
         getSyncEngine: options.getSyncEngine
     }))
+    app.route('/api', createPiSessionRoutes({
+        store: options.store,
+        getSyncEngine: options.getSyncEngine
+    }))
     app.route('/api', createPushRoutes(options.store, options.vapidPublicKey))
     app.route('/api', createDevicesRoutes(options.store))
-    app.route('/api', createVoiceRoutes())
+    app.route('/api', createVoiceRoutes({ dataDir: configuration.dataDir }))
 
     // Skip static serving in relay mode, show helpful message on root
     if (options.relayMode) {
@@ -406,7 +442,13 @@ export async function startWebServer(options: {
         maxRequestBodySize: Math.max(socketHandler.maxRequestBodySize, 68 * 1024 * 1024),
         websocket: {
             ...originalWsHandler,
+            // Advertise permessage-deflate. Negotiation alone compresses
+            // nothing in Bun — each send() opts in — so open() below also
+            // makes compression the default for flagless sends. See
+            // wsCompression.ts for the contract.
+            perMessageDeflate: true,
             open(ws: unknown) {
+                applyDefaultWsCompression(ws as ServerWebSocket<unknown>)
                 const wsAny = ws as ServerWebSocket<{ _qwenProxy?: boolean; _geminiProxy?: boolean }>
                 if (wsAny.data?._geminiProxy) {
                     geminiProxyHandler.open(wsAny)
@@ -459,7 +501,8 @@ export async function startWebServer(options: {
 
             // Gemini Live WebSocket proxy
             if (url.pathname === '/api/voice/gemini-ws') {
-                const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+                const env = getProviderEnvironment()
+                const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY
                 if (!apiKey) {
                     return new Response('Gemini API key not configured', { status: 400 })
                 }
@@ -477,7 +520,8 @@ export async function startWebServer(options: {
             }
             // Qwen Realtime WebSocket proxy
             if (url.pathname === '/api/voice/qwen-ws') {
-                const apiKey = process.env.DASHSCOPE_API_KEY || process.env.QWEN_API_KEY
+                const env = getProviderEnvironment()
+                const apiKey = env.DASHSCOPE_API_KEY || env.QWEN_API_KEY
                 const model = QWEN_REALTIME_MODEL
                 const language = url.searchParams.get('language') ?? undefined
                 const voiceParam = url.searchParams.get('voice')?.trim() || undefined

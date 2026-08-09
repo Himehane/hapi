@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@/lib/i18n-context'
 import SettingsHubPage from './index'
 import SettingsGeneralPage from './general'
@@ -10,7 +11,7 @@ import SettingsVoicePage from './voice'
 import SettingsVoiceVoicesPage from './voice-voices'
 import SettingsVoiceAdvancedPage from './voice-advanced'
 
-const { context, navigate, setAppearance, setColorTheme, setFontScale, setTerminalFontSize, setComposerEnterBehavior, setVoice } = vi.hoisted(() => ({
+const { context, navigate, setAppearance, setColorTheme, setFontScale, setTerminalFontSize, setComposerEnterBehavior, setCodexExplorationCollapsed, setVoice } = vi.hoisted(() => ({
     context: { token: '' },
     navigate: vi.fn(),
     setAppearance: vi.fn(),
@@ -18,8 +19,12 @@ const { context, navigate, setAppearance, setColorTheme, setFontScale, setTermin
     setFontScale: vi.fn(),
     setTerminalFontSize: vi.fn(),
     setComposerEnterBehavior: vi.fn(),
+    setCodexExplorationCollapsed: vi.fn(),
     setVoice: vi.fn(),
 }))
+
+const getHubSettings = vi.fn().mockResolvedValue({ sessionSummaryContract: false })
+const updateHubSettings = vi.fn().mockResolvedValue({ sessionSummaryContract: true })
 
 vi.mock('@/hooks/useColorTheme', () => ({
     useColorTheme: () => ({ colorTheme: 'default', setColorTheme }),
@@ -76,6 +81,28 @@ vi.mock('@/hooks/useShowActiveSessionsOnly', () => ({
     useShowActiveSessionsOnly: () => ({ showActiveSessionsOnly: false, setShowActiveSessionsOnly: vi.fn() }),
 }))
 
+vi.mock('@/hooks/usePinInProgressSessions', () => ({
+    usePinInProgressSessions: () => ({ pinInProgressSessions: false, setPinInProgressSessions: vi.fn() }),
+}))
+
+vi.mock('@/hooks/useSessionHeaderMetadata', () => ({
+    useSessionHeaderMetadata: () => ({
+        preferences: {
+            showLabels: true,
+            agent: true,
+            model: true,
+            reasoning: true,
+            fastMode: true,
+            machine: true,
+            lastActive: true,
+            createdAt: false,
+            updatedAt: false,
+            worktree: true,
+        },
+        setPreference: vi.fn(),
+    }),
+}))
+
 vi.mock('@/hooks/useSessionPreviewLimit', () => ({
     MIN_SESSION_PREVIEW_LIMIT: 1,
     MAX_SESSION_PREVIEW_LIMIT: 99,
@@ -111,6 +138,10 @@ vi.mock('@/hooks/useTerminalToolDisplayMode', () => ({
     ],
 }))
 
+vi.mock('@/hooks/useCodexExplorationCollapse', () => ({
+    useCodexExplorationCollapse: () => ({ codexExplorationCollapsed: true, setCodexExplorationCollapsed }),
+}))
+
 vi.mock('@/hooks/useChatSurfaceColors', () => ({
     useChatSurfaceColors: () => ({
         toolGroupBackground: 'default',
@@ -129,7 +160,7 @@ vi.mock('@/hooks/useChatSurfaceColors', () => ({
 
 vi.mock('@/lib/app-context', () => ({
     useAppContext: () => ({
-        api: {},
+        api: { getHubSettings, updateHubSettings },
         baseUrl: 'http://127.0.0.1:3006',
         token: context.token,
     }),
@@ -148,6 +179,14 @@ vi.mock('@/components/settings/VoiceAdvancedControls', () => ({
 
 vi.mock('./useVoiceSettings', () => ({
     useVoiceSettings: () => ({
+        voiceMode: 'assistant',
+        setVoiceMode: vi.fn(),
+        providers: [],
+        provider: null,
+        setProvider: vi.fn(),
+        transcriptionMode: 'standard',
+        setTranscriptionMode: vi.fn(),
+        modes: ['standard'],
         configuredBackends: ['elevenlabs'],
         backend: 'elevenlabs',
         setBackend: vi.fn(),
@@ -165,13 +204,20 @@ vi.mock('./useVoiceSettings', () => ({
 }))
 
 function renderPage(page: React.ReactElement) {
-    return render(<I18nProvider>{page}</I18nProvider>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    return render(
+        <QueryClientProvider client={queryClient}>
+            <I18nProvider>{page}</I18nProvider>
+        </QueryClientProvider>,
+    )
 }
 
 describe('responsive settings pages', () => {
     beforeEach(() => {
         vi.clearAllMocks()
         localStorage.clear()
+        getHubSettings.mockResolvedValue({ sessionSummaryContract: false })
+        updateHubSettings.mockResolvedValue({ sessionSummaryContract: true })
         context.token = `x.${btoa(JSON.stringify({ ns: 'default' }))}.x`
     })
 
@@ -195,10 +241,11 @@ describe('responsive settings pages', () => {
         expect(screen.queryByText('Hub database usage')).not.toBeInTheDocument()
     })
 
-    it('changes the application language inline', () => {
+    it('changes the application language inline', async () => {
         renderPage(<SettingsGeneralPage />)
         expect(screen.getByText('Companion')).toBeInTheDocument()
         expect(screen.getByText('Companion pairing')).toBeInTheDocument()
+        expect(await screen.findByRole('checkbox', { name: 'Ask agents to emit session status summary' })).toBeInTheDocument()
         fireEvent.click(screen.getByRole('radio', { name: '简体中文' }))
         expect(localStorage.getItem('hapi-lang')).toBe('zh-CN')
     })
@@ -210,6 +257,12 @@ describe('responsive settings pages', () => {
         expect(setColorTheme).toHaveBeenCalledWith('nord')
         expect(screen.getByRole('radio', { name: '120%' })).toBeInTheDocument()
         expect(screen.getByRole('spinbutton', { name: 'Sessions Before Folding' })).toHaveValue(8)
+        expect(screen.getByRole('checkbox', { name: 'Show field labels' })).toBeChecked()
+        expect(screen.getByRole('checkbox', { name: 'Reasoning effort' })).toBeChecked()
+        expect(screen.getByRole('checkbox', { name: 'Machine' })).toBeChecked()
+        expect(screen.getByRole('checkbox', { name: 'Active time' })).toBeChecked()
+        expect(screen.getByRole('checkbox', { name: 'Created time' })).not.toBeChecked()
+        expect(screen.getByRole('checkbox', { name: 'Updated time' })).not.toBeChecked()
         expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
     })
 
@@ -227,6 +280,14 @@ describe('responsive settings pages', () => {
         fireEvent.click(screen.getByRole('radio', { name: 'Insert newline' }))
         expect(setComposerEnterBehavior).toHaveBeenCalledWith('newline')
         expect(screen.getByText('Grouped Tool Use Background')).toBeInTheDocument()
+    })
+
+    it('renders the default-collapse switch for Codex exploration groups', () => {
+        renderPage(<SettingsChatPage />)
+        const toggle = screen.getByRole('checkbox', { name: 'Collapse explored tool groups by default' })
+        expect(toggle).toBeChecked()
+        fireEvent.click(toggle)
+        expect(setCodexExplorationCollapsed).toHaveBeenCalledWith(false)
     })
 
     it('renders About metadata on its own route page', () => {

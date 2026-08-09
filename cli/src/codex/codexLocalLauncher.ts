@@ -5,7 +5,7 @@ import { codexLocal } from './codexLocal';
 import type { ReasoningEffort } from './appServerTypes';
 import { CodexSession } from './session';
 import { createCodexSessionScanner, type CodexSessionScanner } from './utils/codexSessionScanner';
-import { convertCodexEvent, type CodexMessage, type CodexSessionEvent } from './utils/codexEventConverter';
+import { createCodexEventConverter, type CodexMessage, type CodexSessionEvent } from './utils/codexEventConverter';
 import { buildHapiMcpBridge } from './utils/buildHapiMcpBridge';
 import { parseCodexCliOverrides, stripCodexCliOverrides } from './utils/codexCliOverrides';
 import { buildCodexPermissionModeCliArgs } from './utils/permissionModeConfig';
@@ -36,6 +36,16 @@ function extractTurnContextReasoningEffort(event: CodexSessionEvent): ReasoningE
     return effort.trim().toLowerCase();
 }
 
+function extractTurnContextModel(event: CodexSessionEvent): string | null | undefined {
+    if (event.type !== 'turn_context' || !event.payload || typeof event.payload !== 'object') {
+        return undefined;
+    }
+    const model = (event.payload as Record<string, unknown>).model;
+    if (model === null) return null;
+    if (typeof model !== 'string' || !model.trim()) return undefined;
+    return model.trim();
+}
+
 export async function codexLocalLauncher(session: CodexSession): Promise<'switch' | 'exit'> {
     const resumeSessionId = session.sessionId;
     let primarySessionId = resumeSessionId;
@@ -47,6 +57,8 @@ export async function codexLocalLauncher(session: CodexSession): Promise<'switch
     let transcriptLocator: CodexTranscriptLocator | null = null;
     let scannerTranscriptPath: string | null = null;
     let scannerReplayedExistingHistory = false;
+    let transcriptModel: string | null = null;
+    let convertTranscriptEvent = createCodexEventConverter();
     const pendingPlansByTurnId = new Map<string, ProposedPlanMessage>();
     const pendingExecWrappers = new Map<string, PendingExecWrapper>();
     const toolHookBridge = new CodexToolHookBridge();
@@ -185,6 +197,7 @@ export async function codexLocalLauncher(session: CodexSession): Promise<'switch
         if (scanner) {
             if (scannerTranscriptPath !== transcriptPath) {
                 flushAllPendingPlans();
+                convertTranscriptEvent = createCodexEventConverter();
             }
             await scanner.setTranscriptPath(transcriptPath);
             scannerTranscriptPath = transcriptPath;
@@ -202,12 +215,16 @@ export async function codexLocalLauncher(session: CodexSession): Promise<'switch
                 }
                 session.onSessionFound(sessionId);
             },
-            onEvent: (event) => {
+            onEvent: (event, context) => {
+                const observedModel = extractTurnContextModel(event);
+                if (observedModel !== undefined) {
+                    transcriptModel = observedModel;
+                }
                 const observedReasoningEffort = extractTurnContextReasoningEffort(event);
                 if (observedReasoningEffort !== undefined) {
                     session.setModelReasoningEffort(observedReasoningEffort);
                 }
-                const converted = convertCodexEvent(event);
+                const converted = convertTranscriptEvent(event);
                 if (converted?.sessionId) {
                     if (!isPrimarySessionId(converted.sessionId)) {
                         logger.debug(`[codex-local]: Ignoring converted session id ${converted.sessionId}; primary is ${primarySessionId}`);
@@ -242,7 +259,20 @@ export async function codexLocalLauncher(session: CodexSession): Promise<'switch
                             flushPendingExecWrapper(message.callId, message);
                         }
                     } else {
-                        session.sendAgentMessage(message);
+                        const scopedMessage = message.type !== 'token_count'
+                            ? message
+                            : context.replayedHistory
+                                ? { ...message, model: transcriptModel, hapiUsageScope: 'imported-history' }
+                                : primarySessionId
+                                    ? {
+                                        ...message,
+                                        model: transcriptModel,
+                                        threadId: primarySessionId,
+                                        thread_id: primarySessionId,
+                                        hapiUsageScope: 'managed'
+                                    }
+                                    : { ...message, model: transcriptModel };
+                        session.sendAgentMessage(scopedMessage);
                     }
                 }
                 if (converted?.finishedTurnId) {

@@ -9,12 +9,16 @@ import type {
     InitializeResponse,
     ModelListParams,
     ModelListResponse,
+    SkillsListParams,
+    SkillsListResponse,
     ThreadStartParams,
     ThreadStartResponse,
     ThreadResumeParams,
     ThreadResumeResponse,
     ThreadForkParams,
     ThreadForkResponse,
+    ThreadReadParams,
+    ThreadReadResponse,
     TurnStartParams,
     TurnStartResponse,
     TurnInterruptParams,
@@ -60,6 +64,10 @@ type PendingRequest = {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
     cleanup: () => void;
+};
+
+type CodexAppServerClientOptions = {
+    cwd?: string;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -165,6 +173,10 @@ export class CodexAppServerClient extends JsonLineParser {
 
     static readonly DEFAULT_TIMEOUT_MS = 14 * 24 * 60 * 60 * 1000;
 
+    constructor(private readonly options: CodexAppServerClientOptions = {}) {
+        super();
+    }
+
     setStderrHandler(handler: ((text: string) => void) | null): void {
         this.stderrHandler = handler;
     }
@@ -177,6 +189,7 @@ export class CodexAppServerClient extends JsonLineParser {
         const codexCommand = resolveCodexAppServerCommand();
         logger.debug(`[CodexAppServer] Starting ${codexCommand} app-server`);
         this.process = spawn(codexCommand, ['app-server'], {
+            cwd: this.options.cwd,
             env: Object.keys(process.env).reduce((acc, key) => {
                 const value = process.env[key];
                 if (typeof value === 'string') acc[key] = value;
@@ -245,6 +258,13 @@ export class CodexAppServerClient extends JsonLineParser {
         return response as ModelListResponse;
     }
 
+    async listSkills(params: SkillsListParams): Promise<SkillsListResponse> {
+        const response = await this.sendRequest('skills/list', params, {
+            timeoutMs: 30_000
+        });
+        return response as SkillsListResponse;
+    }
+
     async listCollaborationModes(): Promise<CollaborationModeListResponse> {
         const response = await this.sendRequest('collaborationMode/list', {}, {
             timeoutMs: 30_000
@@ -283,6 +303,25 @@ export class CodexAppServerClient extends JsonLineParser {
             timeoutMs: CodexAppServerClient.DEFAULT_TIMEOUT_MS
         });
         return response as ThreadForkResponse;
+    }
+
+    async supportsMethod(method: 'thread/fork' | 'thread/rollback'): Promise<boolean> {
+        try {
+            await this.sendRequest(method, { threadId: '__hapi_capability_probe__' }, { timeoutMs: 30_000 });
+            return true;
+        } catch (error) {
+            return !/method not found|unknown method|unsupported/i.test(
+                error instanceof Error ? error.message : String(error)
+            );
+        }
+    }
+
+    async readThread(params: ThreadReadParams, options?: { signal?: AbortSignal }): Promise<ThreadReadResponse> {
+        const response = await this.sendRequest('thread/read', params, {
+            signal: options?.signal,
+            timeoutMs: CodexAppServerClient.DEFAULT_TIMEOUT_MS
+        });
+        return response as ThreadReadResponse;
     }
 
     async startTurn(params: TurnStartParams, options?: { signal?: AbortSignal }): Promise<TurnStartResponse> {

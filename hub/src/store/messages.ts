@@ -1,13 +1,15 @@
 import type { Database } from 'bun:sqlite'
 import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 
 import type { StoredMessage } from './types'
-import { safeJsonParse } from './json'
+import { decodeMessageContent, encodeMessageContent, truncateOversizedMessageContent } from './contentCodec'
 
 type DbMessageRow = {
     id: string
     session_id: string
-    content: string
+    // TEXT (plaintext JSON, legacy rows) or BLOB (zstd-compressed JSON) — see contentCodec.ts
+    content: string | Uint8Array
     created_at: number
     seq: number
     local_id: string | null
@@ -20,11 +22,65 @@ export type MessagePosition = {
     seq: number
 }
 
+export class ImportedMessageConflictError extends Error {
+    constructor(readonly localId: string) {
+        super(`Imported message content changed for localId: ${localId}`)
+        this.name = 'ImportedMessageConflictError'
+    }
+}
+
+export function addImportedMessage(
+    db: Database,
+    sessionId: string,
+    content: unknown,
+    localId: string,
+    createdAt: number
+): { message: StoredMessage; inserted: boolean } {
+    const existing = db.prepare(
+        'SELECT * FROM messages WHERE session_id = ? AND local_id = ? LIMIT 1'
+    ).get(sessionId, localId) as DbMessageRow | undefined
+    if (existing) {
+        const message = toStoredMessage(existing)
+        const canonicalContent = truncateOversizedMessageContent(content)
+        if (!isDeepStrictEqual(message.content, canonicalContent)) throw new ImportedMessageConflictError(localId)
+        return { message, inserted: false }
+    }
+
+    const now = Date.now()
+    const stampedAt = Number.isFinite(createdAt) ? Math.min(createdAt, now) : now
+    return db.transaction(() => {
+        const previousHead = getNewestMessagePosition(db, sessionId)
+        const msgSeqRow = db.prepare(
+            'SELECT COALESCE(MAX(seq), 0) + 1 AS nextSeq FROM messages WHERE session_id = ?'
+        ).get(sessionId) as { nextSeq: number }
+        const id = randomUUID()
+        db.prepare(`
+            INSERT INTO messages (
+                id, session_id, content, created_at, seq, local_id, invoked_at, scheduled_at
+            ) VALUES (
+                @id, @session_id, @content, @created_at, @seq, @local_id, @invoked_at, NULL
+            )
+        `).run({
+            id,
+            session_id: sessionId,
+            content: encodeMessageContent(truncateOversizedMessageContent(content)),
+            created_at: stampedAt,
+            seq: msgSeqRow.nextSeq,
+            local_id: localId,
+            invoked_at: stampedAt
+        })
+        if (previousHead && stampedAt < previousHead.at) bumpMessageEpoch(db, sessionId)
+        const row = db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as DbMessageRow | undefined
+        if (!row) throw new Error('Failed to create imported message')
+        return { message: toStoredMessage(row), inserted: true }
+    })()
+}
+
 function toStoredMessage(row: DbMessageRow): StoredMessage {
     return {
         id: row.id,
         sessionId: row.session_id,
-        content: safeJsonParse(row.content),
+        content: decodeMessageContent(row.content),
         createdAt: row.created_at,
         seq: row.seq,
         localId: row.local_id,
@@ -43,9 +99,16 @@ export function addMessage(
     sessionId: string,
     content: unknown,
     localId?: string,
-    scheduledAt?: number | null
+    scheduledAt?: number | null,
+    createdAt?: number
 ): StoredMessage {
     const now = Date.now()
+    // Client-provided origin timestamp (e.g. a Claude transcript entry's own
+    // `timestamp`), falling back to server-receive time when absent. Only
+    // agent-message callers (sessionHandlers' `on('message')`) pass this today.
+    const stampedAt = Number.isFinite(createdAt)
+        ? Math.min(createdAt!, now)
+        : now
 
     // Without a localId, invoked_at is stamped immediately below — there is no
     // ack path to flip it later.  A scheduled message in that state would be
@@ -71,35 +134,41 @@ export function addMessage(
     const msgSeq = msgSeqRow.nextSeq
 
     const id = randomUUID()
-    const json = JSON.stringify(content)
+    const encoded = encodeMessageContent(truncateOversizedMessageContent(content))
 
     // Messages without a localId have no ack path (markMessagesInvoked matches by localId).
     // Treat them as already-invoked at insert time so they land in the thread normally instead
-    // of being stuck in the queued floating bar forever.
-    const invokedAt = localId ? null : now
+    // of being stuck in the queued floating bar forever. Stamped with `stampedAt` (the
+    // client-provided createdAt when present) rather than server-now so getMessagesByPosition's
+    // COALESCE(invoked_at, created_at) sort reflects the transcript's own jsonl order instead of
+    // hub arrival order.
+    const invokedAt = localId ? null : stampedAt
 
-    db.prepare(`
-        INSERT INTO messages (
-            id, session_id, content, created_at, seq, local_id, invoked_at, scheduled_at
-        ) VALUES (
-            @id, @session_id, @content, @created_at, @seq, @local_id, @invoked_at, @scheduled_at
-        )
-    `).run({
-        id,
-        session_id: sessionId,
-        content: json,
-        created_at: now,
-        seq: msgSeq,
-        local_id: localId ?? null,
-        invoked_at: invokedAt,
-        scheduled_at: scheduledAt ?? null
-    })
+    return db.transaction(() => {
+        const previousHead = getNewestMessagePosition(db, sessionId)
+        db.prepare(`
+            INSERT INTO messages (
+                id, session_id, content, created_at, seq, local_id, invoked_at, scheduled_at
+            ) VALUES (
+                @id, @session_id, @content, @created_at, @seq, @local_id, @invoked_at, @scheduled_at
+            )
+        `).run({
+            id,
+            session_id: sessionId,
+            content: encoded,
+            created_at: stampedAt,
+            seq: msgSeq,
+            local_id: localId ?? null,
+            invoked_at: invokedAt,
+            scheduled_at: scheduledAt ?? null
+        })
 
-    const row = db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as DbMessageRow | undefined
-    if (!row) {
-        throw new Error('Failed to create message')
-    }
-    return toStoredMessage(row)
+        const positionAt = invokedAt ?? stampedAt
+        if (previousHead && positionAt < previousHead.at) bumpMessageEpoch(db, sessionId)
+        const row = db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as DbMessageRow | undefined
+        if (!row) throw new Error('Failed to create message')
+        return toStoredMessage(row)
+    })()
 }
 
 export function copyMessageToSession(
@@ -137,7 +206,9 @@ export function copyMessageToSession(
     `).run({
         id,
         session_id: sessionId,
-        content: JSON.stringify(message.content),
+        // Lossless re-encode only — copies move existing history between
+        // sessions, so no truncation here even for pre-codec oversized rows.
+        content: encodeMessageContent(message.content),
         created_at: createdAt,
         seq: nextSeq,
         local_id: localId ?? null,
@@ -155,6 +226,61 @@ export function copyMessageToSession(
     // target history as structurally changed so incremental readers reset.
     bumpMessageEpoch(db, sessionId)
     return toStoredMessage(row)
+}
+
+/**
+ * Batch-hydrate a fork child: one transaction, contiguous seq allocation,
+ * single epoch bump. Avoids O(n) max-seq lookups and epoch writes.
+ */
+export function copyMessagesToSession(
+    db: Database,
+    sessionId: string,
+    messages: CopyStoredMessageInput[]
+): number {
+    if (messages.length === 0) return 0
+
+    return db.transaction(() => {
+        let nextSeq = getMaxSeq(db, sessionId) + 1
+        const insert = db.prepare(`
+            INSERT INTO messages (
+                id, session_id, content, created_at, seq, local_id, invoked_at, scheduled_at
+            ) VALUES (
+                @id, @session_id, @content, @created_at, @seq, @local_id, @invoked_at, @scheduled_at
+            )
+        `)
+        const collisionCheck = db.prepare(
+            'SELECT 1 FROM messages WHERE session_id = ? AND local_id = ? LIMIT 1'
+        )
+
+        for (const message of messages) {
+            const createdAt = Number.isFinite(message.createdAt) ? message.createdAt : Date.now()
+            let localId = message.localId
+            if (localId) {
+                const collision = collisionCheck.get(sessionId, localId) as { 1: number } | undefined
+                if (collision) {
+                    localId = `${localId}:merged:${randomUUID().slice(0, 8)}`
+                }
+            }
+            if (message.scheduledAt != null && !localId && message.invokedAt === null) {
+                localId = `merged-scheduled:${randomUUID()}`
+            }
+            const invokedAt = localId ? message.invokedAt : (message.invokedAt ?? createdAt)
+            insert.run({
+                id: randomUUID(),
+                session_id: sessionId,
+                content: encodeMessageContent(message.content),
+                created_at: createdAt,
+                seq: nextSeq,
+                local_id: localId ?? null,
+                invoked_at: invokedAt ?? null,
+                scheduled_at: message.scheduledAt ?? null
+            })
+            nextSeq += 1
+        }
+
+        bumpMessageEpoch(db, sessionId)
+        return messages.length
+    })()
 }
 
 export function getMessages(
@@ -178,6 +304,18 @@ export function getAllMessages(
     const rows = db.prepare(
         'SELECT * FROM messages WHERE session_id = ? ORDER BY seq ASC'
     ).all(sessionId) as DbMessageRow[]
+
+    return rows.map(toStoredMessage)
+}
+
+export function getMessagesAfterSeq(
+    db: Database,
+    sessionId: string,
+    afterSeq: number
+): StoredMessage[] {
+    const rows = db.prepare(
+        'SELECT * FROM messages WHERE session_id = ? AND seq > ? ORDER BY seq ASC'
+    ).all(sessionId, afterSeq) as DbMessageRow[]
 
     return rows.map(toStoredMessage)
 }
@@ -641,6 +779,118 @@ export function markMessagesInvoked(
     ).run(invokedAt, sessionId, ...localIds).changes
 }
 
+/** Settle immediate queued rows on an archived clear source without touching
+ * scheduled rows, which must remain uninvoked for transfer to the replacement. */
+export function markUninvokedImmediateMessages(
+    db: Database,
+    sessionId: string,
+    invokedAt: number
+): string[] {
+    const rows = db.prepare(`
+        SELECT local_id FROM messages
+        WHERE session_id = ?
+          AND local_id IS NOT NULL
+          AND scheduled_at IS NULL
+          AND invoked_at IS NULL
+        ORDER BY seq ASC
+    `).all(sessionId) as Array<{ local_id: string }>
+    if (rows.length === 0) return []
+
+    db.prepare(`
+        UPDATE messages
+        SET invoked_at = ?
+        WHERE session_id = ?
+          AND local_id IS NOT NULL
+          AND scheduled_at IS NULL
+          AND invoked_at IS NULL
+    `).run(invokedAt, sessionId)
+    return rows.map((row) => row.local_id)
+}
+
+/**
+ * Reassign only uninvoked scheduled rows when an archived OpenCode session
+ * is replaced by /clear. The transaction preserves ids/localIds so the normal
+ * scheduled-message ack path continues on the replacement session.
+ */
+export function moveUninvokedScheduledMessages(
+    db: Database,
+    fromSessionId: string,
+    toSessionId: string
+): number {
+    if (fromSessionId === toSessionId) return 0
+
+    const rows = db.prepare(`
+        SELECT id FROM messages
+        WHERE session_id = ?
+          AND scheduled_at IS NOT NULL
+          AND invoked_at IS NULL
+        ORDER BY seq ASC
+    `).all(fromSessionId) as Array<{ id: string }>
+    if (rows.length === 0) return 0
+
+    try {
+        db.exec('BEGIN')
+        let nextSeq = getMaxSeq(db, toSessionId)
+        const update = db.prepare('UPDATE messages SET session_id = ?, seq = ? WHERE id = ?')
+        for (const row of rows) {
+            nextSeq += 1
+            update.run(toSessionId, nextSeq, row.id)
+        }
+        bumpMessageEpoch(db, fromSessionId)
+        bumpMessageEpoch(db, toSessionId)
+        db.exec('COMMIT')
+        return rows.length
+    } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+    }
+}
+
+/**
+ * Move every still-held prompt to a reserved replacement, preserving FIFO.
+ * If both sessions already contain the same non-null localId, the replacement
+ * row is authoritative (it represents the retry/new owner) and only the
+ * uninvoked source duplicate is discarded.
+ */
+export function moveUninvokedMessages(db: Database, fromSessionId: string, toSessionId: string): number {
+    if (fromSessionId === toSessionId) return 0
+    return db.transaction(() => {
+        const discarded = db.prepare(`
+            DELETE FROM messages
+            WHERE session_id = ?
+              AND invoked_at IS NULL
+              AND local_id IS NOT NULL
+              AND EXISTS (
+                  SELECT 1 FROM messages AS target
+                  WHERE target.session_id = ?
+                    AND target.local_id = messages.local_id
+              )
+        `).run(fromSessionId, toSessionId).changes
+        const rows = db.prepare(`
+            SELECT id, session_id FROM messages
+            WHERE session_id IN (?, ?) AND invoked_at IS NULL
+            -- created_at is millisecond-granularity; rowid is the durable
+            -- cross-session insertion order for ties within this database.
+            ORDER BY created_at ASC,
+                     rowid ASC,
+                     seq ASC,
+                     id ASC
+        `).all(fromSessionId, toSessionId) as Array<{ id: string; session_id: string }>
+        const moved = rows.filter((row) => row.session_id === fromSessionId).length
+        if (discarded === 0 && moved === 0) return 0
+        const invokedMax = db.prepare(`
+            SELECT COALESCE(MAX(seq), 0) AS maxSeq FROM messages
+            WHERE session_id = ? AND invoked_at IS NOT NULL
+        `).get(toSessionId) as { maxSeq: number }
+        let nextSeq = invokedMax.maxSeq
+        const update = db.prepare('UPDATE messages SET session_id = ?, seq = ? WHERE id = ?')
+        for (const row of rows) update.run(toSessionId, ++nextSeq, row.id)
+        bumpMessageEpoch(db, fromSessionId)
+        bumpMessageEpoch(db, toSessionId)
+        return discarded + moved
+    })()
+}
+
 export function mergeSessionMessages(
     db: Database,
     fromSessionId: string,
@@ -700,4 +950,71 @@ export function mergeSessionMessages(
         db.exec('ROLLBACK')
         throw error
     }
+}
+
+/**
+ * Truncate transcript at/after the message with `localId`, optionally replacing
+ * the removed suffix with `replacement` messages. Bumps message epoch so web
+ * clients reset their window.
+ */
+export function truncateMessagesFromLocalId(
+    db: Database,
+    sessionId: string,
+    localId: string,
+    replacement: Array<{
+        content: unknown
+        localId?: string | null
+        createdAt?: number
+        invokedAt?: number | null
+    }> = []
+): { deleted: number; inserted: number; epoch: number } {
+    return db.transaction(() => {
+        const target = db.prepare(`
+            SELECT id, seq, COALESCE(invoked_at, created_at) AS position_at
+            FROM messages
+            WHERE session_id = ? AND local_id = ?
+            LIMIT 1
+        `).get(sessionId, localId) as { id: string; seq: number; position_at: number } | undefined
+
+        if (!target) {
+            throw new Error(`Message not found for localId: ${localId}`)
+        }
+
+        const deleted = db.prepare(`
+            DELETE FROM messages
+            WHERE session_id = ?
+              AND (
+                COALESCE(invoked_at, created_at) > ?
+                OR (COALESCE(invoked_at, created_at) = ? AND seq >= ?)
+              )
+        `).run(sessionId, target.position_at, target.position_at, target.seq)
+
+        let inserted = 0
+        for (const message of replacement) {
+            const now = Date.now()
+            const msgSeqRow = db.prepare(
+                'SELECT COALESCE(MAX(seq), 0) + 1 AS nextSeq FROM messages WHERE session_id = ?'
+            ).get(sessionId) as { nextSeq: number }
+            const id = randomUUID()
+            const createdAt = message.createdAt ?? now
+            const invokedAt = message.invokedAt === undefined ? createdAt : message.invokedAt
+            const rowLocalId = message.localId ?? null
+            db.prepare(`
+                INSERT INTO messages (id, session_id, content, created_at, seq, local_id, invoked_at, scheduled_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+            `).run(
+                id,
+                sessionId,
+                encodeMessageContent(message.content),
+                createdAt,
+                msgSeqRow.nextSeq,
+                rowLocalId,
+                invokedAt
+            )
+            inserted += 1
+        }
+
+        const epoch = bumpMessageEpoch(db, sessionId)
+        return { deleted: deleted.changes, inserted, epoch }
+    })()
 }
