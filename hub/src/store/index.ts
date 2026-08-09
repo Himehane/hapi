@@ -33,7 +33,7 @@ export { SessionStore } from './sessionStore'
 export { UserStore } from './userStore'
 export { UsageStore } from './usageStore'
 
-const SCHEMA_VERSION: number = 20
+const SCHEMA_VERSION: number = 22
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -288,6 +288,8 @@ export class Store {
             17: () => this.migrateFromV17ToV18(),
             18: () => this.migrateFromV18ToV19(),
             19: () => this.migrateFromV19ToV20(),
+            20: () => this.migrateFromV20ToV21(),
+            21: () => this.migrateFromV21ToV22(),
         })
 
         if (currentVersion === 0) {
@@ -354,6 +356,8 @@ export class Store {
                 todos_updated_at INTEGER,
                 team_state TEXT,
                 team_state_updated_at INTEGER,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                global_pinned INTEGER NOT NULL DEFAULT 0,
                 active INTEGER DEFAULT 0,
                 active_at INTEGER,
                 seq INTEGER DEFAULT 0
@@ -826,6 +830,27 @@ export class Store {
             );
             DELETE FROM usage_scan_state;
         `)
+    }
+
+    private migrateFromV20ToV21(): void {
+        // Usage events and scan cursors are a derived index. v21 moves cache
+        // normalization to parse time, so every row must be rebuilt under the
+        // same inclusive-input invariant rather than mixing old and new rows.
+        this.db.exec(`
+            DELETE FROM usage_events;
+            DELETE FROM usage_scan_state;
+        `)
+    }
+
+    private migrateFromV21ToV22(): void {
+        const columns = this.getSessionColumnNames()
+        if (columns.size === 0) return
+        if (!columns.has('pinned')) {
+            this.db.exec('ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0')
+        }
+        if (!columns.has('global_pinned')) {
+            this.db.exec('ALTER TABLE sessions ADD COLUMN global_pinned INTEGER NOT NULL DEFAULT 0')
+        }
     }
 
     private getSessionColumnNames(): Set<string> {

@@ -5,6 +5,7 @@ import {
     getPermissionModesForFlavor,
     isPermissionModeAllowedForFlavor,
     RenameSessionRequestSchema,
+    SetSessionPinnedRequestSchema,
     ResumeSessionRequestSchema,
     RewindConversationRequestSchema,
     SCRATCHLIST_MAX_ENTRIES,
@@ -76,9 +77,26 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         const getPendingCount = (s: Session) => s.agentState?.requests ? Object.keys(s.agentState.requests).length : 0
 
         const namespace = c.get('namespace')
-        const sessionRecords = engine.getSessionsByNamespace(namespace)
+        const limitRaw = c.req.query('limit')
+        const parsedLimit = limitRaw === undefined ? null : Number(limitRaw)
+        const limit = parsedLimit !== null && Number.isFinite(parsedLimit)
+            ? Math.min(500, Math.max(1, Math.floor(parsedLimit)))
+            : null
+        const order = c.req.query('order')
+
+        let sessionRecords = engine.getSessionsByNamespace(namespace)
             .sort((a, b) => {
-                // Active sessions first
+                // Peer discovery wants newest activity first before limit truncation.
+                if (order === 'updatedAt') {
+                    return b.updatedAt - a.updatedAt
+                }
+                if (Boolean(a.globalPinned) !== Boolean(b.globalPinned)) {
+                    return a.globalPinned ? -1 : 1
+                }
+                if (Boolean(a.pinned) !== Boolean(b.pinned)) {
+                    return a.pinned ? -1 : 1
+                }
+                // Active sessions first (web session list)
                 if (a.active !== b.active) {
                     return a.active ? -1 : 1
                 }
@@ -91,6 +109,9 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
                 // Then by updatedAt
                 return b.updatedAt - a.updatedAt
             })
+        if (limit !== null) {
+            sessionRecords = sessionRecords.slice(0, limit)
+        }
         const scheduledCounts = engine.getFutureScheduledMessageCounts(sessionRecords.map((session) => session.id))
         const nextScheduledAt = engine.getNextScheduledAtBySessionIds(sessionRecords.map((session) => session.id))
         const sessions = sessionRecords.map((session) => {
@@ -776,6 +797,23 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
     })
 
+    app.put('/sessions/:id/pin', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) return sessionResult
+
+        const body = await c.req.json().catch(() => null)
+        const parsed = SetSessionPinnedRequestSchema.safeParse(body)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid body: mode must be none, project, or global' }, 400)
+        }
+
+        engine.setSessionPinMode(sessionResult.sessionId, parsed.data.mode)
+        return c.json({ ok: true })
+    })
+
     app.delete('/sessions/:id', async (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) {
@@ -1212,6 +1250,36 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
                 success: false,
                 error: error instanceof Error ? error.message : 'Failed to list skills'
             })
+        }
+    })
+
+    app.get('/sessions/:id/codex-models', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
+        if (flavor !== 'codex') {
+            return c.json({
+                success: false,
+                error: 'Codex models are only available for Codex sessions'
+            }, 400)
+        }
+
+        try {
+            const result = await engine.listCodexModelsForSession(sessionResult.sessionId)
+            return c.json(result)
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list Codex models'
+            }, 500)
         }
     })
 

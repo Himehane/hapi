@@ -64,8 +64,11 @@ function createApp(session: Session, opts?: {
     sessionExists?: boolean
     archiveSession?: (sessionId: string) => Promise<void>
     getCursorChatStoreStatus?: SyncEngine['getCursorChatStoreStatus']
+    listCodexModelsForSession?: SyncEngine['listCodexModelsForSession']
     forkConversation?: SyncEngine['forkConversation']
     rewindConversation?: SyncEngine['rewindConversation']
+    setSessionPinned?: (sessionId: string, pinned: boolean) => void
+    setSessionPinMode?: (sessionId: string, mode: 'none' | 'project' | 'global') => void
 }) {
     const applySessionConfigCalls: Array<[string, Record<string, unknown>]> = []
     const applySessionConfig = async (sessionId: string, config: Record<string, unknown>) => {
@@ -125,6 +128,10 @@ function createApp(session: Session, opts?: {
             : { ok: false, reason: 'not-found' },
         applySessionConfig,
         listCursorModelsForSession,
+        listCodexModelsForSession: opts?.listCodexModelsForSession ?? (async () => ({
+            success: true,
+            models: []
+        })),
         listOpencodeModelsForSession,
         listOpencodeReasoningEffortOptionsForSession,
         listGrokModelsForSession,
@@ -136,6 +143,8 @@ function createApp(session: Session, opts?: {
             status: { onDisk: true, store: 'acp' as const }
         })),
         archiveSession: archiveSessionMock,
+        setSessionPinned: opts?.setSessionPinned ?? (() => {}),
+        setSessionPinMode: opts?.setSessionPinMode ?? (() => {}),
         getSessionExport: opts?.getSessionExport ?? (() => ({
             type: 'success',
             payload: {
@@ -165,6 +174,63 @@ function createApp(session: Session, opts?: {
 }
 
 describe('sessions routes', () => {
+    it('updates the persisted pin mode', async () => {
+        const calls: Array<[string, 'none' | 'project' | 'global']> = []
+        const { app } = createApp(createSession(), {
+            setSessionPinMode: (sessionId, mode) => calls.push([sessionId, mode])
+        })
+
+        const response = await app.request('/api/sessions/session-1/pin', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'global' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(calls).toEqual([['session-1', 'global']])
+    })
+
+    it('rejects an invalid pin body', async () => {
+        const { app } = createApp(createSession())
+        const response = await app.request('/api/sessions/session-1/pin', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'yes' })
+        })
+
+        expect(response.status).toBe(400)
+    })
+
+    it('uses session-scoped Codex model discovery for the fallback endpoint', async () => {
+        const session = createSession({
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'codex',
+                machineId: 'machine-1'
+            }
+        })
+        const captured: string[] = []
+        const { app } = createApp(session, {
+            listCodexModelsForSession: async (sessionId) => {
+                captured.push(sessionId)
+                return {
+                    success: true,
+                    models: [{ id: 'gpt-5.5', displayName: 'GPT-5.5', isDefault: true }]
+                }
+            }
+        })
+
+        const response = await app.request('/api/sessions/session-1/codex-models')
+
+        expect(response.status).toBe(200)
+        expect(captured).toEqual(['session-1'])
+        expect(await response.json()).toEqual({
+            success: true,
+            models: [{ id: 'gpt-5.5', displayName: 'GPT-5.5', isDefault: true }]
+        })
+    })
+
     it('returns the machine-scoped Cursor chat store status', async () => {
         const session = createSession({
             active: false,
@@ -1341,6 +1407,68 @@ describe('sessions routes', () => {
             body: JSON.stringify({})
         })
         expect(response.status).toBe(400)
+    })
+
+    it('honors optional limit on GET /sessions after sort', async () => {
+        const sessions = [
+            createSession({ id: 'older-active', active: true, updatedAt: 10 }),
+            createSession({ id: 'newer-active', active: true, updatedAt: 20 }),
+            createSession({ id: 'inactive', active: false, updatedAt: 30 })
+        ]
+        const scheduledIds: string[][] = []
+        const engine = {
+            getSessionsByNamespace: () => sessions,
+            getFutureScheduledMessageCounts: (ids: string[]) => {
+                scheduledIds.push(ids)
+                return new Map(ids.map((id) => [id, 0]))
+            },
+            getNextScheduledAtBySessionIds: (_ids: string[]) => new Map<string, number>(),
+            resolveSessionAccess: () => ({ ok: false, reason: 'not-found' as const })
+        } as unknown as Partial<SyncEngine>
+
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/api', createSessionsRoutes(() => engine as SyncEngine))
+
+        const limited = await app.request('/api/sessions?limit=2')
+        expect(limited.status).toBe(200)
+        const limitedBody = await limited.json() as { sessions: Array<{ id: string }> }
+        expect(limitedBody.sessions.map((s) => s.id)).toEqual(['newer-active', 'older-active'])
+        expect(scheduledIds.at(-1)).toEqual(['newer-active', 'older-active'])
+
+        const unlimited = await app.request('/api/sessions')
+        expect(unlimited.status).toBe(200)
+        const unlimitedBody = await unlimited.json() as { sessions: Array<{ id: string }> }
+        expect(unlimitedBody.sessions).toHaveLength(3)
+    })
+
+    it('order=updatedAt truncates newest-first including inactive peers', async () => {
+        const sessions = [
+            createSession({ id: 'old-active', active: true, updatedAt: 10 }),
+            createSession({ id: 'new-inactive', active: false, updatedAt: 50 }),
+            createSession({ id: 'mid-active', active: true, updatedAt: 20 })
+        ]
+        const engine = {
+            getSessionsByNamespace: () => sessions,
+            getFutureScheduledMessageCounts: (ids: string[]) => new Map(ids.map((id) => [id, 0])),
+            getNextScheduledAtBySessionIds: (_ids: string[]) => new Map<string, number>(),
+            resolveSessionAccess: () => ({ ok: false, reason: 'not-found' as const })
+        } as unknown as Partial<SyncEngine>
+
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/api', createSessionsRoutes(() => engine as SyncEngine))
+
+        const response = await app.request('/api/sessions?limit=1&order=updatedAt')
+        expect(response.status).toBe(200)
+        const body = await response.json() as { sessions: Array<{ id: string }> }
+        expect(body.sessions.map((s) => s.id)).toEqual(['new-inactive'])
     })
 
 })

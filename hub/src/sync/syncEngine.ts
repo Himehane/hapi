@@ -301,6 +301,14 @@ export class SyncEngine {
         return this.sessionCache.getSessionsByNamespace(namespace)
     }
 
+    setSessionPinned(sessionId: string, pinned: boolean): void {
+        this.sessionCache.setSessionPinned(sessionId, pinned)
+    }
+
+    setSessionPinMode(sessionId: string, mode: 'none' | 'project' | 'global'): void {
+        this.sessionCache.setSessionPinMode(sessionId, mode)
+    }
+
     getFutureScheduledMessageCounts(sessionIds: string[], now: number = Date.now()): Map<string, number> {
         return this.store.messages.countFutureScheduledBySessionIds(sessionIds, now)
     }
@@ -843,7 +851,7 @@ async uploadScratchlistAttachment(
         for (const session of sorted) {
             this.triggerDedupIfNeeded(session.id)
         }
-        this.machineCache.expireInactive()
+        this.machineCache.expireInactive?.()
         // Piggybacked on the inactivity tick; not a logical part of expireInactive
         // but shares its 5s cadence (avoids a second timer).
         this.messageService.releaseMatureScheduledMessages(Date.now(), this.historyActionsInFlight)
@@ -3726,6 +3734,10 @@ async uploadScratchlistAttachment(
 
     async listCodexModelsForMachine(machineId: string): Promise<RpcListCodexModelsResponse> {
         return await this.rpcGateway.listCodexModelsForMachine(machineId)
+    }
+
+    async listCodexModelsForSession(sessionId: string): Promise<RpcListCodexModelsResponse> {
+        return await this.rpcGateway.listCodexModelsForSession(sessionId)
     }
 
     async listCodexSessionsForMachine(machineId: string, cwd?: string | null, sessionIds?: string[]) {
