@@ -177,6 +177,11 @@ export const CodexImportedMessageSchema = z.union([
         role: z.literal('agent'),
         content: z.object({ type: z.literal('codex'), data: z.unknown() }),
         meta: z.object({ sentFrom: z.literal('cli') })
+    }),
+    z.object({
+        role: z.literal('agent'),
+        content: z.object({ type: z.literal('event'), data: z.unknown() }),
+        meta: z.object({ sentFrom: z.literal('cli') })
     })
 ])
 
