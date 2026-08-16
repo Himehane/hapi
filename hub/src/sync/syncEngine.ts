@@ -33,6 +33,7 @@ import { selectForkTranscriptPrefix } from './forkTranscript'
 import {
     RpcGateway,
     RpcTargetMissingError,
+    type FileSearchOptions,
     type RpcCodexModel,
     type RpcCommandResponse,
     type RpcDeleteUploadResponse,
@@ -3868,8 +3869,8 @@ export class SyncEngine {
         return await this.rpcGateway.deleteUploadFile(sessionId, path)
     }
 
-    async runRipgrep(sessionId: string, args: string[], cwd?: string): Promise<RpcCommandResponse> {
-        return await this.rpcGateway.runRipgrep(sessionId, args, cwd)
+    async runRipgrep(sessionId: string, args: string[], cwd?: string, fileSearch?: FileSearchOptions): Promise<RpcCommandResponse> {
+        return await this.rpcGateway.runRipgrep(sessionId, args, cwd, fileSearch)
     }
 
     async listSlashCommands(sessionId: string, agent: string): Promise<SlashCommandsResponse> {
