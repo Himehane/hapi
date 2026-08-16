@@ -1906,12 +1906,12 @@ function SessionChatInner(props: SessionChatProps) {
                                             ? grokModelOptions
                                         : agentFlavor === 'copilot'
                                             ? copilotModelOptions
-                                        // Pi uses its own provider-qualified picker (piModels prop).
-                                        // Feeding piModelOptions here would make the generic Ctrl/Cmd+M
+                                        // Pi gets its provider-qualified model list from the piModels prop;
+                                        // feeding piModelOptions here would make the generic Ctrl/Cmd+M
                                         // cycler (getNextModelForFlavor) post a bare modelId string,
                                         // which loses the provider and can pick the wrong cached
                                         // match or throw in runPi. undefined makes the shortcut a no-op
-                                        // so Pi model changes go through the dedicated picker only.
+                                        // so Pi model changes go through the settings sheet only.
                                         : undefined
                         }
                         piModels={piModels}
