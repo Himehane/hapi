@@ -606,9 +606,18 @@ export function wireTransportEvents(
         clearPromptLifecycleFallback();
         session.updateThinkingState(false);
         if (options.conversationHistory) {
+            // The settled notification fires after an async history sync. A new
+            // lifecycle (e.g. an autonomous wake-up) can begin in the meantime;
+            // generation-scope the callback so a stale settlement cannot mark
+            // that newer lifecycle's abort boundary as settled.
+            const settlementGeneration = lifecycleGeneration;
             void options.conversationHistory.syncEntries()
                 .catch(() => {})
-                .finally(() => options.onAgentSettled?.());
+                .finally(() => {
+                    if (settlementGeneration === lifecycleGeneration) {
+                        options.onAgentSettled?.();
+                    }
+                });
         } else {
             options.onAgentSettled?.();
         }
@@ -764,6 +773,25 @@ export function wireTransportEvents(
         }
 
         if (event.type === 'agent_start' || event.type === 'turn_start') {
+            if (deliveredSettlement) {
+                // Pi can start an agent lifecycle on its own — subagent
+                // completion wake-ups, scheduled work — with no HAPI prompt in
+                // flight. The previous prompt lifecycle already delivered its
+                // settlement, so every settlement path below is gated shut and
+                // this turn's agent_settled/agent_end would be swallowed,
+                // leaving thinking=true (and the FIFO pump blocked) forever.
+                // Open a fresh settlement cycle for the autonomous lifecycle.
+                // Prompt-driven lifecycles are unaffected: beginPromptLifecycle
+                // has already reset deliveredSettlement to false by the time
+                // their agent_start arrives.
+                // Advance the generation so a previous settlement's async
+                // history-sync callback (still in flight) turns stale and
+                // cannot mark this new lifecycle's abort boundary as settled.
+                lifecycleGeneration += 1;
+                deliveredSettlement = false;
+                agentEndObserved = false;
+                activeAgentSettledSeen = false;
+            }
             clearCompactionRetryPending();
             agentLifecycleSeen = true;
             clearLegacySettleFallback();
