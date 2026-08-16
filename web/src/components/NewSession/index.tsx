@@ -1494,7 +1494,6 @@ export function NewSession(props: {
                 serviceTier: resolvedServiceTier,
                 collaborationMode: resolvedCollaborationMode,
                 copilotAgentMode: agent === 'copilot' ? copilotAgentMode : undefined,
-                startingMode: agent === 'agy' ? 'pty' : undefined
             })
 
 

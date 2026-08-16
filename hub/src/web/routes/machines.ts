@@ -81,12 +81,10 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         if (!parsed.success) {
             return c.json({ error: 'Invalid body' }, 400)
         }
-        if (parsed.data.agent === 'agy' && parsed.data.startingMode === 'remote') {
-            return c.json({ error: 'AGY only supports PTY mode' }, 400)
+        if (parsed.data.agent === 'agy' && parsed.data.startingMode && parsed.data.startingMode !== 'remote') {
+            return c.json({ error: 'AGY only supports remote mode' }, 400)
         }
-        const startingMode = parsed.data.agent === 'agy'
-            ? 'pty'
-            : parsed.data.startingMode
+        const startingMode = parsed.data.startingMode
 
         const result = await engine.spawnSession(
             machineId,
