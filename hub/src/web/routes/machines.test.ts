@@ -103,6 +103,39 @@ describe('machines routes', () => {
         })
     })
 
+    it('returns Pi models for an online machine', async () => {
+        const machine = createMachine()
+        const engine = {
+            getMachine: () => machine,
+            getMachineByNamespace: () => machine,
+            listPiModelsForMachine: async () => ({
+                success: true,
+                availableModels: [
+                    { provider: 'openai-codex', modelId: 'gpt-5.6-sol', reasoning: true }
+                ],
+                currentModelId: null
+            })
+        } as Partial<SyncEngine>
+
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
+
+        const response = await app.request('/api/machines/machine-1/pi-models')
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({
+            success: true,
+            availableModels: [
+                { provider: 'openai-codex', modelId: 'gpt-5.6-sol', reasoning: true }
+            ],
+            currentModelId: null
+        })
+    })
+
     it('returns a stable code when the Codex machine RPC target is absent', async () => {
         const machine = createMachine()
         const engine = {

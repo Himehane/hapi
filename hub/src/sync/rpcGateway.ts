@@ -29,6 +29,7 @@ import type {
     OpencodeModelSummary,
     OpencodeReasoningEffortResponse,
     PathExistsResponse,
+    PiModelsResponse,
     SlashCommandsResponse,
     StatFilesResponse,
     UploadFileResponse
@@ -88,6 +89,7 @@ export type RpcListCopilotModelsResponse = CopilotModelsResponse
 export type RpcListGrokReasoningEffortOptionsResponse = GrokReasoningEffortResponse
 export type RpcListOpencodeReasoningEffortOptionsResponse = OpencodeReasoningEffortResponse
 export type RpcListAgyModelsResponse = AgyModelsResponse
+export type RpcListPiModelsResponse = PiModelsResponse
 
 export class RpcGateway {
     constructor(
@@ -467,6 +469,10 @@ export class RpcGateway {
 
     async listAgyModelsForMachine(machineId: string): Promise<RpcListAgyModelsResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.ListAgyModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListAgyModelsResponse
+    }
+
+    async listPiModelsForMachine(machineId: string): Promise<RpcListPiModelsResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ListPiModelsForMachine, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListPiModelsResponse
     }
 
     private async sessionRpc(

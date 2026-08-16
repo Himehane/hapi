@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { COPILOT_AGENT_MODES, type CopilotAgentMode } from './copilotModes'
 import { CODEX_COLLABORATION_MODES, PERMISSION_MODES } from './modes'
+import { AgentConfigDescriptorSchema } from './agentConfig'
 
 export const PermissionModeSchema = z.enum(PERMISSION_MODES)
 export const CodexCollaborationModeSchema = z.enum(CODEX_COLLABORATION_MODES)
@@ -460,7 +461,10 @@ export const RunnerStateSchema = z.object({
     pid: z.number().optional(),
     httpPort: z.number().optional(),
     startedAt: z.number().optional(),
-    capabilities: z.object({ piExistingSessionResume: z.literal(true).optional() }).optional(),
+    capabilities: z.object({
+        piExistingSessionResume: z.literal(true).optional(),
+        agentConfigs: z.array(AgentConfigDescriptorSchema).optional()
+    }).optional(),
     shutdownRequestedAt: z.number().optional(),
     shutdownSource: z.union([z.enum(['mobile-app', 'cli', 'os-signal', 'unknown']), z.string()]).optional(),
     lastSpawnError: z.object({

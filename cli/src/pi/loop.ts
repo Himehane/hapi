@@ -215,6 +215,11 @@ function handleResponse(
         if (command === 'get_state' && session.expectedNativeSessionId && !session.isNativeReady) {
             onStartupFailure?.(new Error(`Pi get_state failed: ${error}`));
         }
+        // A failed model discovery must not strand a startup effort that waits
+        // on the startup-model gate (see runPi startup effort).
+        if (command === 'get_available_models') {
+            session.resolveStartupModelSettled?.();
+        }
         return {};
     }
 
@@ -306,7 +311,8 @@ function handleResponse(
                 // await so resolving the get_available_models RPC itself is not
                 // blocked (it may be awaited by ListPiModels).
                 if (session.initialModel && transport) {
-                    const match = models.find((m) => m.modelId === session.initialModel);
+                    const match = models.find((m) => m.modelId === session.initialModel)
+                        ?? models.find((m) => `${m.provider}/${m.modelId}` === session.initialModel);
                     if (match) {
                         void (async () => {
                             try {
@@ -324,6 +330,7 @@ function handleResponse(
                             } catch (error) {
                                 if (error instanceof PiRpcTimeoutError) {
                                     onStartupFailure?.(new Error(`Pi startup model outcome is indeterminate: ${error.message}`));
+                                    session.resolveStartupModelSettled?.();
                                     return;
                                 }
                                 const detail = error instanceof Error ? error.message : String(error);
@@ -333,11 +340,19 @@ function handleResponse(
                                     message: `⚠️ Startup model switch failed: ${detail}`,
                                 });
                             }
+                            session.resolveStartupModelSettled?.();
                         })();
                     } else {
                         logger.debug(`[pi] Startup model not found in available models: ${session.initialModel}`);
+                        session.resolveStartupModelSettled?.();
                     }
+                } else {
+                    session.resolveStartupModelSettled?.();
                 }
+            } else {
+                // Empty discovery — settle the startup-model gate so a waiting
+                // startup effort does not strand (nothing to match against).
+                session.resolveStartupModelSettled?.();
             }
             resolvePendingRpc(resolver, response);
             break;

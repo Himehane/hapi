@@ -781,6 +781,37 @@ describe('wireTransportEvents', () => {
         ]);
     });
 
+    it('settles the startup-model gate when discovery returns no models', async () => {
+        session = createMockSession('startup-model');
+        const transport = createMockTransport();
+        wireTransportEvents(transport, session, []);
+
+        emitEvent({
+            type: 'response',
+            command: 'get_available_models',
+            success: true,
+            data: { models: [] },
+        });
+
+        await expect(session.startupModelSettled).resolves.toBeUndefined()
+        expect(transport.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'set_model' }))
+    })
+
+    it('settles the startup-model gate when model discovery fails', async () => {
+        session = createMockSession('startup-model');
+        const transport = createMockTransport();
+        wireTransportEvents(transport, session, []);
+
+        emitEvent({
+            type: 'response',
+            command: 'get_available_models',
+            success: false,
+            error: 'models unavailable',
+        });
+
+        await expect(session.startupModelSettled).resolves.toBeUndefined()
+    })
+
     it('fails closed and poisons the mutation lease when the detached startup model times out', async () => {
         vi.useFakeTimers();
         try {
