@@ -443,6 +443,27 @@ export function buildGoalStateMessages(
     return messages.filter((message) => !isUninvokedScheduledMessage(message))
 }
 
+/**
+ * Keep the latest completed fork boundary available while reading history.
+ * The history window can no longer contain the tail after older pages are
+ * loaded, so recomputing a boundary from that window would either hide the
+ * current Fork action or incorrectly mark an older message as current.
+ * A live tail revision invalidates the remembered boundary until tail view
+ * observes the authoritative current boundary again.
+ */
+export function resolveLatestCompletedBoundaryIdForView(
+    viewMode: 'tail' | 'history',
+    currentTailBoundaryId: string | null,
+    rememberedTailBoundary: { id: string | null; tailRevision: number } | null,
+    currentTailRevision: number
+): string | null {
+    if (viewMode === 'tail') return currentTailBoundaryId
+    if (!rememberedTailBoundary || rememberedTailBoundary.tailRevision !== currentTailRevision) {
+        return null
+    }
+    return rememberedTailBoundary.id
+}
+
 function hasAbortableAgentRun(blocks: readonly ChatBlock[]): boolean {
     for (const block of blocks) {
         if (block.kind === 'tool-call') {
@@ -477,6 +498,7 @@ type SessionChatProps = {
     viewMode: 'tail' | 'history'
     messagesVersion: number
     historyVersion: number
+    tailRevision: number
     onBack: () => void
     onRefresh: () => void
     onLoadMore: (onBeforeApply?: (historyVersion: number) => boolean) => Promise<OlderLoadOutcome>
@@ -574,6 +596,10 @@ function SessionChatInner(props: SessionChatProps) {
     const normalizedCacheRef = useRef<Map<string, { source: DecryptedMessage; normalized: NormalizedMessage | null }>>(new Map())
     const blocksByIdRef = useRef<Map<string, ChatBlock>>(new Map())
     const visibleGroupsRef = useRef<ToolGroupBlock[]>([])
+    const [rememberedTailBoundary, setRememberedTailBoundary] = useState<{
+        id: string | null
+        tailRevision: number
+    } | null>(null)
     const [forceScrollToken, setForceScrollToken] = useState(0)
     const uploadDraftSnapshotRef = useRef<{ text: string; attachments: AttachmentDraftInput[] }>({
         text: '',
@@ -1288,7 +1314,12 @@ function SessionChatInner(props: SessionChatProps) {
     // Fork-current must compare against assistant-ui message ids (`kind:id`),
     // not raw hub message ids — MessageActions receive the rendered card id,
     // and adjacent assistant blocks join under the first block's id.
-    const latestCompletedBoundaryId = useMemo(() => {
+    //
+    // Calculate the boundary from the tail window, then remember it while the
+    // operator reads history. Otherwise changing viewMode to `history` hides
+    // a valid current Fork action, and loading older pages can make the last
+    // visible historical message look like the current fork boundary.
+    const currentTailBoundaryId = useMemo(() => {
         if (props.viewMode !== 'tail') return null
         return findLatestCompletedBoundaryId(
             visibleBlocks,
@@ -1296,6 +1327,22 @@ function SessionChatInner(props: SessionChatProps) {
             props.session.activeTurnStartedAt ?? null
         )
     }, [props.viewMode, props.session.activeTurnStartedAt, props.session.thinking, visibleBlocks])
+
+    useEffect(() => {
+        if (props.viewMode !== 'tail') return
+        setRememberedTailBoundary((previous) => (
+            previous?.id === currentTailBoundaryId && previous.tailRevision === props.tailRevision
+                ? previous
+                : { id: currentTailBoundaryId, tailRevision: props.tailRevision }
+        ))
+    }, [currentTailBoundaryId, props.tailRevision, props.viewMode])
+
+    const latestCompletedBoundaryId = resolveLatestCompletedBoundaryIdForView(
+        props.viewMode,
+        currentTailBoundaryId,
+        rememberedTailBoundary,
+        props.tailRevision
+    )
 
     const isLatestCompletedBoundary = useCallback((messageId: string) => {
         return latestCompletedBoundaryId === messageId

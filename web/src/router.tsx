@@ -361,6 +361,7 @@ function SessionPage() {
         viewMode: messagesViewMode,
         messagesVersion,
         historyVersion,
+        tailRevision,
         setViewMode,
     } = useMessages(api, sessionId)
 
@@ -791,6 +792,7 @@ function SessionPage() {
             viewMode={messagesViewMode}
             messagesVersion={messagesVersion}
             historyVersion={historyVersion}
+            tailRevision={tailRevision}
             onBack={goBack}
             onRefresh={refreshSelectedSession}
             onLoadMore={loadMoreMessages}
