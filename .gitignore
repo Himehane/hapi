@@ -50,3 +50,10 @@ e2e-output/
 .xyz-harness
 .agents/
 .pi/
+
+# Xcode / iOS build artifacts
+ios/**/xcuserdata/
+ios/**/.build/
+ios/**/.swiftpm/
+**/*.xcresult
+**/DerivedData/
