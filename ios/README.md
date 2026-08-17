@@ -47,8 +47,23 @@ ios/
                          The chat pipeline + message window logic (ported from
                          web/src/chat/**) land in M2, validated against
                          shared/fixtures/**.
-    HapiClient           Transport layer: APIClient, AuthManager (single-flight
-                         refresh), SSEClient, @Observable stores, snapshots.
+    HapiClient           Transport layer. As of M1c:
+                           SSE/      actor SSEClient — handshake-gated connect
+                                     (resume ok/gap surfaced), sticky per-
+                                     subscription cursor with at-least-once
+                                     replay, 10 s connect timeout + 90 s
+                                     staleness watchdog, backoff per sse.md
+                                     (1 s ×2 → 30 s, 300 s after 8 attempts,
+                                     0–500 ms jitter), suspend/resume with the
+                                     45 s foreground staleness check, NWPath
+                                     change → immediate reconnect. Plus
+                                     SSELineParser, ReconnectPolicy/SSETimings,
+                                     URLSessionSSETransport (dedicated config;
+                                     gzip streaming-decompression verification
+                                     is still TODO — `acceptEncodingIdentity`
+                                     is the fallback flag until then).
+                         APIClient + AuthManager (single-flight refresh),
+                         @Observable stores and snapshots land with M1b+.
 ```
 
 The app target stays thin; features live in `HapiKit` so they are testable
