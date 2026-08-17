@@ -152,7 +152,7 @@ class AppGraph(context: Context) {
                 hubUrl = hubUrl,
                 credentialStore = credentialStore,
                 authEvents = authEvents,
-                cacheDir = appContext.cacheDir,
+                context = appContext,
             )
         }
     }

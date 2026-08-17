@@ -1,15 +1,21 @@
 package app.hapi.companion.di
 
+import android.content.Context
 import app.hapi.data.HubSession
 import app.hapi.data.auth.AuthEvents
 import app.hapi.data.auth.CredentialStore
 import app.hapi.data.sse.OkHttpSseTransport
 import app.hapi.data.sse.SseEngine
-import app.hapi.data.sse.SseSubscriptionKey
 import app.hapi.data.sse.SseTokenProvider
 import app.hapi.data.sse.SyncEventRouter
 import app.hapi.data.sse.SyncTargets
-import app.hapi.protocol.wire.SyncEvent
+import app.hapi.data.store.LastSeenStore
+import app.hapi.data.store.MachineStore
+import app.hapi.data.store.MessageWindowStores
+import app.hapi.data.store.SessionStore
+import app.hapi.data.store.StoreSyncTargets
+import app.hapi.data.store.WindowSnapshots
+import coil.ImageLoader
 import java.io.Closeable
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -26,14 +32,16 @@ import kotlinx.coroutines.withContext
  * Wiring: [HubSession] (REST + silent re-auth, from `:core:data`) → its
  * `ensureFreshToken` adapts to the [SseEngine]'s token provider (SSE
  * authenticates only at connect time) → [SyncEventRouter] fans engine events
- * out to [SyncTargets], which is still a no-op stub.
+ * out to [StoreSyncTargets], which feeds the per-hub stores below. Screens
+ * own the actual SSE subscriptions (session list = global pipe, open chat =
+ * its session pipe), all against this one engine.
  */
 class HubGraph(
     hubUrl: String,
     credentialStore: CredentialStore,
     authEvents: AuthEvents,
-    /** App cache dir; the per-hub generated-image OkHttp cache nests inside. */
-    cacheDir: File,
+    /** Application context: Coil loader + cache/files roots derive from it. */
+    context: Context,
 ) : Closeable {
 
     /** Child of nothing on purpose: cancelled explicitly in [close]. */
@@ -43,7 +51,7 @@ class HubGraph(
         hubUrl = hubUrl,
         credentialStore = credentialStore,
         authEvents = authEvents,
-        imageCacheDir = File(File(cacheDir, "hub-images"), cacheDirNameFor(hubUrl)),
+        imageCacheDir = File(File(context.cacheDir, "hub-images"), dirNameFor(hubUrl)),
     )
 
     /** Normalized origin (via [HubSession]'s own normalization). */
@@ -56,25 +64,53 @@ class HubGraph(
         scope = scope,
     )
 
-    // TODO(M2b): replace with the real store-backed targets (session list /
-    // message windows) and subscribe the engine's Global key on foreground.
-    val syncTargets: SyncTargets = NoopSyncTargets
+    /** Per-hub snapshot root (filesDir — survives cache pressure). */
+    private val snapshotDir: File = File(File(context.filesDir, "hubs"), dirNameFor(session.hubUrl))
+
+    val sessionStore: SessionStore = SessionStore(session.api, scope, snapshotDir)
+
+    val machineStore: MachineStore = MachineStore(session.api, scope, snapshotDir)
+
+    val lastSeenStore: LastSeenStore = LastSeenStore(scope, snapshotDir)
+
+    val messageWindows: MessageWindowStores = MessageWindowStores(
+        api = session.api,
+        scope = scope,
+        snapshots = WindowSnapshots(File(snapshotDir, "windows")),
+    )
+
+    val syncTargets: SyncTargets =
+        StoreSyncTargets(sessionStore, machineStore, scope, messageWindows)
 
     val syncEventRouter: SyncEventRouter = SyncEventRouter(syncTargets)
 
+    /**
+     * Loads `/api/sessions/:id/generated-images/:imageId` (and any other hub
+     * URL) through the authed image client: JWT interceptor + silent 401
+     * re-auth + the per-hub 256 MB disk cache (images are immutable + ETagged).
+     */
+    val imageLoader: ImageLoader = ImageLoader.Builder(context)
+        .okHttpClient(session.imageClient)
+        .build()
+
+    /** Absolute URL of a generated image, for [imageLoader]. */
+    fun generatedImageUrl(sessionId: String, imageId: String): String =
+        "${session.hubUrl}/api/sessions/$sessionId/generated-images/$imageId"
+
     override fun close() {
         scope.cancel()
+        imageLoader.shutdown()
         session.close()
     }
 
     private companion object {
         /**
-         * Filesystem-safe per-hub cache directory name. Distinct hubs must
-         * map to distinct directories (OkHttp caches require exclusive dirs);
+         * Filesystem-safe per-hub directory name. Distinct hubs must map to
+         * distinct directories (OkHttp caches require exclusive dirs);
          * origins differing only in `[^A-Za-z0-9._-]` characters cannot
          * collide because those are exactly `://` and `:`.
          */
-        fun cacheDirNameFor(hubUrl: String): String =
+        fun dirNameFor(hubUrl: String): String =
             hubUrl.replace(Regex("[^A-Za-z0-9._-]"), "_")
     }
 }
@@ -103,13 +139,4 @@ class SessionTokenProvider(
         }
         return session.ensureFreshToken()
     }
-}
-
-/** Stub sink until the M2b stores land; events are dropped on the floor. */
-object NoopSyncTargets : SyncTargets {
-    override fun onSessionEvent(scope: SseSubscriptionKey, event: SyncEvent) = Unit
-    override fun onMachineEvent(scope: SseSubscriptionKey, event: SyncEvent.MachineUpdated) = Unit
-    override fun onMessageEvent(scope: SseSubscriptionKey, event: SyncEvent) = Unit
-    override fun onToast(event: SyncEvent.Toast) = Unit
-    override fun requestFullResync(scope: SseSubscriptionKey) = Unit
 }

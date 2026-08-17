@@ -82,8 +82,9 @@ import org.commonmark.node.ThematicBreak
 // ── Link handling ────────────────────────────────────────────────────────────
 
 /**
- * Receives clicks on markdown links. Provided by the chat screen (M2d2 wires
- * file taps to the session file viewer and URLs to a confirm-aware opener).
+ * Receives clicks on markdown links. The chat screen provides a confirm-aware
+ * URL opener (`rememberChatLinkHandler`); file taps route to the session file
+ * viewer once it exists (M4).
  */
 interface MarkdownLinkHandler {
     /** A workspace file citation (`src/a.ts`, `hub/src/x.ts:345`, ...). */

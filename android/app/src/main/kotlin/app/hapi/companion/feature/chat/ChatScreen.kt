@@ -1,0 +1,369 @@
+package app.hapi.companion.feature.chat
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import app.hapi.companion.ui.markdown.LocalMarkdownLinkHandler
+import app.hapi.companion.ui.theme.hapi
+import app.hapi.protocol.chat.VisibleChatBlock
+import kotlinx.coroutines.launch
+
+/** How close to the oldest rendered block the viewport may get before paging. */
+private const val LOAD_OLDER_PREFETCH_ITEMS = 4
+
+/**
+ * Read-only chat (B-M2d2): `LazyColumn(reverseLayout = true)` over the
+ * reduced [VisibleChatBlock]s — newest at the bottom, stable ids as keys so
+ * scroll position survives pipeline re-runs, auto-stick to the tail only
+ * while already there (reverse-layout index-0 anchoring), a "new messages"
+ * pill otherwise, and a top-edge sentinel that pages older history in.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChatScreen(
+    viewModel: ChatViewModel,
+    media: ChatMedia,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val state by viewModel.uiState.collectAsState()
+
+    DisposableEffect(viewModel) {
+        viewModel.start()
+        onDispose { viewModel.stop() }
+    }
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                title = { ChatTitle(state.header) },
+            )
+        },
+    ) { padding ->
+        CompositionLocalProvider(
+            LocalChatMedia provides media,
+            LocalMarkdownLinkHandler provides rememberChatLinkHandler(),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            ) {
+                state.warning?.let { warning ->
+                    DegradedBanner(warning = warning, onRetry = viewModel::retry)
+                }
+                Box(modifier = Modifier.weight(1f)) {
+                    when {
+                        state.isInitialLoading -> InitialLoading()
+                        state.loadFailed -> LoadFailed(onRetry = viewModel::retry)
+                        state.blocks.isEmpty() -> EmptyChat()
+                        else -> BlockList(state = state, onLoadOlder = viewModel::loadOlder)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatTitle(header: ChatHeaderUi) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        StatusDot(active = header.active, thinking = header.thinking)
+        Spacer(modifier = Modifier.width(8.dp))
+        Column {
+            Text(
+                text = header.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            header.subtitle?.let { subtitle ->
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusDot(active: Boolean, thinking: Boolean) {
+    val color = when {
+        thinking -> Color(0xFF34C759).copy(alpha = 0.6f)
+        active -> Color(0xFF34C759)
+        else -> MaterialTheme.colorScheme.outlineVariant
+    }
+    Box(
+        modifier = Modifier
+            .size(9.dp)
+            .background(color, CircleShape),
+    )
+}
+
+@Composable
+private fun DegradedBanner(warning: String, onRetry: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = warning,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 16.dp, top = 6.dp, bottom = 6.dp),
+            )
+            TextButton(onClick = onRetry) { Text("Retry") }
+        }
+    }
+}
+
+// ------------------------------------------------------------------- list --
+
+@Composable
+private fun BlockList(state: ChatUiState, onLoadOlder: () -> Unit) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    // Newest-first for reverseLayout: index 0 renders at the bottom.
+    val reversed = remember(state.blocks) { state.blocks.asReversed() }
+
+    LoadOlderEffect(listState, state, onLoadOlder)
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            reverseLayout = true,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(
+                items = reversed,
+                key = { it.stableId },
+                contentType = { it.contentKind },
+            ) { block ->
+                ChatBlockCard(block = block, basePath = state.basePath)
+            }
+            if (state.hasMore || state.isLoadingOlder) {
+                item(key = "older-history", contentType = "older-history") {
+                    OlderHistoryRow(isLoading = state.isLoadingOlder)
+                }
+            }
+        }
+
+        NewMessagesPill(
+            listState = listState,
+            reversed = reversed,
+            sessionId = state.sessionId,
+            onClick = { scope.launch { listState.animateScrollToItem(0) } },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 12.dp),
+        )
+    }
+}
+
+/** Sentinel: when the viewport nears the oldest rendered block, page older history. */
+@Composable
+private fun LoadOlderEffect(listState: LazyListState, state: ChatUiState, onLoadOlder: () -> Unit) {
+    val nearOldest by remember(listState) {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: return@derivedStateOf false
+            lastVisible >= info.totalItemsCount - 1 - LOAD_OLDER_PREFETCH_ITEMS
+        }
+    }
+    LaunchedEffect(nearOldest, state.hasMore, state.isLoadingOlder, state.isSyncingTail) {
+        if (nearOldest && state.hasMore && !state.isLoadingOlder && !state.isSyncingTail) {
+            onLoadOlder()
+        }
+    }
+}
+
+@Composable
+private fun OlderHistoryRow(isLoading: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (isLoading) {
+            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Loading older messages…",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.hapi.hint,
+            )
+        } else {
+            Text(
+                text = "· · ·",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.hapi.hint,
+            )
+        }
+    }
+}
+
+/**
+ * "N new messages ↓" pill: appears when new blocks land while the reader is
+ * scrolled up. At the bottom (reverse-layout index 0, offset 0) the list
+ * auto-sticks and the pill stays hidden.
+ */
+@Composable
+private fun NewMessagesPill(
+    listState: LazyListState,
+    reversed: List<VisibleChatBlock>,
+    sessionId: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val atBottom by remember(listState) {
+        derivedStateOf {
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+        }
+    }
+    var newestSeenId by remember(sessionId) { mutableStateOf<String?>(null) }
+    val newestId = reversed.firstOrNull()?.stableId
+
+    LaunchedEffect(atBottom, newestId) {
+        if (atBottom) newestSeenId = newestId
+    }
+
+    val unseenCount = if (atBottom) {
+        0
+    } else {
+        val seenId = newestSeenId
+        if (seenId == null) 0
+        else reversed.indexOfFirst { it.stableId == seenId }.coerceAtLeast(0)
+    }
+    if (unseenCount == 0) return
+
+    Surface(
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        shape = CircleShape,
+        shadowElevation = 4.dp,
+        onClick = onClick,
+        modifier = modifier,
+    ) {
+        Text(
+            text = if (unseenCount == 1) "1 new message ↓" else "$unseenCount new messages ↓",
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+        )
+    }
+}
+
+// ----------------------------------------------------------------- states --
+
+@Composable
+private fun InitialLoading() {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CircularProgressIndicator()
+        Spacer(modifier = Modifier.size(12.dp))
+        Text(
+            text = "Loading messages…",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun LoadFailed(onRetry: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(text = "Couldn't load this session", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.size(8.dp))
+        Text(
+            text = "Check the connection to your hub and try again.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.size(12.dp))
+        TextButton(onClick = onRetry) { Text("Retry") }
+    }
+}
+
+@Composable
+private fun EmptyChat() {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(text = "No messages yet", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.size(8.dp))
+        Text(
+            text = "Messages will appear here as the agent works.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}

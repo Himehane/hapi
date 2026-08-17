@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Everything the app does rides HTTP(S) to the paired hub. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- QR pairing only; the app is fully usable without a camera
          (manual hub URL + token entry), hence required="false". -->
     <uses-permission android:name="android.permission.CAMERA" />
