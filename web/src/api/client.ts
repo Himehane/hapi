@@ -24,7 +24,9 @@ import type {
     SpawnResponse,
     VisibilityPayload,
     HapiSessionExport,
+    HubHealthResponse,
     SessionResponse,
+    SessionTitleSuggestionResponse,
     SessionsResponse
 } from '@/types/api'
 import type {
@@ -45,10 +47,12 @@ import type {
     MachinePathsExistsResponse,
     OpencodeModelsResponse,
     OpencodeReasoningEffortResponse,
+    PiModelsResponse,
     QueuedStateResponse,
     ReopenSessionResponse,
     SqliteStorageUsageResponse,
     HubSettingsResponse,
+    UpdateHubSettingsRequest,
     UsageSummaryResponse,
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
@@ -244,6 +248,10 @@ export class ApiClient {
 
     async getSessions(): Promise<SessionsResponse> {
         return await this.request<SessionsResponse>('/api/sessions')
+    }
+
+    async getHealth(): Promise<HubHealthResponse> {
+        return await this.request<HubHealthResponse>('/health')
     }
 
     async getPushVapidPublicKey(): Promise<PushVapidPublicKeyResponse> {
@@ -737,7 +745,7 @@ export class ApiClient {
         return await this.request<HubSettingsResponse>('/api/hub-settings')
     }
 
-    async updateHubSettings(settings: HubSettingsResponse): Promise<HubSettingsResponse> {
+    async updateHubSettings(settings: UpdateHubSettingsRequest): Promise<HubSettingsResponse> {
         return await this.request<HubSettingsResponse>('/api/hub-settings', {
             method: 'PUT',
             body: JSON.stringify(settings)
@@ -828,6 +836,12 @@ export class ApiClient {
     async getMachineAgyModels(machineId: string): Promise<AgyModelsResponse> {
         return await this.request<AgyModelsResponse>(
             `/api/machines/${encodeURIComponent(machineId)}/agy-models`
+        )
+    }
+
+    async getMachinePiModels(machineId: string): Promise<PiModelsResponse> {
+        return await this.request<PiModelsResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/pi-models`
         )
     }
 
@@ -934,6 +948,20 @@ export class ApiClient {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}`, {
             method: 'PATCH',
             body: JSON.stringify({ name })
+        })
+    }
+
+    async suggestSessionTitle(sessionId: string): Promise<SessionTitleSuggestionResponse> {
+        return await this.request<SessionTitleSuggestionResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/title-suggestion`,
+            { method: 'POST' }
+        )
+    }
+
+    async updateSessionSummary(sessionId: string, text: string): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/summary`, {
+            method: 'PATCH',
+            body: JSON.stringify({ text })
         })
     }
 
