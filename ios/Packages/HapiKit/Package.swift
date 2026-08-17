@@ -21,6 +21,7 @@ let package = Package(
         // Transport layer: APIClient, auth, SSE, stores (lands in M1).
         .target(name: "HapiClient", dependencies: ["HapiProtocol"]),
         .testTarget(name: "HapiProtocolTests", dependencies: ["HapiProtocol"]),
-        .testTarget(name: "HapiClientTests", dependencies: ["HapiClient"]),
+        // HapiProtocol is named directly by SSE tests (SyncEvent assertions).
+        .testTarget(name: "HapiClientTests", dependencies: ["HapiClient", "HapiProtocol"]),
     ]
 )

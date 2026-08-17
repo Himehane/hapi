@@ -47,7 +47,7 @@ ios/
                          The chat pipeline + message window logic (ported from
                          web/src/chat/**) land in M2, validated against
                          shared/fixtures/**.
-    HapiClient           Transport layer. As of M1b:
+    HapiClient           Transport layer. As of M1b+M1c:
                            APIClient        typed REST client (Endpoints/*):
                                             Bearer auth, 401 -> refresh ->
                                             retry-once, {error, code} parsing
@@ -64,12 +64,26 @@ ios/
                                             under run.hapi.companion),
                                             HubRegistry (multi-hub + active
                                             hub in UserDefaults).
+                           SSE/             actor SSEClient — handshake-gated
+                                            connect (resume ok/gap surfaced),
+                                            sticky per-subscription cursor with
+                                            at-least-once replay, 10 s connect
+                                            timeout + 90 s staleness watchdog,
+                                            backoff per sse.md (1 s ×2 → 30 s,
+                                            300 s after 8 attempts, 0–500 ms
+                                            jitter), suspend/resume with the
+                                            45 s foreground staleness check,
+                                            NWPath change → immediate reconnect.
+                                            SSELineParser, ReconnectPolicy/
+                                            SSETimings, URLSessionSSETransport
+                                            (gzip streaming-decompression
+                                            verification TODO — fallback flag
+                                            `acceptEncodingIdentity`).
                            MultipartEncoder for the voice-transcription
                                             endpoint (M4c).
-                         SSEClient (M1c), @Observable stores and snapshots
-                         (M2) land next; feature endpoints (git/files,
-                         scratchlist, voice, usage) join Endpoints/ with
-                         their feature packages.
+                         @Observable stores and snapshots (M2) land next;
+                         feature endpoints (git/files, scratchlist, voice,
+                         usage) join Endpoints/ with their feature packages.
 ```
 
 The app target stays thin; features live in `HapiKit` so they are testable
