@@ -4,15 +4,16 @@ import HapiProtocol
 import Observation
 
 /// Everything the app holds for the currently active hub: the typed REST
-/// client, its auth manager, and the **global** SSE subscription
+/// client, its auth manager, the **global** SSE subscription
 /// (`scope: .global` — one per app session; per-chat `.session` subscriptions
-/// arrive with M2).
+/// arrive with M2f), and the M2a stores it feeds (session list, machines,
+/// last-seen watermarks).
 ///
 /// Lifecycle is driven by `AppModel` from `scenePhase`: the SSE connection
-/// starts on the first foreground, suspends in background, and resumes (with
-/// the 45 s staleness check) on return. `AppModel` builds a fresh instance per
-/// hub switch and calls `shutdown()` on the old one — a `HubSession` never
-/// outlives its hub selection.
+/// starts on the first foreground, suspends in background (flushing the
+/// store snapshots), and resumes (with the 45 s staleness check) on return.
+/// `AppModel` builds a fresh instance per hub switch and calls `shutdown()`
+/// on the old one — a `HubSession` never outlives its hub selection.
 @MainActor @Observable
 final class HubSession {
     /// Normalized hub origin (registry / credential key).
@@ -20,6 +21,13 @@ final class HubSession {
     let baseURL: URL
     let authManager: AuthManager
     let api: APIClient
+
+    /// Session list + detail cache, snapshot-backed per hub.
+    let sessionStore: SessionListStore
+    /// Online machines (labels for list rows + the machine filter).
+    let machineStore: MachineStore
+    /// Unread watermarks, snapshot-backed per hub.
+    let lastSeenStore: LastSeenStore
 
     /// Global SSE connection state, for the UI's connection dot.
     private(set) var connectionState: SSEConnectionState = .idle
@@ -33,6 +41,7 @@ final class HubSession {
     /// back to pairing with a banner.
     @ObservationIgnored var onTerminalAuthFailure: (@MainActor () -> Void)?
 
+    @ObservationIgnored private let router: SyncEventRouter
     @ObservationIgnored private var sse: SSEClient?
     @ObservationIgnored private var consumeTask: Task<Void, Never>?
     @ObservationIgnored private var reportedAuthFailure = false
@@ -46,12 +55,24 @@ final class HubSession {
         guard let baseURL = URL(string: hubUrl) else { return nil }
         self.hubUrl = hubUrl
         self.baseURL = baseURL
-        self.authManager = AuthManager(
+        let authManager = AuthManager(
             baseURL: baseURL,
             credentialStore: credentialStore,
             performer: performer
         )
-        self.api = APIClient(baseURL: baseURL, authManager: authManager, performer: performer)
+        self.authManager = authManager
+        let api = APIClient(baseURL: baseURL, authManager: authManager, performer: performer)
+        self.api = api
+
+        // Per-hub snapshot directory: cold starts render the last known list
+        // instantly, then SSE/REST reconcile.
+        let snapshotDirectory = SnapshotLocations.directory(forHub: hubUrl)
+        let sessionStore = SessionListStore(api: api, snapshotDirectory: snapshotDirectory)
+        let machineStore = MachineStore(api: api, snapshotDirectory: snapshotDirectory)
+        self.sessionStore = sessionStore
+        self.machineStore = machineStore
+        self.lastSeenStore = LastSeenStore(snapshotDirectory: snapshotDirectory)
+        self.router = SyncEventRouter(sessions: sessionStore, machines: machineStore)
     }
 
     // MARK: - Lifecycle (driven by AppModel from scenePhase)
@@ -67,10 +88,21 @@ final class HubSession {
         }
     }
 
-    /// Parks the SSE retry loop; a live connection is left to the OS.
+    /// Parks the SSE retry loop; a live connection is left to the OS. Also
+    /// forces the debounced store snapshots to disk — background is the last
+    /// reliable moment before a possible process kill.
     func enterBackground() {
-        guard let sse else { return }
-        Task { await sse.suspend() }
+        if let sse {
+            Task { await sse.suspend() }
+        }
+        let sessionStore = sessionStore
+        let machineStore = machineStore
+        let lastSeenStore = lastSeenStore
+        Task {
+            await sessionStore.flushPersistence()
+            await machineStore.flushPersistence()
+            await lastSeenStore.flushPersistence()
+        }
     }
 
     /// Tears everything down. The session is unusable afterwards.
@@ -130,14 +162,12 @@ final class HubSession {
         case .handshake(let resume, let subscriptionId):
             lastResumeVerdict = resume
             self.subscriptionId = subscriptionId
-            // TODO(M2): `resume == .ok` means the replay that follows covers
-            // every missed event (skip the REST resync); `.gap` triggers a
-            // full session-list refetch. Routing lands with the M2 stores.
-        case .event:
-            // TODO(M2): route SyncEvents into the session-list store and the
-            // per-session message-window stores. Until those exist the global
-            // stream is consumed for connection state only.
-            break
+            // `.ok` = the replay that follows covers every missed event, so
+            // the REST resync is skipped; `.gap` triggers the full refetch
+            // (session list + cached details + machines).
+            router.handleHandshake(resume: resume)
+        case .event(let syncEvent):
+            router.route(syncEvent, scope: .global)
         }
     }
 

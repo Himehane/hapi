@@ -108,6 +108,20 @@ public struct SessionMetadata: Codable, Equatable, Sendable {
     public var hapiMcpUrl: String?
     public var slashCommands: [String]?
     public var tools: [String]?
+    // Per-flavor agent session ids (`MetadataSchema`) — the resume handle for
+    // each CLI. Needed by the `SessionSummary.agentSessionId` projection
+    // (`getSummaryAgentSessionId`, `shared/src/sessionSummary.ts`, ported in
+    // `SummaryPatching`). Same field list as the Android reference port.
+    public var claudeSessionId: String?
+    public var codexSessionId: String?
+    public var geminiSessionId: String?
+    public var opencodeSessionId: String?
+    public var grokSessionId: String?
+    public var agySessionId: String?
+    public var cursorSessionId: String?
+    public var kimiSessionId: String?
+    public var copilotSessionId: String?
+    public var piSessionId: String?
 
     public init(
         path: String,
@@ -124,7 +138,17 @@ public struct SessionMetadata: Codable, Equatable, Sendable {
         capabilities: SessionCapabilities? = nil,
         hapiMcpUrl: String? = nil,
         slashCommands: [String]? = nil,
-        tools: [String]? = nil
+        tools: [String]? = nil,
+        claudeSessionId: String? = nil,
+        codexSessionId: String? = nil,
+        geminiSessionId: String? = nil,
+        opencodeSessionId: String? = nil,
+        grokSessionId: String? = nil,
+        agySessionId: String? = nil,
+        cursorSessionId: String? = nil,
+        kimiSessionId: String? = nil,
+        copilotSessionId: String? = nil,
+        piSessionId: String? = nil
     ) {
         self.path = path
         self.host = host
@@ -141,5 +165,15 @@ public struct SessionMetadata: Codable, Equatable, Sendable {
         self.hapiMcpUrl = hapiMcpUrl
         self.slashCommands = slashCommands
         self.tools = tools
+        self.claudeSessionId = claudeSessionId
+        self.codexSessionId = codexSessionId
+        self.geminiSessionId = geminiSessionId
+        self.opencodeSessionId = opencodeSessionId
+        self.grokSessionId = grokSessionId
+        self.agySessionId = agySessionId
+        self.cursorSessionId = cursorSessionId
+        self.kimiSessionId = kimiSessionId
+        self.copilotSessionId = copilotSessionId
+        self.piSessionId = piSessionId
     }
 }
