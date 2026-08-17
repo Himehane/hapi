@@ -6,8 +6,13 @@ it shares only the protocol contract (`docs/api/`) and the golden fixtures
 
 ## Requirements
 
-- Xcode 16 or newer (iOS 17 SDK). No third-party dependencies in M0.
+- Xcode 16 or newer (iOS 17 SDK).
 - Deployment target: iOS 17.0.
+- Runtime dependencies (SPM, declared in `Packages/HapiKit/Package.swift`,
+  used only by the `HapiUI` target): `swiftlang/swift-markdown` (GFM parsing
+  for the custom renderer) and `raspu/Highlightr` (code highlighting, kept
+  behind a protocol so it is swappable). `HapiProtocol`/`HapiClient` stay
+  dependency-free.
 
 ## Build
 
@@ -49,6 +54,25 @@ ios/
                          shared/fixtures/**.
     HapiClient           Transport layer: APIClient, AuthManager (single-flight
                          refresh), SSEClient, @Observable stores, snapshots.
+    HapiUI               Rendering foundation (M2e). SwiftUI, no app coupling:
+                           Markdown/  MarkdownTransforms (string-level ports of
+                                      the web remark plugins: table repair,
+                                      indented-code disable, CJK autolink strip,
+                                      file-path + bare-URL detection, HrefPolicy)
+                                      and MarkdownRenderer (swift-markdown
+                                      visitor -> block tree -> SwiftUI views;
+                                      links flow through the \.hapiOpenURL
+                                      environment action, workspace files use
+                                      hapi-file://?path=&line= URLs)
+                           Code/      CodeBlockView + SyntaxHighlighting
+                                      protocol with the Highlightr engine
+                                      (off-main, cached, 400-line cap)
+                           Diff/      UnifiedDiffParser + DiffTextView
+                                      (hunks, +/- gutters, compact/expand)
+                           Theme/     HapiTheme palettes (light/dark/OLED)
+                                      via the \.hapiTheme environment
+                         The app target does not import HapiUI yet; it gets
+                         wired in with the chat views (M2f).
 ```
 
 The app target stays thin; features live in `HapiKit` so they are testable
