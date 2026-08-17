@@ -28,6 +28,7 @@ shared/fixtures/
 ├── chat/<name>.json         # one fixture per case
 ├── sse/<name>.json
 ├── pagination/<name>.json
+├── catalogs/modes.json      # reference tables (see Catalogs below)
 └── README.md
 ```
 
@@ -298,6 +299,29 @@ native ports should still break full ties with an ASCII id comparison.
 
 ---
 
+# Catalogs
+
+`catalogs/` holds reference tables generated from `shared/src` modules (not
+from the chat pipeline) by the same generator, with the same canonical
+serialization and drift gate. Never edit them by hand.
+
+- **`catalogs/modes.json`** — generated from `shared/src/modes.ts`
+  (`web/scripts/fixtures/modesCatalog.ts` imports the module directly, like
+  the chat pipeline):
+  - `permissionModesByFlavor`: for every `AGENT_FLAVORS` entry, the permission
+    modes offered for that flavor **in offer order**, each as
+    `{ mode, label, tone }` (`tone`: `'neutral' | 'info' | 'warning' |
+    'danger'`). An empty array means the flavor exposes no runtime permission
+    switching (e.g. `pi`).
+  - `codexCollaborationModes`: the codex-only collaboration axis as
+    `{ mode, label }` pairs.
+
+  Natives port this table (mode ids, order, labels, tones) and should compare
+  their port against the file in tests the same way as the chat fixtures:
+  canonical-JSON equality.
+
+---
+
 # Regeneration & drift gate
 
 ```bash
@@ -313,6 +337,7 @@ catch up. The web-side self-checks (all in `bun run test:web`) re-run every
 stored input against the live implementation and fail on any divergence from
 the stored expectations or from canonical serialization:
 
-- `web/src/chat/fixtures.test.ts` — chat suite
+- `web/src/chat/fixtures.test.ts` — chat suite (also rebuilds
+  `catalogs/modes.json` from `shared/src/modes.ts` and compares)
 - `web/src/lib/sessionPatch.fixtures.test.ts` — sse suite
 - `web/src/lib/message-window-store.fixtures.test.ts` — pagination suite

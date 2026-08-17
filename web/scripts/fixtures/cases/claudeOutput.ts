@@ -257,6 +257,231 @@ export const claudeOutputCases: FixtureCase[] = [
         ]
     },
     {
+        name: 'claude-system-away-summary',
+        description: 'Claude output family: system subtype away_summary (auto recap written by the local TUI on blur/focus) becomes an agent-event block with type recap; text comes from data.content.',
+        messages: [
+            wireMessage({
+                id: 'msg-user-201',
+                seq: 1,
+                createdAt: T0,
+                content: {
+                    role: 'user',
+                    content: { type: 'text', text: 'Continue where we left off.' }
+                }
+            }),
+            wireMessage({
+                id: 'msg-agent-202',
+                seq: 2,
+                createdAt: T0 + 1_500,
+                content: {
+                    role: 'agent',
+                    content: {
+                        type: 'output',
+                        data: {
+                            type: 'system',
+                            subtype: 'away_summary',
+                            uuid: 'a2b3c4d5-1e2f-4a3b-8c4d-e5f6a7b8c202',
+                            content: 'Was refactoring the SSE reconnect loop; next step is wiring the jittered backoff into useSSE.'
+                        }
+                    }
+                }
+            })
+        ]
+    },
+    {
+        name: 'claude-system-microcompact-boundary',
+        description: 'Claude output family: system subtype microcompact_boundary becomes an agent-event block with type microcompact; trigger/preTokens/tokensSaved come from data.microcompactMetadata.',
+        messages: [
+            wireMessage({
+                id: 'msg-user-211',
+                seq: 1,
+                createdAt: T0,
+                content: {
+                    role: 'user',
+                    content: { type: 'text', text: 'Keep going with the audit.' }
+                }
+            }),
+            wireMessage({
+                id: 'msg-agent-212',
+                seq: 2,
+                createdAt: T0 + 2_100,
+                content: {
+                    role: 'agent',
+                    content: {
+                        type: 'output',
+                        data: {
+                            type: 'system',
+                            subtype: 'microcompact_boundary',
+                            uuid: 'b3c4d5e6-2f3a-4b4c-9d5e-f6a7b8c9d212',
+                            microcompactMetadata: {
+                                trigger: 'auto',
+                                preTokens: 145200,
+                                tokensSaved: 38700
+                            }
+                        }
+                    }
+                }
+            })
+        ]
+    },
+    {
+        name: 'claude-system-compact-boundary',
+        description: 'Claude output family: system subtype compact_boundary becomes an agent-event block with type compact; trigger/preTokens come from data.compactMetadata.',
+        messages: [
+            wireMessage({
+                id: 'msg-user-221',
+                seq: 1,
+                createdAt: T0,
+                content: {
+                    role: 'user',
+                    content: { type: 'text', text: '/compact' }
+                }
+            }),
+            wireMessage({
+                id: 'msg-agent-222',
+                seq: 2,
+                createdAt: T0 + 3_200,
+                content: {
+                    role: 'agent',
+                    content: {
+                        type: 'output',
+                        data: {
+                            type: 'system',
+                            subtype: 'compact_boundary',
+                            uuid: 'c4d5e6f7-3a4b-4c5d-8e6f-a7b8c9d0e222',
+                            compactMetadata: {
+                                trigger: 'manual',
+                                preTokens: 167189
+                            }
+                        }
+                    }
+                }
+            })
+        ]
+    },
+    {
+        name: 'claude-task-notification',
+        description: 'Claude output family: a user-typed entry whose string content is a <task-notification> envelope normalizes as sidechain; the reducer extracts the <summary> as an agent-event of type message (no parentUuid on the wire keeps it in the root lane).',
+        messages: [
+            wireMessage({
+                id: 'msg-user-231',
+                seq: 1,
+                createdAt: T0,
+                content: {
+                    role: 'user',
+                    content: { type: 'text', text: 'Run the dev server in the background.' }
+                }
+            }),
+            wireMessage({
+                id: 'msg-agent-232',
+                seq: 2,
+                createdAt: T0 + 9_000,
+                content: {
+                    role: 'agent',
+                    content: {
+                        type: 'output',
+                        data: {
+                            type: 'user',
+                            uuid: 'd5e6f7a8-4b5c-4d6e-9f7a-b8c9d0e1f232',
+                            message: {
+                                content: '<task-notification><task-id>bash_1</task-id><summary>Background command "bun run dev" exited with code 0</summary></task-notification>'
+                            }
+                        }
+                    }
+                }
+            })
+        ]
+    },
+    {
+        name: 'claude-multi-block-image-result',
+        description: 'Claude output family: one assistant message carrying multiple blocks (text + tool_use) yields agent-text + tool-call from the same message; the tool_result arrives with array-of-parts content (text part + base64 image part) which is attached to tool.result verbatim.',
+        messages: [
+            wireMessage({
+                id: 'msg-user-241',
+                seq: 1,
+                createdAt: T0,
+                content: {
+                    role: 'user',
+                    content: { type: 'text', text: 'Take a screenshot of the failing test run.' }
+                }
+            }),
+            wireMessage({
+                id: 'msg-agent-242',
+                seq: 2,
+                createdAt: T0 + 2_800,
+                content: {
+                    role: 'agent',
+                    content: {
+                        type: 'output',
+                        data: {
+                            type: 'assistant',
+                            uuid: 'e6f7a8b9-5c6d-4e7f-8a8b-c9d0e1f2a242',
+                            parentUuid: null,
+                            timestamp: '2025-08-12T11:20:02.744Z',
+                            message: {
+                                role: 'assistant',
+                                model: 'claude-opus-4-1-20250805',
+                                content: [
+                                    { type: 'text', text: 'Grabbing the screenshot now.' },
+                                    {
+                                        type: 'tool_use',
+                                        id: 'toolu_01ShotFailRun1',
+                                        name: 'mcp__playwright__screenshot',
+                                        input: { selector: '#test-run-4' }
+                                    }
+                                ],
+                                usage: {
+                                    input_tokens: 1620,
+                                    output_tokens: 41,
+                                    cache_creation_input_tokens: 220,
+                                    cache_read_input_tokens: 64080
+                                }
+                            }
+                        }
+                    }
+                }
+            }),
+            wireMessage({
+                id: 'msg-agent-243',
+                seq: 3,
+                createdAt: T0 + 5_600,
+                content: {
+                    role: 'agent',
+                    content: {
+                        type: 'output',
+                        data: {
+                            type: 'user',
+                            uuid: 'f7a8b9c0-6d7e-4f8a-9b9c-d0e1f2a3b243',
+                            parentUuid: 'e6f7a8b9-5c6d-4e7f-8a8b-c9d0e1f2a242',
+                            timestamp: '2025-08-12T11:20:05.512Z',
+                            message: {
+                                role: 'user',
+                                content: [
+                                    {
+                                        type: 'tool_result',
+                                        tool_use_id: 'toolu_01ShotFailRun1',
+                                        content: [
+                                            { type: 'text', text: 'Screenshot captured.' },
+                                            {
+                                                type: 'image',
+                                                source: {
+                                                    type: 'base64',
+                                                    media_type: 'image/png',
+                                                    data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+                                                }
+                                            }
+                                        ],
+                                        is_error: false
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            })
+        ]
+    },
+    {
         name: 'claude-system-turn-duration',
         description: 'Claude output family: system subtype turn_duration is consumed by the reducer (folded into the preceding block, no visible event row). Expects only user-text + agent-text blocks; durationMs itself is advisory and outside the normative projection.',
         messages: [

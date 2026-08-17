@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fixtureCases } from './cases'
 import { FIXTURE_VERSION, toFixtureInput, type FixtureCase, type FixtureDocument, type FixtureInput } from './fixtureTypes'
+import { buildModesCatalog } from './modesCatalog'
 import { buildPaginationFixtureDocument } from './pagination/build'
 import { paginationFixtureCases } from './pagination/cases'
 import { runFixturePipeline } from './pipeline'
@@ -78,9 +79,15 @@ export async function generateAllFixtures(): Promise<void> {
     }
     pruneSuite(pagination)
 
+    // Catalogs: reference tables generated from shared/src modules (not from
+    // the chat pipeline). Same canonical serialization and drift gate.
+    const catalogsDir = join(FIXTURES_DIR, 'catalogs')
+    mkdirSync(catalogsDir, { recursive: true })
+    writeFileSync(join(catalogsDir, 'modes.json'), toCanonicalJson(buildModesCatalog()))
+
     writeFileSync(join(FIXTURES_DIR, 'VERSION'), `${FIXTURE_VERSION}\n`)
     console.log(
         `Wrote ${chat.names.size} chat + ${sse.names.size} sse + ${pagination.names.size} pagination fixtures `
-        + `(fixtureVersion ${FIXTURE_VERSION}) to ${FIXTURES_DIR}`
+        + `+ catalogs/modes.json (fixtureVersion ${FIXTURE_VERSION}) to ${FIXTURES_DIR}`
     )
 }
