@@ -13,7 +13,7 @@ independent from the web app; shares only the protocol contract
 |---|---|---|
 | `:core:protocol` | **pure Kotlin/JVM** (no Android) | Hub wire types (kotlinx.serialization), chat pipeline port (normalize → reduce → tool groups), message-window/pagination logic, versioned patch application, modes catalog, git output parsers, `BindLink` pairing-link parsing. **M1a landed**: `wire/` (`HapiJson`, `Session`/`SessionPatch`/`SessionSummary`, `DecryptedMessage`, `AgentState`, `Machine`, 13-type `SyncEvent` union via `SyncEvents.parse`, `MessagesResponse`), `catalog/` (flavors + permission/collaboration modes), `patch/SessionPatching.kt` (exact port of `web/src/lib/sessionPatch.ts`), all fixture-verified. |
 | `:core:data` | Android library | Transport + persistence. **M1b landed** — `auth/` (`JwtPeek`, `CredentialStore` interface + `EncryptedPrefsCredentialStore`/in-memory, `HubUrls` origin normalization, `HubRegistry` roster behind a storage seam, `AuthInterceptor` + single-flight `TokenAuthenticator` with `ensureFreshToken()` and terminal `AuthEvents`), `api/` (`HapiApi` — plain OkHttp + kotlinx.serialization, one suspend fun per v1 endpoint incl. generated-image bytes via a 256 MB OkHttp cache and the multipart transcription helper; `ApiError` with `(status, code)`), `HubSession` per-hub factory; MockWebServer-tested. **M1c landed** — `sse/`: `SseEngine` (per-key `global`/`session:<id>` loops, `connection-changed` handshake gate with `ok`/`gap` resume verdict, per-key `Last-Event-ID` cursors advanced only after downstream hand-off (at-least-once), 10 s connect deadline, 90 s watchdog, 1 s→30 s→300 s backoff + jitter, background retry deferral + 45 s foreground stale check, one silent 401 re-auth per cycle), `OkHttpSseTransport` (dedicated client, `readTimeout=0`, incremental gzip decoding pinned by test, `acceptEncodingIdentity` fallback), `SyncEventRouter` → `SyncTargets` seam; virtual-time tested. Still to come: StateFlow stores + AtomicFile JSON snapshots (M2), FCM registration + WorkManager workers (M4). |
-| `:app` | Android application | Compose UI, navigation, deep links (`hapicompanion://bind`), FCM service (M4), hand-rolled DI (`AppGraph`, no Hilt). |
+| `:app` | Android application | Compose UI, navigation, deep links (`hapicompanion://bind`), FCM service (M4), hand-rolled DI (`AppGraph`, no Hilt). **M1d landed** — `di/` (`AppGraph` process singletons: Preferences DataStore-backed `HubRegistryStorage`, `EncryptedPrefsCredentialStore`, `HubRegistry`, auth-terminal fan-out; `HubGraph` per active hub: `HubSession` + `SseEngine` wired to `ensureFreshToken`, recreated on hub switch; `LocalAppGraph` CompositionLocal + `viewModelFactory` helper), `feature/pairing/` (landing / zxing `ScanContract` QR scan / manual entry sharing one `PairingViewModel`: health + protocol check → `POST /api/auth` → persist + activate), `feature/home/` placeholder (hub switcher + sign-out), `Navigation.kt` (pairing ⇄ home, auth-terminal → pairing with banner), bind deep-link handling in `MainActivity`. |
 
 Dependency direction: `:app` → `:core:data` → `:core:protocol`.
 
@@ -56,6 +56,44 @@ only the needed projects:
 
 CI (`.github/workflows/android.yml`) runs the protocol tests and
 `:app:assembleDebug` on every PR touching `android/**` or `shared/fixtures/**`.
+
+## Pairing
+
+HAPI is self-hosted: the app talks to a hub **you** run. Pairing = giving the
+app a hub URL plus that hub's access token; the app verifies the hub
+(`GET /health`, protocol version), exchanges the token for a JWT
+(`POST /api/auth`), stores the credentials in `EncryptedSharedPreferences`
+(keyed per hub — multiple hubs can be paired, one active at a time), and
+lands on the session UI. Three entry points:
+
+1. **QR scan** — the hub prints two QR codes when started with `--relay`
+   (also under web Settings → Companion pairing). The in-app scanner accepts
+   both: the companion deeplink (`hapicompanion://bind?hub=…&code=…`) and the
+   web direct-access URL (`…?hub=…&token=…`).
+2. **Deep link** — scanning the companion QR with the system camera opens the
+   app directly with a confirm screen (`hapicompanion://bind` intent filter).
+3. **Manual entry** — hub URL + access token, for hubs started without
+   `--relay`.
+
+### Pairing against a local dev hub
+
+```sh
+# repo root: start the hub (prints the access token + QR codes)
+bun run dev
+
+# emulator: the host machine is 10.0.2.2
+#   Hub URL:       http://10.0.2.2:3006
+#   Access token:  from the hub terminal / hub settings.json (CLI_API_TOKEN)
+# physical device: use the machine's LAN IP, e.g. http://192.168.1.10:3006
+adb shell am start -a android.intent.action.VIEW \
+  -d "hapicompanion://bind?hub=http%3A%2F%2F10.0.2.2%3A3006&code=<accessToken>"  # optional: exercises the deep link
+```
+
+Plain-`http` LAN/emulator hubs work in all build types: the manifest opts in
+to cleartext traffic (`android:usesCleartextTraffic="true"`), because
+self-hosted LAN hubs are the primary pairing target and Android cannot scope
+the exemption to local addresses only. Sign-out (home → Sign out) deletes the
+stored credentials for that hub and drops it from the roster.
 
 ## Milestones (track B of the native-clients plan)
 

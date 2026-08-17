@@ -9,4 +9,48 @@
     <string name="diff_binary_file">Binary file not shown</string>
     <string name="diff_show_more">Show %1$d more lines</string>
     <string name="diff_collapse">Collapse</string>
+
+    <!-- Pairing (B-M1d) -->
+    <string name="pairing_title">Pair with your hub</string>
+    <string name="pairing_intro">HAPI is self-hosted: your coding agents run on your own machines behind a HAPI hub you operate. Pair this app with that hub to watch and steer them from your phone.</string>
+    <string name="pairing_hint">Scan the “Companion app” QR code your hub prints on startup (with --relay), or enter the hub URL and access token by hand.</string>
+    <string name="pairing_scan_qr">Scan QR code</string>
+    <string name="pairing_manual_entry">Enter manually</string>
+    <string name="pairing_notice_dismiss">Dismiss</string>
+    <string name="pairing_error_dismiss">Dismiss</string>
+    <string name="pairing_validating">Checking hub…</string>
+    <string name="pairing_confirm_title">Pair with this hub?</string>
+    <string name="pairing_confirm_already">This hub is already paired on this device.</string>
+    <string name="pairing_confirm_pair">Pair now</string>
+    <string name="pairing_confirm_switch">Use existing pairing</string>
+    <string name="pairing_confirm_repair">Re-pair with the new code</string>
+    <string name="pairing_confirm_cancel">Cancel</string>
+    <string name="pairing_invalid_link">That pairing link is invalid or incomplete.</string>
+    <string name="pairing_back">Back</string>
+
+    <!-- Manual entry -->
+    <string name="pairing_manual_title">Manual pairing</string>
+    <string name="pairing_manual_hint">Find both values in the hub terminal on startup, or in the web app under Settings → Companion pairing.</string>
+    <string name="pairing_hub_url_label">Hub URL</string>
+    <string name="pairing_hub_url_placeholder">http://192.168.1.10:3006</string>
+    <string name="pairing_token_label">Access token</string>
+    <string name="pairing_token_placeholder">Paste the access token</string>
+    <string name="pairing_pair_button">Pair</string>
+
+    <!-- QR scan -->
+    <string name="pairing_scan_title">Scan pairing QR</string>
+    <string name="pairing_scan_prompt">Point the camera at the pairing QR code</string>
+    <string name="pairing_scan_not_pairing_qr">That QR code is not a HAPI pairing code. Scan one of the two QR codes your hub prints (Companion app or Web app).</string>
+    <string name="pairing_scan_again">Scan again</string>
+    <string name="pairing_scan_permission_rationale">Camera access is needed to scan the pairing QR code. You can also pair manually instead.</string>
+    <string name="pairing_scan_grant_camera">Grant camera access</string>
+
+    <!-- Home placeholder (until M2b session list) -->
+    <string name="home_active_hub">Active hub</string>
+    <string name="home_sessions_placeholder">Your agent sessions will appear here — session list lands in M2b.</string>
+    <string name="home_switch_hub">Switch hub</string>
+    <string name="home_pair_another">Pair another hub…</string>
+    <string name="home_sign_out">Sign out</string>
+    <string name="home_sign_out_message">Remove this hub pairing? The stored credentials are deleted from this device (the hub itself is untouched).</string>
+    <string name="home_cancel">Cancel</string>
 </resources>

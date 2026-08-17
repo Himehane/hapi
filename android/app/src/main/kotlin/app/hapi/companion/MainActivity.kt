@@ -1,69 +1,58 @@
 package app.hapi.companion
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.CompositionLocalProvider
+import app.hapi.companion.di.AppGraph
+import app.hapi.companion.di.LocalAppGraph
 import app.hapi.companion.ui.theme.HapiTheme
-import app.hapi.protocol.wire.SUPPORTED_PROTOCOL_VERSION
+import app.hapi.protocol.pairing.BindLink
 
 /**
- * Single-activity entry point. M1d replaces the placeholder with the pairing
- * flow (QR scan + `hapicompanion://bind` deep link handling -- the intent
- * filter is already declared in the manifest) and Navigation Compose.
+ * Single-activity entry point (`launchMode="singleTask"`). Hosts the
+ * Navigation Compose graph and feeds `hapicompanion://bind?hub=…&code=…`
+ * deep links — cold start and [onNewIntent] — into
+ * [AppGraph.pendingBindLink]; all parsing stays in [BindLink].
  */
 class MainActivity : ComponentActivity() {
+
+    private val appGraph: AppGraph get() = (application as HapiApp).appGraph
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (savedInstanceState == null) {
+            // Only a fresh launch consumes the launching intent — after a
+            // config change / process restore the same (already-consumed)
+            // intent is redelivered and must not resurrect the confirm card.
+            handleBindIntent(intent)
+        }
         setContent {
             HapiTheme {
-                PlaceholderScreen()
+                CompositionLocalProvider(LocalAppGraph provides appGraph) {
+                    HapiNavigation()
+                }
             }
         }
     }
-}
 
-@Composable
-private fun PlaceholderScreen() {
-    Surface(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = "HAPI",
-                style = MaterialTheme.typography.displayLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Companion scaffold · protocol v$SUPPORTED_PROTOCOL_VERSION",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleBindIntent(intent)
     }
-}
 
-@Preview(showBackground = true)
-@Composable
-private fun PlaceholderScreenPreview() {
-    HapiTheme {
-        PlaceholderScreen()
+    private fun handleBindIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val data = intent.data ?: return
+        val link = BindLink.parse(data.toString())
+        if (link != null) {
+            appGraph.pendingBindLink.value = link
+        } else if (BindLink.SCHEME.equals(data.scheme, ignoreCase = true)) {
+            // Ours but malformed (truncated QR, mangled copy/paste).
+            appGraph.pairingNotice.value = getString(R.string.pairing_invalid_link)
+        }
     }
 }
