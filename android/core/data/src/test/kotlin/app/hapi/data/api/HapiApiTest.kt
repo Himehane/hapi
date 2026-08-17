@@ -240,6 +240,36 @@ class HapiApiTest {
     }
 
     @Test
+    fun `machine codex models decode and rpc_target_missing surfaces as coded ApiError`() {
+        server.enqueue(
+            ok(
+                """{"success":true,"models":[{"id":"gpt-5.2-codex","displayName":"GPT-5.2 Codex","isDefault":true,"supportedReasoningEfforts":["low","high"],"serviceTiers":["standard","fast"]}]}"""
+            )
+        )
+
+        val response = runBlocking { session.api.getMachineCodexModels("m1") }
+        assertEquals("/api/machines/m1/codex-models", server.takeRequest().path)
+        assertTrue(response.success)
+        val model = response.models!!.single()
+        assertEquals("gpt-5.2-codex", model.id)
+        assertTrue(model.isDefault)
+        assertContentEquals(listOf("standard", "fast"), model.serviceTiers)
+
+        // Runner without the machine RPC: 503 + code (the create form hides the picker).
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(503)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"success":false,"error":"no rpc","code":"rpc_target_missing"}""")
+        )
+        val error = assertFailsWith<ApiError> {
+            runBlocking { session.api.getMachineCodexModels("m1") }
+        }
+        assertEquals(503, error.status)
+        assertEquals("rpc_target_missing", error.code)
+    }
+
+    @Test
     fun `unregister device is a DELETE with a json body`() {
         server.enqueue(ok("""{"ok":true}"""))
 

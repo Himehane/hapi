@@ -5,6 +5,7 @@ import app.hapi.protocol.wire.ApprovePermissionRequest
 import app.hapi.protocol.wire.AuthRequest
 import app.hapi.protocol.wire.AuthResponse
 import app.hapi.protocol.wire.CancelMessageResponse
+import app.hapi.protocol.wire.CodexModelsResponse
 import app.hapi.protocol.wire.DeleteUploadRequest
 import app.hapi.protocol.wire.DeleteUploadResponse
 import app.hapi.protocol.wire.DenyPermissionRequest
@@ -458,6 +459,15 @@ class HapiApi(
             url("api", "machines", machineId, "paths", "exists").build(),
             MachinePathsExistsRequest(paths).toJsonBody(),
         )
+
+    /**
+     * `GET /api/machines/:id/codex-models` — pre-spawn codex model catalog
+     * (RPC-wrapped: check `success`). A runner without the machine RPC answers
+     * 503 with code `rpc_target_missing` → [ApiError]; callers hide the picker
+     * (web ref: `useCodexModels`). Added in B-M3d.
+     */
+    suspend fun getMachineCodexModels(machineId: String): CodexModelsResponse =
+        request("GET", url("api", "machines", machineId, "codex-models").build())
 
     // ---------------------------------------------------------- visibility --
 

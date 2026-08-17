@@ -27,6 +27,10 @@ import app.hapi.companion.feature.chat.ChatMedia
 import app.hapi.companion.feature.chat.ChatScreen
 import app.hapi.companion.feature.chat.ChatViewModel
 import app.hapi.companion.feature.home.HomeScreen
+import app.hapi.companion.feature.newsession.ApiNewSessionGateway
+import app.hapi.companion.feature.newsession.NewSessionPrefs
+import app.hapi.companion.feature.newsession.NewSessionScreen
+import app.hapi.companion.feature.newsession.NewSessionViewModel
 import app.hapi.companion.feature.pairing.ManualEntryScreen
 import app.hapi.companion.feature.pairing.PairingScreen
 import app.hapi.companion.feature.pairing.PairingUiState
@@ -47,6 +51,12 @@ object Routes {
     const val CHAT = "chat/{sessionId}"
 
     fun chat(sessionId: String) = "chat/$sessionId"
+
+    /** New-session form (B-M3d); optional machine preselect. */
+    const val NEW_SESSION = "newSession?machineId={machineId}"
+
+    fun newSession(machineId: String? = null) =
+        if (machineId == null) "newSession" else "newSession?machineId=$machineId"
 
     /** Nested pairing graph (landing ⇄ scan ⇄ manual share one ViewModel). */
     const val PAIRING = "pairing"
@@ -131,6 +141,7 @@ fun HapiNavigation() {
                 onPairAnotherHub = { navController.navigate(Routes.PAIRING) },
                 onSignOut = { scope.launch { graph.signOut(activeHubUrl) } },
                 onOpenSession = { sessionId -> navController.navigate(Routes.chat(sessionId)) },
+                onNewSession = { navController.navigate(Routes.newSession()) },
             )
         }
 
@@ -152,6 +163,38 @@ fun HapiNavigation() {
                     }
                 },
                 onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = Routes.NEW_SESSION,
+            arguments = listOf(
+                navArgument("machineId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { entry ->
+            val hubGraph = activeHubGraph ?: return@composable
+            val machineId = entry.arguments?.getString("machineId")
+            val holder = viewModel<NewSessionViewModelHolder>(
+                key = "newSession:${hubGraph.hubUrl}",
+                factory = viewModelFactory {
+                    NewSessionViewModelHolder(hubGraph, graph.newSessionPrefs, machineId)
+                },
+            )
+            NewSessionScreen(
+                viewModel = holder.viewModel,
+                onBack = { navController.popBackStack() },
+                onCreated = { sessionId ->
+                    // Navigate-replace: the form pops so back from the new
+                    // chat lands on the session list, not a stale form.
+                    navController.navigate(Routes.chat(sessionId)) {
+                        popUpTo(Routes.HOME)
+                        launchSingleTop = true
+                    }
+                },
             )
         }
 
@@ -259,6 +302,27 @@ private class ChatViewModelHolder(hubGraph: HubGraph, sessionId: String) : ViewM
 
     override fun onCleared() {
         viewModel.stop()
+        scope.cancel()
+    }
+}
+
+/** Shell for the create form (B-M3d); draft persistence survives via prefs. */
+private class NewSessionViewModelHolder(
+    hubGraph: HubGraph,
+    prefs: NewSessionPrefs,
+    initialMachineId: String?,
+) : ViewModel() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val viewModel = NewSessionViewModel(
+        gateway = ApiNewSessionGateway(hubGraph.session.api),
+        machineStore = hubGraph.machineStore,
+        prefs = prefs,
+        scope = scope,
+        initialMachineId = initialMachineId,
+    )
+
+    override fun onCleared() {
         scope.cancel()
     }
 }
