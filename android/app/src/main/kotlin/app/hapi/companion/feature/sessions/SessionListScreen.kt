@@ -1,0 +1,571 @@
+package app.hapi.companion.feature.sessions
+
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import app.hapi.companion.ui.theme.HapiTheme
+import app.hapi.protocol.catalog.Flavors
+import app.hapi.protocol.wire.PendingRequest
+import app.hapi.protocol.wire.SessionSummary
+import app.hapi.protocol.wire.SessionSummaryMetadata
+import app.hapi.protocol.wire.SummaryText
+import app.hapi.protocol.wire.TodoProgress
+
+/**
+ * The session list (B-M2b) — standalone screen: navigation and app graph stay
+ * outside; taps surface through [onOpenSession].
+ *
+ * Inventory (mirrors the web sidebar semantics):
+ * - offline banner over snapshot data, machine filter chips (≥ 2 machines),
+ *   pull-to-refresh, empty state;
+ * - pinned section first (the sort already puts globalPinned/pinned rows on
+ *   top; a header + divider make the boundary visible);
+ * - per row: status dot (active / thinking pulse), title, flavor + machine
+ *   labels, summary/path line, relative `updatedAt`, pending-request badge,
+ *   todo-progress chip, unread dot;
+ * - long-press → pin (none/project/global) + archive sheet with optimistic
+ *   store updates; failures land in a snackbar.
+ *
+ * WIRING(M-integration): host constructs the ViewModel from AppGraph and
+ * passes a real `onOpenSession` (navigation). This screen starts/stops the
+ * ViewModel — and with it the global SSE subscription — with its composition.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SessionListScreen(
+    viewModel: SessionListViewModel,
+    onOpenSession: (sessionId: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val state by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    var sheetRow by remember { mutableStateOf<SessionRowUi?>(null) }
+
+    DisposableEffect(viewModel) {
+        viewModel.start()
+        onDispose { viewModel.stop() }
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.errors.collect { error ->
+            val label = when (error) {
+                is SessionListError.PinFailed -> "Pin failed"
+                is SessionListError.ArchiveFailed -> "Archive failed"
+            }
+            snackbarHostState.showSnackbar(error.message?.let { "$label: $it" } ?: label)
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (state.isOffline) {
+                OfflineBanner()
+            }
+            if (state.showMachineFilterBar) {
+                MachineFilterRow(
+                    filters = state.machineFilters,
+                    activeFilter = state.activeMachineFilter,
+                    onSelect = viewModel::setMachineFilter,
+                )
+            }
+            PullToRefreshBox(
+                isRefreshing = state.isRefreshing,
+                onRefresh = viewModel::refresh,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            ) {
+                if (state.rows.isEmpty()) {
+                    EmptyState(hasLoaded = state.hasLoaded, isOffline = state.isOffline)
+                } else {
+                    SessionRows(
+                        rows = state.rows,
+                        onOpen = { sessionId ->
+                            viewModel.onSessionOpened(sessionId)
+                            onOpenSession(sessionId)
+                        },
+                        onLongPress = { sheetRow = it },
+                    )
+                }
+            }
+        }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+
+    sheetRow?.let { row ->
+        SessionActionsSheet(
+            row = row,
+            onDismiss = { sheetRow = null },
+            onSetPinMode = { mode ->
+                viewModel.setPinMode(row.id, mode)
+                sheetRow = null
+            },
+            onArchive = {
+                viewModel.archiveSession(row.id)
+                sheetRow = null
+            },
+        )
+    }
+}
+
+// ------------------------------------------------------------------ list --
+
+@Composable
+private fun SessionRows(
+    rows: List<SessionRowUi>,
+    onOpen: (String) -> Unit,
+    onLongPress: (SessionRowUi) -> Unit,
+) {
+    // The sort contract puts globalPinned/pinned rows first; the boundary
+    // index is where the pinned section ends.
+    val pinnedCount = rows.takeWhile {
+        it.summary.globalPinned == true || it.summary.pinned == true
+    }.size
+
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        if (pinnedCount > 0) {
+            item(key = "header-pinned") { SectionHeader("Pinned") }
+        }
+        items(rows.take(pinnedCount), key = { it.id }) { row ->
+            SessionRow(row, onOpen = onOpen, onLongPress = onLongPress)
+        }
+        if (pinnedCount in 1 until rows.size) {
+            item(key = "divider-pinned") {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                SectionHeader("Sessions")
+            }
+        }
+        items(rows.drop(pinnedCount), key = { it.id }) { row ->
+            SessionRow(row, onOpen = onOpen, onLongPress = onLongPress)
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SessionRow(
+    row: SessionRowUi,
+    onOpen: (String) -> Unit,
+    onLongPress: (SessionRowUi) -> Unit,
+) {
+    val summary = row.summary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { onOpen(row.id) },
+                onLongClick = { onLongPress(row) },
+            )
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        StatusIndicator(
+            active = summary.active,
+            thinking = summary.thinking,
+            modifier = Modifier.padding(top = 5.dp),
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = row.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (row.unread) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (row.unread) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    UnreadDot()
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = formatRelativeAge(System.currentTimeMillis(), summary.updatedAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            MetaLine(row)
+            row.subtitle?.let { subtitle ->
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            BadgeLine(summary)
+        }
+    }
+}
+
+@Composable
+private fun MetaLine(row: SessionRowUi) {
+    val flavorLabel = row.flavor?.let(Flavors::label)
+    val worktree = row.summary.metadata?.worktree
+    val parts = buildList {
+        flavorLabel?.let(::add)
+        row.machineLabel?.let(::add)
+        worktree?.let { add(it.name.ifBlank { it.branch }) }
+    }
+    if (parts.isEmpty()) return
+    Text(
+        text = parts.joinToString(" · "),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+@Composable
+private fun BadgeLine(summary: SessionSummary) {
+    val hasPending = summary.pendingRequestsCount > 0
+    val todoProgress = summary.todoProgress
+    if (!hasPending && todoProgress == null) return
+    Row(
+        modifier = Modifier.padding(top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (hasPending) {
+            PendingBadge(
+                count = summary.pendingRequestsCount,
+                kinds = summary.pendingRequestKinds,
+                requests = summary.pendingRequests,
+            )
+        }
+        todoProgress?.let { TodoChip(it) }
+    }
+}
+
+/**
+ * Pending badge: authoritative `pendingRequestsCount` + kind wording; the
+ * capped `pendingRequests` slice names the first tool.
+ */
+@Composable
+private fun PendingBadge(count: Int, kinds: List<String>, requests: List<PendingRequest>) {
+    val needsInput = kinds.contains("input") && !kinds.contains("permission")
+    val label = when {
+        needsInput -> "needs input"
+        requests.isNotEmpty() -> "approve ${requests.first().tool}"
+        else -> "pending"
+    }
+    val text = if (count > 1) "$count · $label" else label
+    Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        shape = RoundedCornerShape(6.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun TodoChip(progress: TodoProgress) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = RoundedCornerShape(6.dp),
+    ) {
+        Text(
+            text = "☑ ${progress.completed}/${progress.total}",
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun UnreadDot() {
+    Box(
+        modifier = Modifier
+            .size(8.dp)
+            .background(MaterialTheme.colorScheme.primary, CircleShape),
+    )
+}
+
+/** Solid dot for active, pulsing while thinking, hollow-ish gray when idle. */
+@Composable
+private fun StatusIndicator(active: Boolean, thinking: Boolean, modifier: Modifier = Modifier) {
+    val color = when {
+        active -> Color(0xFF34C759)
+        else -> MaterialTheme.colorScheme.outlineVariant
+    }
+    val alpha = if (thinking) {
+        val transition = rememberInfiniteTransition(label = "thinking-pulse")
+        transition.animateFloat(
+            initialValue = 1f,
+            targetValue = 0.25f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 700, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "thinking-alpha",
+        ).value
+    } else {
+        1f
+    }
+    Box(
+        modifier = modifier
+            .size(10.dp)
+            .alpha(alpha)
+            .background(color, CircleShape),
+    )
+}
+
+// --------------------------------------------------------------- chrome --
+
+@Composable
+private fun MachineFilterRow(
+    filters: List<MachineFilterUi>,
+    activeFilter: String?,
+    onSelect: (String?) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FilterChip(
+            selected = activeFilter == null,
+            onClick = { onSelect(null) },
+            label = { Text("All") },
+        )
+        filters.forEach { filter ->
+            val label = filter.label.ifBlank { "Unknown machine" }
+            FilterChip(
+                selected = activeFilter == filter.id,
+                onClick = { onSelect(if (activeFilter == filter.id) null else filter.id) },
+                label = { Text("$label · ${filter.sessionCount}") },
+            )
+        }
+    }
+}
+
+@Composable
+private fun OfflineBanner() {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = "Offline — showing cached sessions",
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+        )
+    }
+}
+
+@Composable
+private fun EmptyState(hasLoaded: Boolean, isOffline: Boolean) {
+    // verticalScroll keeps the pull-to-refresh gesture available even though
+    // there is nothing to scroll.
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = when {
+                !hasLoaded && !isOffline -> "Loading sessions…"
+                isOffline -> "Hub unreachable"
+                else -> "No sessions yet"
+            },
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Spacer(modifier = Modifier.size(8.dp))
+        Text(
+            text = when {
+                !hasLoaded && !isOffline -> "Fetching the session list from the hub."
+                isOffline -> "Pull to retry once you are back online."
+                else -> "Start an agent with the hapi CLI and it will appear here."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SessionActionsSheet(
+    row: SessionRowUi,
+    onDismiss: () -> Unit,
+    onSetPinMode: (PinMode) -> Unit,
+    onArchive: () -> Unit,
+) {
+    val summary = row.summary
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Text(
+            text = row.title,
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+        HorizontalDivider()
+        if (summary.pinned == true || summary.globalPinned == true) {
+            SheetAction("Unpin") { onSetPinMode(PinMode.None) }
+        }
+        if (summary.pinned != true) {
+            SheetAction("Pin to project") { onSetPinMode(PinMode.Project) }
+        }
+        if (summary.globalPinned != true) {
+            SheetAction("Pin globally") { onSetPinMode(PinMode.Global) }
+        }
+        SheetAction("Archive", destructive = true, onClick = onArchive)
+        Spacer(modifier = Modifier.size(16.dp))
+    }
+}
+
+@Composable
+private fun SheetAction(text: String, destructive: Boolean = false, onClick: () -> Unit) {
+    ListItem(
+        headlineContent = {
+            Text(
+                text = text,
+                color = if (destructive) MaterialTheme.colorScheme.error else Color.Unspecified,
+            )
+        },
+        modifier = Modifier.clickable(onClick = onClick),
+    )
+}
+
+// -------------------------------------------------------------- preview --
+
+private fun previewRow(
+    id: String,
+    title: String,
+    active: Boolean = false,
+    thinking: Boolean = false,
+    unread: Boolean = false,
+    pinned: Boolean = false,
+    pending: Int = 0,
+    todo: TodoProgress? = null,
+): SessionRowUi = SessionRowUi(
+    summary = SessionSummary(
+        id = id,
+        active = active,
+        thinking = thinking,
+        activeAt = 0,
+        updatedAt = System.currentTimeMillis() - 300_000,
+        pinned = pinned,
+        metadata = SessionSummaryMetadata(
+            path = "/data/github/hapi",
+            flavor = "claude",
+            summary = SummaryText("Porting the session list to Compose"),
+        ),
+        todoProgress = todo,
+        pendingRequestsCount = pending,
+        pendingRequestKinds = if (pending > 0) listOf("permission") else emptyList(),
+        pendingRequests = if (pending > 0) {
+            listOf(PendingRequest(id = "r1", kind = "permission", tool = "Bash", since = 0))
+        } else {
+            emptyList()
+        },
+    ),
+    title = title,
+    subtitle = "Porting the session list to Compose",
+    machineLabel = "devbox",
+    flavor = "claude",
+    unread = unread,
+)
+
+@Preview(showBackground = true)
+@Composable
+private fun SessionRowsPreview() {
+    HapiTheme {
+        Surface {
+            SessionRows(
+                rows = listOf(
+                    previewRow("s1", "Pinned build fix", pinned = true),
+                    previewRow("s2", "Session list UI", active = true, thinking = true, unread = true, todo = TodoProgress(3, 5)),
+                    previewRow("s3", "Fixture sweep", active = true, pending = 2),
+                    previewRow("s4", "Old research"),
+                ),
+                onOpen = {},
+                onLongPress = {},
+            )
+        }
+    }
+}

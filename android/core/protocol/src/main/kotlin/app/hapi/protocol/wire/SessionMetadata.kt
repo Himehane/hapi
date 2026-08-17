@@ -32,6 +32,19 @@ data class SessionMetadata(
     val hapiMcpUrl: String? = null,
     val slashCommands: List<String>? = null,
     val tools: List<String>? = null,
+    // Per-flavor agent session ids (`MetadataSchema`) — the resume handle for
+    // each CLI. Needed by the `SessionSummary.agentSessionId` projection
+    // (`getSummaryAgentSessionId`, `shared/src/sessionSummary.ts`).
+    val claudeSessionId: String? = null,
+    val codexSessionId: String? = null,
+    val geminiSessionId: String? = null,
+    val opencodeSessionId: String? = null,
+    val grokSessionId: String? = null,
+    val agySessionId: String? = null,
+    val cursorSessionId: String? = null,
+    val kimiSessionId: String? = null,
+    val copilotSessionId: String? = null,
+    val piSessionId: String? = null,
 )
 
 /** `metadata.summary` on the detail session (`{text, updatedAt}`). */
