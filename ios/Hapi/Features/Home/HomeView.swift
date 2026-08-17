@@ -1,28 +1,29 @@
 import HapiClient
 import SwiftUI
 
-/// Post-pairing placeholder: shows the active hub with its live global-SSE
-/// connection state and the hub switcher (switch / add / sign out). The
-/// session list replaces the body content in M2.
-struct HomePlaceholderView: View {
+/// Post-pairing home: the session list for the active hub, with the hub
+/// switcher (switch / add / sign out) and the live global-SSE connection dot
+/// in the toolbar. Tapping a row pushes the M2f chat placeholder.
+struct HomeView: View {
     let session: HubSession
 
     @Environment(AppModel.self) private var model
     @State private var confirmSignOut = false
+    @State private var path: [String] = []
 
     var body: some View {
         @Bindable var model = model
-        NavigationStack {
+        NavigationStack(path: $path) {
             VStack(spacing: 0) {
                 if let failedHub = model.authFailureNotice {
                     authFailureBanner(failedHub: failedHub)
                 }
-                // TODO(M2a): replace HomePlaceholderView with SessionListView.
-                ContentUnavailableView {
-                    Label("Paired with \(HubDisplay.host(session.hubUrl))", systemImage: "checkmark.seal")
-                } description: {
-                    Text("Sessions arrive with M2.")
+                SessionListView(session: session) { sessionId in
+                    path.append(sessionId)
                 }
+            }
+            .navigationDestination(for: String.self) { sessionId in
+                SessionDetailStubView(sessionId: sessionId)
             }
             .navigationTitle(HubDisplay.host(session.hubUrl))
             .navigationBarTitleDisplayMode(.inline)

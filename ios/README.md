@@ -38,23 +38,41 @@ ios/
   Hapi.xcodeproj/        Hand-rolled minimal project (objectVersion 77).
   Hapi/                  App target sources. This is an Xcode 16 "synchronized
                          folder": add files here and they join the target
-                         without touching project.pbxproj. As of M1d:
+                         without touching project.pbxproj. As of M2a:
                            Models/    AppModel (pairing state machine, hub
                                       switching, deep-link routing, scene
                                       phase) + HubSession (per-active-hub
                                       APIClient/AuthManager/global SSEClient,
-                                      connection state for the UI).
+                                      connection state, the M2a stores —
+                                      session list / machines / last-seen —
+                                      and the SyncEventRouter feeding them).
                            Features/  Pairing/ (welcome, VisionKit QR scan,
                                       manual entry, shared confirm + error
-                                      states) and Home/ (post-pairing
-                                      placeholder with hub switcher and
-                                      connection dot; session list lands M2).
+                                      states), Home/ (session list host with
+                                      hub switcher + connection dot in the
+                                      toolbar), Sessions/ (SessionListView:
+                                      status dot with thinking pulse, title
+                                      cascade, flavor·machine·worktree meta,
+                                      pending/todo badges, unread dots,
+                                      pinned section, machine filter chips,
+                                      pull-to-refresh, long-press
+                                      pin/archive; row taps push an M2f chat
+                                      placeholder).
   Packages/HapiKit/      Local SPM package with the real logic:
-    HapiProtocol         Pure-Foundation protocol layer. As of M1a+M1d:
+    HapiProtocol         Pure-Foundation protocol layer. As of M2a:
                            Models/   wire types mirroring shared/src/schemas.ts
                                      (Session, SessionPatch + VersionedValue,
                                      AgentState, DecryptedMessage, SessionSummary,
-                                     Machine, SyncEvent union, messages page)
+                                     Machine, SyncEvent union, messages page),
+                                     plus the summary-side pure logic:
+                                     SummaryPatching (sessionSummary.ts
+                                     derivations + the useSSE list-patch rules
+                                     with their deliberate `>=` version gate —
+                                     vs the detail path's strict `>` — and the
+                                     keep-alive render-irrelevance filter) and
+                                     SessionSorting (the exact list order:
+                                     globalPinned > pinned > active > pending
+                                     desc among active > recency, stable)
                            Catalog/  permission-mode / flavor tables ported from
                                      shared/src/{modes,flavors,copilotModes}.ts
                            Patch/    versioned session-patch application ported
@@ -119,9 +137,29 @@ ios/
                                             `acceptEncodingIdentity`).
                            MultipartEncoder for the voice-transcription
                                             endpoint (M4c).
-                         @Observable stores and snapshots (M2) land next;
-                         feature endpoints (git/files, scratchlist, voice,
-                         usage) join Endpoints/ with their feature packages.
+                           Stores/          M2a @MainActor @Observable stores
+                                            mirroring the Android/web
+                                            semantics: SessionListStore
+                                            (sorted summaries + per-id detail
+                                            cache; full-session upsert
+                                            preserving hub-computed scheduled
+                                            fields, strict-> detail vs >=
+                                            summary patch gates, keep-alive
+                                            identity preservation, REST
+                                            fallback for unparseable data,
+                                            16 ms coalesced refresh,
+                                            optimistic pin/archive),
+                                            MachineStore (the machine-updated
+                                            decision tree), LastSeenStore
+                                            (unread watermarks + per-scope
+                                            baseline), SyncEventRouter
+                                            (SyncEvent fan-out + gap-handshake
+                                            full resync), DiskCache (500 ms
+                                            debounced atomic JSON snapshots
+                                            per hub for instant cold start).
+                         The message-window store (M2d) lands next; feature
+                         endpoints (git/files, scratchlist, voice, usage)
+                         join Endpoints/ with their feature packages.
     HapiUI               Rendering foundation (M2e). SwiftUI, no app coupling:
                            Markdown/  MarkdownTransforms (string-level ports of
                                       the web remark plugins: table repair,

@@ -15,8 +15,10 @@ struct RootView: View {
                 PairingFlowView()
             case .paired:
                 if let session = model.session {
-                    // TODO(M2a): replace HomePlaceholderView with SessionListView.
-                    HomePlaceholderView(session: session)
+                    // `.id` resets navigation + list state on hub switch —
+                    // each hub gets a fresh HomeView over its own stores.
+                    HomeView(session: session)
+                        .id(session.hubUrl)
                 } else {
                     // Defensive: .paired always carries a session; fall back
                     // to pairing rather than a dead screen.
