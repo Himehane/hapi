@@ -29,10 +29,16 @@ kotlin {
 
 dependencies {
     api(project(":core:protocol"))
+    // OkHttp types (OkHttpClient, Authenticator) appear in the public API
+    // surface (HubSession, TokenAuthenticator constructors).
+    api(libs.okhttp)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.androidx.security.crypto)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.turbine)
 }
