@@ -5,12 +5,6 @@ export default defineConfig({
   description: 'Control your AI agents from anywhere',
   base: '/docs/',
 
-  // Temporary: client-contract sse/pagination/messages are being written in
-  // parallel (WP K2). Remove this once those pages land.
-  ignoreDeadLinks: [
-    /^\.\/(sse|pagination|messages)(#.*)?$/
-  ],
-
   head: [
     ['link', { rel: 'icon', href: '/docs/favicon.ico' }],
   ],
