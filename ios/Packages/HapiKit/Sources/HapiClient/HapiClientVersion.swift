@@ -1,11 +1,11 @@
 import Foundation
 import HapiProtocol
 
-/// Scaffold marker for the transport layer.
+/// Version anchor for the transport layer.
 ///
-/// APIClient, AuthManager (single-flight refresh), and SSEClient arrive in
-/// M1b/M1c. Until then this constant proves the target graph and the
-/// HapiClient -> HapiProtocol dependency compile and link.
+/// As of M1b the target carries `APIClient` + typed endpoints, `AuthManager`
+/// (single-flight JWT refresh), the Keychain credential store, `HubRegistry`,
+/// and the multipart builder; SSEClient and the stores arrive in M1c+.
 public enum HapiClientVersion {
     /// Version of the HapiKit client scaffold.
     public static let current = "0.1.0"
