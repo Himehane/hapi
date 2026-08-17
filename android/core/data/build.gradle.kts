@@ -19,6 +19,18 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    testOptions {
+        unitTests.all { test ->
+            // Golden fixtures live at the repo root (outside the Gradle root
+            // dir); the pagination conformance suite replays them against the
+            // real MessageWindowStore (same wiring as :core:protocol).
+            test.systemProperty(
+                "hapi.fixtures.dir",
+                rootDir.parentFile.resolve("shared/fixtures").absolutePath,
+            )
+        }
+    }
 }
 
 kotlin {
