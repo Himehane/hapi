@@ -153,7 +153,22 @@ class AppGraph(context: Context) {
                 credentialStore = credentialStore,
                 authEvents = authEvents,
                 context = appContext,
-            )
+            ).also { graph ->
+                // A hub activated while backgrounded must not burn retries.
+                if (!isForeground) graph.setLifecycleForeground(false)
+            }
         }
+    }
+
+    @Volatile private var isForeground = true
+
+    /**
+     * Process lifecycle input (`ProcessLifecycleOwner` via `HapiApp`):
+     * forwarded to the active hub's SSE engine (retry deferral / stale-socket
+     * rebuild) and visibility reporter (`POST /api/visibility`).
+     */
+    fun setForeground(foreground: Boolean) {
+        isForeground = foreground
+        mutableActiveHubGraph.value?.setLifecycleForeground(foreground)
     }
 }

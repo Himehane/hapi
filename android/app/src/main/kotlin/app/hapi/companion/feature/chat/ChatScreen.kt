@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,12 +20,15 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,6 +49,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.hapi.companion.feature.chat.composer.ChatComposer
+import app.hapi.companion.feature.chat.composer.QueuedMessagesBar
 import app.hapi.companion.ui.markdown.LocalMarkdownLinkHandler
 import app.hapi.companion.ui.theme.hapi
 import app.hapi.protocol.chat.VisibleChatBlock
@@ -54,11 +60,16 @@ import kotlinx.coroutines.launch
 private const val LOAD_OLDER_PREFETCH_ITEMS = 4
 
 /**
- * Read-only chat (B-M2d2): `LazyColumn(reverseLayout = true)` over the
- * reduced [VisibleChatBlock]s — newest at the bottom, stable ids as keys so
- * scroll position survives pipeline re-runs, auto-stick to the tail only
- * while already there (reverse-layout index-0 anchoring), a "new messages"
- * pill otherwise, and a top-edge sentinel that pages older history in.
+ * The chat screen: `LazyColumn(reverseLayout = true)` over the reduced
+ * [VisibleChatBlock]s — newest at the bottom, stable ids as keys so scroll
+ * position survives pipeline re-runs, auto-stick to the tail only while
+ * already there (reverse-layout index-0 anchoring), a "new messages" pill
+ * otherwise, and a top-edge sentinel that pages older history in.
+ *
+ * B-M3ab adds the interaction chrome: composer + queued bar (bottom),
+ * permission actions (via [LocalChatInteractions]), the session config sheet
+ * (top-bar gear), and one-shot [ChatEvent] handling (supersede renavigation +
+ * snackbar notices).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,16 +78,42 @@ fun ChatScreen(
     media: ChatMedia,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    onNavigateToSession: (String) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
+    val composerState by viewModel.composer.collectAsState()
+    val queuedRows by viewModel.queuedRows.collectAsState()
+    val configState by viewModel.config.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    var configSheetOpen by remember { mutableStateOf(false) }
 
     DisposableEffect(viewModel) {
         viewModel.start()
         onDispose { viewModel.stop() }
     }
 
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is ChatEvent.SessionSuperseded -> onNavigateToSession(event.sessionId)
+                is ChatEvent.Notice -> snackbarHostState.showSnackbar(event.message)
+            }
+        }
+    }
+
+    val interactions = remember(state.flavor, state.permissionOverrides, viewModel) {
+        ChatInteractions(
+            flavor = state.flavor,
+            permissionOverrides = state.permissionOverrides,
+            resolvePermission = viewModel::resolvePermission,
+            retryFailedMessage = viewModel::retryFailedMessage,
+        )
+    }
+
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .imePadding(),
         topBar = {
             TopAppBar(
                 navigationIcon = {
@@ -85,12 +122,36 @@ fun ChatScreen(
                     }
                 },
                 title = { ChatTitle(state.header) },
+                actions = {
+                    IconButton(onClick = { configSheetOpen = true }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Session settings")
+                    }
+                },
             )
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                QueuedMessagesBar(
+                    rows = queuedRows,
+                    onSteer = viewModel::steerQueuedMessage,
+                    onEdit = viewModel::editQueuedMessage,
+                    onCancel = viewModel::cancelQueuedMessage,
+                )
+                ChatComposer(
+                    state = composerState,
+                    onTextChange = viewModel::setComposerText,
+                    onSend = { viewModel.sendMessage() },
+                    onSendSteer = { viewModel.sendMessage(steer = true) },
+                    onAbort = viewModel::abortSession,
+                )
+            }
         },
     ) { padding ->
         CompositionLocalProvider(
             LocalChatMedia provides media,
             LocalMarkdownLinkHandler provides rememberChatLinkHandler(),
+            LocalChatInteractions provides interactions,
         ) {
             Column(
                 modifier = Modifier
@@ -110,6 +171,17 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    if (configSheetOpen) {
+        SessionConfigSheet(
+            config = configState,
+            onDismiss = { configSheetOpen = false },
+            onSetPermissionMode = viewModel::setPermissionMode,
+            onSetModel = viewModel::setModel,
+            onSetEffort = viewModel::setEffort,
+            onLoadModelOptions = viewModel::loadModelOptions,
+        )
     }
 }
 

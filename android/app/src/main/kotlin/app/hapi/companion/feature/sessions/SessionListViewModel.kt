@@ -1,16 +1,10 @@
 package app.hapi.companion.feature.sessions
 
-import app.hapi.data.sse.SseEngine
-import app.hapi.data.sse.SseSubscriptionKey
-import app.hapi.data.sse.SyncEventRouter
 import app.hapi.data.store.LastSeenStore
 import app.hapi.data.store.MachineListStore
-import app.hapi.data.store.MessageWindowStores
 import app.hapi.data.store.SessionListStore
-import app.hapi.data.store.StoreSyncTargets
 import app.hapi.protocol.wire.Machine
 import app.hapi.protocol.wire.SessionSummary
-import app.hapi.protocol.wire.SyncEvent
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -20,9 +14,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -68,27 +60,24 @@ data class SessionListUiState(
 
 /**
  * Session-list state machine: combines [SessionListStore] / [MachineListStore]
- * / [LastSeenStore] with the machine-filter selection into [uiState], owns the
- * global SSE subscription while started, and forwards pin/archive actions with
- * store-side optimistic updates.
+ * / [LastSeenStore] with the machine-filter selection into [uiState] and
+ * forwards pin/archive actions with store-side optimistic updates.
+ *
+ * The global SSE subscription is NOT owned here anymore (B-M3ab): `HubGraph`
+ * runs it for its whole lifetime via `GlobalSsePipe`, so queued/consumed
+ * bookkeeping and list badges stay fresh while a chat screen is open.
  *
  * Plain constructor — no Android dependency, so JVM tests drive it with fake
  * stores. Navigation hosts it behind a per-hub lifecycle holder built from
- * `HubGraph`; the screen calls [start]/[stop] with its composition
- * (foreground/background belongs to `SseEngine.setLifecycleForeground`,
- * wired at the Application level in a later package).
+ * `HubGraph`; the screen calls [start]/[stop] with its composition.
  */
 class SessionListViewModel(
     private val sessionStore: SessionListStore,
     private val machineStore: MachineListStore,
     private val lastSeenStore: LastSeenStore,
-    private val sseEngine: SseEngine,
     private val scope: CoroutineScope,
     /** Last-seen baseline scope, e.g. the hub origin. */
     private val hubKey: String = "default",
-    /** Open message windows, so global-pipe message events keep them fresh (M2c wiring). */
-    private val messageWindows: MessageWindowStores? = null,
-    private val onToast: (SyncEvent.Toast) -> Unit = {},
 ) {
     private val machineFilter = MutableStateFlow<String?>(null)
     private val isRefreshing = MutableStateFlow(false)
@@ -100,9 +89,6 @@ class SessionListViewModel(
     /** Transient action failures (pin/archive) for a snackbar. */
     val errors: SharedFlow<SessionListError> = _errors.asSharedFlow()
 
-    private val router =
-        SyncEventRouter(StoreSyncTargets(sessionStore, machineStore, scope, messageWindows, onToast))
-    private var sseJob: Job? = null
     private var refreshJob: Job? = null
 
     val uiState: StateFlow<SessionListUiState> = combine(
@@ -137,31 +123,18 @@ class SessionListViewModel(
     )
 
     /**
-     * Opens the global SSE pipe (dual-subscription model: this connection
-     * drives the list; the open chat adds its own in M2d2) and kicks an
-     * initial refresh. Safe to call repeatedly.
+     * Screen entry. The global SSE pipe already runs at `HubGraph` scope;
+     * this only kicks the explicit entry refresh (the snapshot may be stale
+     * and a `resume: ok` handshake deliberately skips the REST resync).
+     * Safe to call repeatedly.
      */
     fun start() {
-        if (sseJob?.isActive == true) return
-        val key = SseSubscriptionKey.Global
-        sseJob = scope.launch {
-            sseEngine.events(key)
-                // Subscribe only after this collector is registered — the
-                // engine's SharedFlow has zero replay, so a handshake emitted
-                // before registration would be lost.
-                .onSubscription { sseEngine.subscribe(key) }
-                .collect { router.route(key, it) }
-        }
-        // Explicit fetch on entry: the snapshot may be stale and a
-        // `resume: ok` handshake deliberately skips the REST resync.
         refresh()
     }
 
-    /** Tears the global pipe down (the engine keeps the resume cursor). */
+    /** Screen exit. The hub-lifetime global pipe stays up by design. */
     fun stop() {
-        sseJob?.cancel()
-        sseJob = null
-        sseEngine.unsubscribe(SseSubscriptionKey.Global)
+        refreshJob?.cancel()
     }
 
     /** Pull-to-refresh / initial load. Coalesces concurrent calls. */

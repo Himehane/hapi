@@ -1,5 +1,6 @@
 package app.hapi.companion.feature.chat.blocks
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.hapi.companion.feature.chat.LocalChatInteractions
 import app.hapi.companion.ui.theme.HapiTheme
 import app.hapi.protocol.chat.ChatAttachment
 import app.hapi.protocol.chat.UserTextBlock
@@ -57,11 +59,22 @@ fun UserTextBlockView(block: UserTextBlock, modifier: Modifier = Modifier) {
                 }
             }
             if (block.status == "failed") {
+                val interactions = LocalChatInteractions.current
+                val retryLocalId = block.localId
+                val retryModifier = if (interactions != null && retryLocalId != null) {
+                    Modifier.clickable { interactions.retryFailedMessage(retryLocalId) }
+                } else {
+                    Modifier
+                }
                 Text(
-                    text = "Not delivered",
+                    text = if (interactions != null && retryLocalId != null) {
+                        "Not delivered — tap to retry"
+                    } else {
+                        "Not delivered"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 2.dp, end = 4.dp),
+                    modifier = retryModifier.padding(top = 2.dp, end = 4.dp),
                 )
             }
         }

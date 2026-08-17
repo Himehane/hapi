@@ -33,6 +33,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.hapi.companion.feature.chat.ChatBlockCard
+import app.hapi.companion.feature.chat.LocalChatInteractions
 import app.hapi.companion.feature.chat.toolCardPresentation
 import app.hapi.companion.ui.theme.HapiTheme
 import app.hapi.companion.ui.theme.hapi
@@ -94,7 +95,32 @@ fun ToolCallBlockView(block: ToolCallBlock, basePath: String?, modifier: Modifie
                 ToolStatusIndicator(tool.state)
             }
 
-            tool.permission?.let { PermissionStateRow(it) }
+            tool.permission?.let { permission ->
+                val interactions = LocalChatInteractions.current
+                if (permission.status == "pending" && interactions != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column {
+                            Text(
+                                text = "Awaiting approval",
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(start = 10.dp, top = 6.dp),
+                            )
+                            PendingPermissionFooter(
+                                tool = tool,
+                                requestId = permission.id,
+                                flavor = interactions.flavor,
+                                override = interactions.permissionOverrides[permission.id],
+                                onAction = interactions.resolvePermission,
+                            )
+                        }
+                    }
+                } else {
+                    PermissionStateRow(permission)
+                }
+            }
 
             if (expanded) {
                 ToolCallBody(
@@ -193,8 +219,9 @@ private fun StatusChip(text: String, container: androidx.compose.ui.graphics.Col
 }
 
 /**
- * Read-only permission verdict: highlighted banner while pending (approval
- * actions are M3b), subdued line once decided.
+ * Read-only permission verdict: highlighted banner while pending (renders
+ * only without a [LocalChatInteractions] provider — previews/tests; the live
+ * chat replaces it with [PendingPermissionFooter]), subdued line once decided.
  */
 @Composable
 private fun PermissionStateRow(permission: ToolPermission) {
@@ -208,10 +235,6 @@ private fun PermissionStateRow(permission: ToolPermission) {
                 Text(
                     text = "⏳ Awaiting approval",
                     style = MaterialTheme.typography.labelLarge,
-                )
-                Text(
-                    text = "Respond from the hub web app — in-app approval arrives in the next milestone.",
-                    style = MaterialTheme.typography.labelSmall,
                 )
             }
         }

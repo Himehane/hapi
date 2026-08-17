@@ -1,9 +1,5 @@
 package app.hapi.companion.feature.sessions
 
-import app.hapi.data.sse.SseEngine
-import app.hapi.data.sse.SseRawEvent
-import app.hapi.data.sse.SseTransport
-import app.hapi.data.sse.TransportEvent
 import app.hapi.data.store.LastSeenStore
 import app.hapi.data.store.MachineListStore
 import app.hapi.data.store.SessionListStore
@@ -19,11 +15,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
@@ -133,38 +127,14 @@ private fun machine(id: String, host: String, displayName: String? = null): Mach
     runnerStateVersion = 1,
 )
 
-/** Transport whose only connection sends a handshake with the given verdict, then stays open. */
-private fun handshakeTransport(resume: String): SseTransport = object : SseTransport {
-    override fun open(url: String, lastEventId: String?) = flow {
-        emit(TransportEvent.Connected)
-        emit(
-            TransportEvent.Event(
-                SseRawEvent(
-                    id = null,
-                    data = """{"type":"connection-changed","data":{"status":"connected","subscriptionId":"sub-1","resume":"$resume"}}""",
-                )
-            )
-        )
-        awaitCancellation()
-    }
-}
-
 private fun TestScope.buildViewModel(
     sessions: FakeSessionStore = FakeSessionStore(),
     machines: FakeMachineStore = FakeMachineStore(),
-    transport: SseTransport = handshakeTransport("ok"),
 ): Triple<SessionListViewModel, FakeSessionStore, FakeMachineStore> {
-    val engine = SseEngine(
-        baseUrl = "http://hub.test",
-        transport = transport,
-        tokenProvider = { "jwt" },
-        scope = backgroundScope,
-    )
     val viewModel = SessionListViewModel(
         sessionStore = sessions,
         machineStore = machines,
         lastSeenStore = LastSeenStore(backgroundScope),
-        sseEngine = engine,
         scope = backgroundScope,
         hubKey = "hub-test",
     )
@@ -256,18 +226,10 @@ class SessionListViewModelTest {
     }
 
     @Test
-    fun `start subscribes globally and a gap handshake full-resyncs the stores`() = runTest {
-        val (viewModel, sessions, machines) = buildViewModel(transport = handshakeTransport("gap"))
-        viewModel.start()
-        // start() also runs the entry refresh; the gap verdict adds fullResync.
-        sessions.calls.first { "fullResync" in it && "refresh" in it }
-        assertTrue(machines.refreshes >= 1)
-        viewModel.stop()
-    }
-
-    @Test
-    fun `ok handshake skips the gap resync but the entry refresh still runs`() = runTest {
-        val (viewModel, sessions, _) = buildViewModel(transport = handshakeTransport("ok"))
+    fun `start runs the entry refresh (the global pipe belongs to HubGraph)`() = runTest {
+        // SSE handshake/resync behavior for the global pipe is covered by
+        // GlobalSsePipeTest — this VM only owns the explicit entry refresh.
+        val (viewModel, sessions, _) = buildViewModel()
         viewModel.start()
         sessions.calls.first { "refresh" in it }
         assertFalse("fullResync" in sessions.calls.value)
