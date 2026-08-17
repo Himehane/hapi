@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { FIXTURE_VERSION, type FixtureDocument } from '../../scripts/fixtures/fixtureTypes'
+import { buildModesCatalog } from '../../scripts/fixtures/modesCatalog'
 import { runFixturePipeline } from '../../scripts/fixtures/pipeline'
 import { toCanonicalJson } from '../../scripts/fixtures/serialize'
 
@@ -48,4 +49,15 @@ describe('shared/fixtures/chat golden fixtures', () => {
             })
         })
     }
+})
+
+describe('shared/fixtures/catalogs', () => {
+    // modes.json is generated from shared/src/modes.ts (the module the web app
+    // itself imports), so a stale file means the catalog generator was not
+    // rerun after a modes change — same drift gate as the chat fixtures.
+    it('modes.json matches a fresh build from shared/src/modes.ts (canonically serialized)', () => {
+        const raw = readFileSync(join(fixturesDir, 'catalogs', 'modes.json'), 'utf8')
+        expect(toCanonicalJson(JSON.parse(raw))).toBe(raw)
+        expect(raw).toBe(toCanonicalJson(buildModesCatalog()))
+    })
 })

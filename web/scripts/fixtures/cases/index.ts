@@ -6,8 +6,12 @@ import { userCases } from './user'
 import { truncationCases } from './truncation'
 import { permissionCases } from './permissions'
 import { toolGroupCases } from './toolGroups'
+import { sidechainCases } from './sidechain'
+import { cliOutputCases } from './cliOutput'
+import { agyCases } from './agy'
+import { cursorCases } from './cursor'
 
-/** Batch 1. Each case becomes shared/fixtures/chat/<name>.json. */
+/** Batches 1 + 2. Each case becomes shared/fixtures/chat/<name>.json. */
 export const fixtureCases: FixtureCase[] = [
     ...claudeOutputCases,
     ...codexCases,
@@ -15,5 +19,9 @@ export const fixtureCases: FixtureCase[] = [
     ...userCases,
     ...truncationCases,
     ...permissionCases,
-    ...toolGroupCases
+    ...toolGroupCases,
+    ...sidechainCases,
+    ...cliOutputCases,
+    ...agyCases,
+    ...cursorCases
 ]

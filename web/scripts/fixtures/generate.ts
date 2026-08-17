@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fixtureCases } from './cases'
 import { FIXTURE_VERSION, toFixtureInput, type FixtureCase, type FixtureDocument, type FixtureInput } from './fixtureTypes'
+import { buildModesCatalog } from './modesCatalog'
 import { runFixturePipeline } from './pipeline'
 import { toCanonicalJson } from './serialize'
 
@@ -48,6 +49,13 @@ export function generateAllFixtures(): void {
         }
     }
 
+    // Catalogs: reference tables generated from shared/src modules (not from
+    // the chat pipeline). Same canonical serialization and drift gate.
+    const catalogsDir = join(FIXTURES_DIR, 'catalogs')
+    mkdirSync(catalogsDir, { recursive: true })
+    writeFileSync(join(catalogsDir, 'modes.json'), toCanonicalJson(buildModesCatalog()))
+
     writeFileSync(join(FIXTURES_DIR, 'VERSION'), `${FIXTURE_VERSION}\n`)
     console.log(`Wrote ${names.size} chat fixtures (fixtureVersion ${FIXTURE_VERSION}) to ${chatDir}`)
+    console.log(`Wrote catalogs/modes.json to ${catalogsDir}`)
 }

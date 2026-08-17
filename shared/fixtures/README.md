@@ -16,8 +16,9 @@ Never edit the JSON by hand — edit the case definitions in
 
 ```
 shared/fixtures/
-├── VERSION            # current fixtureVersion (single integer + \n)
-├── chat/<name>.json   # one fixture per case
+├── VERSION              # current fixtureVersion (single integer + \n)
+├── chat/<name>.json     # one fixture per case
+├── catalogs/modes.json  # reference tables (see Catalogs below)
 └── README.md
 ```
 
@@ -133,6 +134,27 @@ Tool group: `defaultOpen`, `historyState`, `needsOlderHistory`,
 `activityTitle`, `presentationMode`, `summary`. Top level: `latestGoal`,
 `latestUsage.cacheCreation`/`cacheRead`/`model`/`timestamp`.
 
+## Catalogs
+
+`catalogs/` holds reference tables generated from `shared/src` modules (not
+from the chat pipeline) by the same generator, with the same canonical
+serialization and drift gate. Never edit them by hand.
+
+- **`catalogs/modes.json`** — generated from `shared/src/modes.ts`
+  (`web/scripts/fixtures/modesCatalog.ts` imports the module directly, like
+  the chat pipeline):
+  - `permissionModesByFlavor`: for every `AGENT_FLAVORS` entry, the permission
+    modes offered for that flavor **in offer order**, each as
+    `{ mode, label, tone }` (`tone`: `'neutral' | 'info' | 'warning' |
+    'danger'`). An empty array means the flavor exposes no runtime permission
+    switching (e.g. `pi`).
+  - `codexCollaborationModes`: the codex-only collaboration axis as
+    `{ mode, label }` pairs.
+
+  Natives port this table (mode ids, order, labels, tones) and should compare
+  their port against the file in tests the same way as the chat fixtures:
+  canonical-JSON equality.
+
 ## Regeneration & drift gate
 
 ```bash
@@ -144,5 +166,6 @@ a regeneration is the drift signal: when `web/src/chat/**` changes behavior,
 regenerated fixtures differ, the diff gets committed, and the native
 conformance suites go red until the ports catch up. The web-side self-check
 lives at `web/src/chat/fixtures.test.ts` (runs in `bun run test:web`): it
-re-runs the pipeline over every stored `input` and fails on any divergence
-from `expected` or from canonical serialization.
+re-runs the pipeline over every stored `input` (and rebuilds
+`catalogs/modes.json` from `shared/src/modes.ts`) and fails on any divergence
+from the stored files or from canonical serialization.
