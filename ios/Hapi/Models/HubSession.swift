@@ -6,8 +6,9 @@ import Observation
 /// Everything the app holds for the currently active hub: the typed REST
 /// client, its auth manager, the **global** SSE subscription
 /// (`scope: .global` — one per app session; per-chat `.session` subscriptions
-/// arrive with M2f), and the M2a stores it feeds (session list, machines,
-/// last-seen watermarks).
+/// are vended per open chat via ``makeChatSession(sessionId:)``), the M2a
+/// stores it feeds (session list, machines, last-seen watermarks), and the
+/// M2f message-window registry.
 ///
 /// Lifecycle is driven by `AppModel` from `scenePhase`: the SSE connection
 /// starts on the first foreground, suspends in background (flushing the
@@ -28,6 +29,8 @@ final class HubSession {
     let machineStore: MachineStore
     /// Unread watermarks, snapshot-backed per hub.
     let lastSeenStore: LastSeenStore
+    /// Per-session message window registry (M2f), snapshot-backed per hub.
+    let windows: MessageWindowControllers
 
     /// Global SSE connection state, for the UI's connection dot.
     private(set) var connectionState: SSEConnectionState = .idle
@@ -46,6 +49,15 @@ final class HubSession {
     @ObservationIgnored private var consumeTask: Task<Void, Never>?
     @ObservationIgnored private var reportedAuthFailure = false
     @ObservationIgnored private var isShutDown = false
+
+    /// The chat currently on screen (at most one in this UI), forwarded the
+    /// scene-phase transitions so its session-scope SSE parks in background.
+    @ObservationIgnored private weak var activeChat: ChatSession?
+    /// Session-pipe resume cursors surviving chat close/reopen within this
+    /// hub session (the Android engine keeps its per-key cursor the same
+    /// way). Keyed by session id; never reused across hubs because the whole
+    /// `HubSession` — cursors included — dies on hub switch.
+    @ObservationIgnored private var chatCursors: [String: String] = [:]
 
     init?(
         hubUrl: String,
@@ -72,7 +84,40 @@ final class HubSession {
         self.sessionStore = sessionStore
         self.machineStore = machineStore
         self.lastSeenStore = LastSeenStore(snapshotDirectory: snapshotDirectory)
+        self.windows = MessageWindowControllers(
+            provider: api,
+            snapshots: WindowSnapshotStore(
+                directory: snapshotDirectory.appendingPathComponent("windows", isDirectory: true)
+            )
+        )
         self.router = SyncEventRouter(sessions: sessionStore, machines: machineStore)
+    }
+
+    // MARK: - Per-chat sessions (M2f)
+
+    /// Builds the per-session wiring for an opened chat: window controller
+    /// access, the session-scope SSE pipe, and event routing into the shared
+    /// stores. The caller (ChatModel) drives `start()`/`stop()` with the
+    /// screen's lifetime; this hub session only forwards scene-phase
+    /// transitions and remembers the SSE resume cursor across reopens.
+    func makeChatSession(sessionId: String) -> ChatSession {
+        ChatSession(
+            sessionId: sessionId,
+            baseURL: baseURL,
+            authManager: authManager,
+            windows: windows,
+            sessionStore: sessionStore,
+            machineStore: machineStore,
+            initialCursor: chatCursors[sessionId],
+            registerActive: { [weak self] chat in
+                self?.activeChat = chat
+            },
+            saveCursor: { [weak self] cursor in
+                if let cursor {
+                    self?.chatCursors[sessionId] = cursor
+                }
+            }
+        )
     }
 
     // MARK: - Lifecycle (driven by AppModel from scenePhase)
@@ -86,6 +131,7 @@ final class HubSession {
         } else {
             startGlobalSSE()
         }
+        activeChat?.enterForeground()
     }
 
     /// Parks the SSE retry loop; a live connection is left to the OS. Also
@@ -95,6 +141,7 @@ final class HubSession {
         if let sse {
             Task { await sse.suspend() }
         }
+        activeChat?.enterBackground()
         let sessionStore = sessionStore
         let machineStore = machineStore
         let lastSeenStore = lastSeenStore
@@ -109,6 +156,9 @@ final class HubSession {
     func shutdown() {
         isShutDown = true
         onTerminalAuthFailure = nil
+        // Hub switch can outrun the chat view's disappear; stop is idempotent.
+        activeChat?.stop()
+        activeChat = nil
         consumeTask?.cancel()
         consumeTask = nil
         if let sse {

@@ -1,11 +1,14 @@
 import HapiClient
+import HapiUI
 import SwiftUI
 
 /// Switches the app root on pairing state and hosts the presentation that
-/// must survive that switch: the deep-link pairing confirm sheet and the
-/// "already paired" notice.
+/// must survive that switch: the deep-link pairing confirm sheet, the
+/// "already paired" notice, the HapiUI palette matching the system
+/// appearance, and the app-wide markdown link handler.
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         @Bindable var model = model
@@ -55,6 +58,8 @@ struct RootView: View {
         } message: {
             Text(model.infoNotice ?? "")
         }
+        .hapiTheme(HapiTheme.resolve(for: colorScheme))
+        .handlesHapiLinks()
     }
 }
 

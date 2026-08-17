@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		A100000000000000000000C4 /* HapiProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000C2 /* HapiProtocol */; };
 		A100000000000000000000C5 /* HapiClient in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000C3 /* HapiClient */; };
+		A100000000000000000000C8 /* HapiUI in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000C7 /* HapiUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,6 +48,7 @@
 			files = (
 				A100000000000000000000C4 /* HapiProtocol in Frameworks */,
 				A100000000000000000000C5 /* HapiClient in Frameworks */,
+				A100000000000000000000C8 /* HapiUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -91,6 +93,7 @@
 			packageProductDependencies = (
 				A100000000000000000000C2 /* HapiProtocol */,
 				A100000000000000000000C3 /* HapiClient */,
+				A100000000000000000000C7 /* HapiUI */,
 			);
 			productName = Hapi;
 			productReference = A100000000000000000000A4 /* Hapi.app */;
@@ -309,6 +312,10 @@
 		A100000000000000000000C3 /* HapiClient */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = HapiClient;
+		};
+		A100000000000000000000C7 /* HapiUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HapiUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

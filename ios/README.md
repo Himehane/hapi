@@ -45,7 +45,17 @@ ios/
                                       APIClient/AuthManager/global SSEClient,
                                       connection state, the M2a stores —
                                       session list / machines / last-seen —
-                                      and the SyncEventRouter feeding them).
+                                      the SyncEventRouter feeding them, the
+                                      M2f message-window registry, and the
+                                      per-chat session factory) + ChatSession
+                                      (M2f per-open-chat wiring: session-scope
+                                      SSEClient with kept resume cursor,
+                                      window open/activate/tail-sync, ordered
+                                      event routing — one consume task,
+                                      every event awaited to the window
+                                      actor before the next — gap-handshake
+                                      full resync + detail refetch + catch-up
+                                      tail sync, scene-phase suspend/resume).
                            Features/  Pairing/ (welcome, VisionKit QR scan,
                                       manual entry, shared confirm + error
                                       states), Home/ (session list host with
@@ -56,8 +66,25 @@ ios/
                                       pending/todo badges, unread dots,
                                       pinned section, machine filter chips,
                                       pull-to-refresh, long-press
-                                      pin/archive; row taps push an M2f chat
-                                      placeholder).
+                                      pin/archive; row taps push the chat),
+                                      Chat/ (M2f read-only chat: ChatModel —
+                                      window state + session detail →
+                                      ChatPipeline off-main, ~100 ms
+                                      coalesced, last-seen stamping, header
+                                      cascade; ChatView — bottom-anchored
+                                      ScrollView/LazyVStack with auto-stick,
+                                      new-messages pill, top sentinel paging
+                                      with scroll re-anchoring, degraded
+                                      banners; Blocks/ — user bubble, agent
+                                      markdown, reasoning, tool cards with
+                                      per-tool bodies + knownTools-parity
+                                      presentation, tool groups, event rows,
+                                      cli output, generated images with
+                                      full-screen viewer, codex review),
+                                      Links/ (app-wide \.hapiOpenURL handler:
+                                      https/http → SFSafariViewController,
+                                      confirm-first schemes → alert,
+                                      hapi-file:// → M4 placeholder).
   Packages/HapiKit/      Local SPM package with the real logic:
     HapiProtocol         Pure-Foundation protocol layer. As of M2a:
                            Models/   wire types mirroring shared/src/schemas.ts
@@ -190,9 +217,15 @@ ios/
                                             MessageWindowControllers registry
                                             (hydrate on open, seed across
                                             resume/reopen id changes).
-                         Chat assembly (M2f) lands next; feature endpoints
-                         (git/files, scratchlist, voice, usage) join
-                         Endpoints/ with their feature packages.
+                           Chat/            ChatPipeline (M2f): the actor the
+                                            app's chat screen runs its
+                                            reduction on — queued-row filter,
+                                            normalize memoized by row instance
+                                            identity, reduce + toolGroups with
+                                            previousGroups-stable group ids.
+                         Feature endpoints (git/files, scratchlist, voice,
+                         usage) join Endpoints/ with their feature packages
+                         in M3/M4.
     HapiUI               Rendering foundation (M2e). SwiftUI, no app coupling:
                            Markdown/  MarkdownTransforms (string-level ports of
                                       the web remark plugins: table repair,
@@ -210,8 +243,9 @@ ios/
                                       (hunks, +/- gutters, compact/expand)
                            Theme/     HapiTheme palettes (light/dark/OLED)
                                       via the \.hapiTheme environment
-                         The app target does not import HapiUI yet; it gets
-                         wired in with the chat views (M2f).
+                         Since M2f the app target links HapiUI and renders
+                         chat prose/code/diffs through it; RootView injects
+                         the palette and the \.hapiOpenURL link handler.
 ```
 
 The app target stays thin; features live in `HapiKit` so they are testable
@@ -237,7 +271,10 @@ query objects (`expectedRequests`, including the explicit-null
 `untilAt`/`untilSeq` of the first catch-up request), the older-load outcomes,
 the queued-state reconcile candidates, and the final window projection
 (`expectedState`) — all canonical-JSON compares with the same per-op labels
-and first-differing-line diffs.
+and first-differing-line diffs. Since M2f, `HapiClientTests/ChatPipelineTests`
+drives the app-facing `ChatPipeline` runner with fixture-derived window rows:
+non-empty unique stable ids, memo-stable recomputes, the queued-row filter,
+and group-id stability across an older-page arrival (`previousGroups`).
 
 ## Pairing (M1d)
 
