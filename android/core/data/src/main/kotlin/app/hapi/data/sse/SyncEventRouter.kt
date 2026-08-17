@@ -37,6 +37,14 @@ interface SyncTargets {
      * list, open session detail, message tail sync, queued-state reconcile.
      */
     fun requestFullResync(scope: SseSubscriptionKey)
+
+    /**
+     * Every `connection-changed {status: connected}` handshake, with the
+     * hub-minted [subscriptionId] (changes on every reconnect) —
+     * `POST /api/visibility` reporting hangs off this. Default no-op so
+     * pre-M3 targets are unaffected.
+     */
+    fun onHandshake(scope: SseSubscriptionKey, subscriptionId: String?) {}
 }
 
 /**
@@ -52,6 +60,7 @@ class SyncEventRouter(private val targets: SyncTargets) {
     fun route(scope: SseSubscriptionKey, event: EngineEvent) {
         when (event) {
             is EngineEvent.Handshake -> {
+                targets.onHandshake(scope, event.subscriptionId)
                 if (event.resume == EngineEvent.Resume.Gap) {
                     targets.requestFullResync(scope)
                 }

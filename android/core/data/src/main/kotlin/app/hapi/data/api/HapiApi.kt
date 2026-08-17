@@ -94,7 +94,7 @@ class HapiApi(
     private val client: OkHttpClient,
     private val imageClient: OkHttpClient = client,
     private val authClient: OkHttpClient = client,
-) : MessagesApi {
+) : ChatSessionApi {
     /** Normalized hub origin this instance talks to. */
     val hubUrl: String = HubUrls.normalize(hubUrl)
         ?: throw IllegalArgumentException("Invalid hub URL: $hubUrl")
@@ -219,16 +219,16 @@ class HapiApi(
      * message itself arrives via SSE (`message-received`), reconciled by
      * `localId`.
      */
-    suspend fun sendMessage(sessionId: String, message: SendMessageRequest) {
+    override suspend fun sendMessage(sessionId: String, message: SendMessageRequest) {
         request<Unit>("POST", url("api", "sessions", sessionId, "messages").build(), message.toJsonBody())
     }
 
     /** `DELETE /api/sessions/:id/messages/:messageId` — cancel a queued message. */
-    suspend fun cancelMessage(sessionId: String, messageId: String): CancelMessageResponse =
+    override suspend fun cancelMessage(sessionId: String, messageId: String): CancelMessageResponse =
         request("DELETE", url("api", "sessions", sessionId, "messages", messageId).build())
 
     /** `POST /api/sessions/:id/messages/:messageId/steer`. */
-    suspend fun steerMessage(sessionId: String, messageId: String): SteerQueuedMessageResponse =
+    override suspend fun steerMessage(sessionId: String, messageId: String): SteerQueuedMessageResponse =
         request("POST", url("api", "sessions", sessionId, "messages", messageId, "steer").build(), EMPTY_JSON)
 
     /** `POST /api/sessions/:id/messages/queued-state` — resync optimistic sends after reconnect. */
@@ -240,7 +240,7 @@ class HapiApi(
         )
 
     /** `POST /api/sessions/:id/abort` — active sessions only. */
-    suspend fun abortSession(sessionId: String) {
+    override suspend fun abortSession(sessionId: String) {
         request<Unit>("POST", url("api", "sessions", sessionId, "abort").build(), EMPTY_JSON)
     }
 
@@ -253,7 +253,7 @@ class HapiApi(
      * `POST /api/sessions/:id/resume`. The returned `sessionId` may differ
      * from [sessionId] (superseding spawn) — migrate drafts and navigation.
      */
-    suspend fun resumeSession(sessionId: String, permissionMode: String? = null): ResumeSessionResponse =
+    override suspend fun resumeSession(sessionId: String, permissionMode: String?): ResumeSessionResponse =
         request(
             "POST",
             url("api", "sessions", sessionId, "resume").build(),
@@ -300,10 +300,10 @@ class HapiApi(
      * request is no longer pending; 409 `session_inactive` on an inactive
      * session (offer Reopen).
      */
-    suspend fun approvePermission(
+    override suspend fun approvePermission(
         sessionId: String,
         requestId: String,
-        options: ApprovePermissionRequest = ApprovePermissionRequest(),
+        options: ApprovePermissionRequest,
     ) {
         request<Unit>(
             "POST",
@@ -313,7 +313,7 @@ class HapiApi(
     }
 
     /** `POST /api/sessions/:id/permissions/:requestId/deny`. */
-    suspend fun denyPermission(sessionId: String, requestId: String, decision: String? = null) {
+    override suspend fun denyPermission(sessionId: String, requestId: String, decision: String?) {
         request<Unit>(
             "POST",
             url("api", "sessions", sessionId, "permissions", requestId, "deny").build(),
@@ -327,7 +327,7 @@ class HapiApi(
     // `explicitNulls = false` would drop from a DTO — hence raw JsonObjects.
 
     /** `POST /api/sessions/:id/permission-mode` — allowed set per flavor (`modes.ts`). */
-    suspend fun setPermissionMode(sessionId: String, mode: String) {
+    override suspend fun setPermissionMode(sessionId: String, mode: String) {
         request<Unit>(
             "POST",
             url("api", "sessions", sessionId, "permission-mode").build(),
@@ -336,7 +336,7 @@ class HapiApi(
     }
 
     /** `POST /api/sessions/:id/model` — string id, or null to clear back to the agent default. */
-    suspend fun setModel(sessionId: String, model: String?) {
+    override suspend fun setModel(sessionId: String, model: String?) {
         setModelElement(sessionId, model?.let(::JsonPrimitive) ?: JsonNull)
     }
 
@@ -360,7 +360,7 @@ class HapiApi(
     }
 
     /** `POST /api/sessions/:id/model-reasoning-effort` (codex, opencode) — null clears. */
-    suspend fun setModelReasoningEffort(sessionId: String, modelReasoningEffort: String?) {
+    override suspend fun setModelReasoningEffort(sessionId: String, modelReasoningEffort: String?) {
         request<Unit>(
             "POST",
             url("api", "sessions", sessionId, "model-reasoning-effort").build(),
@@ -373,7 +373,7 @@ class HapiApi(
     }
 
     /** `POST /api/sessions/:id/effort` (claude, grok, pi) — null clears. */
-    suspend fun setEffort(sessionId: String, effort: String?) {
+    override suspend fun setEffort(sessionId: String, effort: String?) {
         request<Unit>(
             "POST",
             url("api", "sessions", sessionId, "effort").build(),
@@ -407,6 +407,13 @@ class HapiApi(
             jsonBody(buildJsonObject { put("mode", mode) }),
         )
     }
+
+    /**
+     * `GET /api/sessions/:id/codex-models` — active codex session's model
+     * catalog (RPC-wrapped: check `success`; 400 on other flavors).
+     */
+    override suspend fun getSessionCodexModels(sessionId: String): CodexModelsResponse =
+        request("GET", url("api", "sessions", sessionId, "codex-models").build())
 
     // ------------------------------------------------- commands & skills --
 

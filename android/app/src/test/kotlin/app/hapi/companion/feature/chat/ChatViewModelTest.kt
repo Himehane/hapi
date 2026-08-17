@@ -1,7 +1,7 @@
 package app.hapi.companion.feature.chat
 
 import app.hapi.companion.feature.sessions.SessionListViewModel
-import app.hapi.data.api.MessagesApi
+import app.hapi.data.api.ChatSessionApi
 import app.hapi.data.api.MessagesQuery
 import app.hapi.data.sse.SseEngine
 import app.hapi.data.sse.SseRawEvent
@@ -14,8 +14,14 @@ import app.hapi.data.store.SessionDetailStore
 import app.hapi.data.store.StoreSyncTargets
 import app.hapi.protocol.chat.AgentTextBlock
 import app.hapi.protocol.chat.ToolCallBlock
+import app.hapi.protocol.wire.ApprovePermissionRequest
+import app.hapi.protocol.wire.CancelMessageResponse
+import app.hapi.protocol.wire.CodexModelsResponse
 import app.hapi.protocol.wire.DecryptedMessage
 import app.hapi.protocol.wire.HapiJson
+import app.hapi.protocol.wire.ResumeSessionResponse
+import app.hapi.protocol.wire.SendMessageRequest
+import app.hapi.protocol.wire.SteerQueuedMessageResponse
 import app.hapi.protocol.wire.Machine
 import app.hapi.protocol.wire.MessagesPage
 import app.hapi.protocol.wire.MessagesResponse
@@ -79,8 +85,15 @@ private class FakeSessionStore : SessionDetailStore {
         return session
     }
 
+    override fun currentDetail(sessionId: String): Session? = details.value[sessionId]
+
     override fun releaseDetail(sessionId: String) {
         details.value = details.value - sessionId
+    }
+
+    override fun updateDetailLocal(sessionId: String, transform: (Session) -> Session) {
+        val current = details.value[sessionId] ?: return
+        details.value = details.value + (sessionId to transform(current))
     }
 
     override suspend fun refresh() = record("refresh")
@@ -100,8 +113,8 @@ private class FakeMachineStore : MachineListStore {
     override fun applyMachineEvent(event: SyncEvent.MachineUpdated) {}
 }
 
-/** Scripted [MessagesApi]: `latest`/`after` serve [tailResponses] in order, `before` serves [beforePage]. */
-private class FakeMessagesApi : MessagesApi {
+/** Scripted [ChatSessionApi]: `latest`/`after` serve [tailResponses] in order, `before` serves [beforePage]. */
+private class FakeMessagesApi : ChatSessionApi {
     val queries = MutableStateFlow<List<MessagesQuery>>(emptyList())
     val tailResponses = ArrayDeque<MessagesResponse>()
     var beforePage: MessagesResponse? = null
@@ -110,12 +123,34 @@ private class FakeMessagesApi : MessagesApi {
         queries.value = queries.value + query
         return when (query) {
             is MessagesQuery.Before -> beforePage ?: emptyLatest(direction = "before")
-            else -> tailResponses.removeFirstOrNull() ?: emptyLatest(direction = "latest")
+            // A drained script answers per query direction: an "after" query
+            // answered with direction "latest" would (correctly!) reset the
+            // window and wipe rows — real hubs answer after-queries "after".
+            is MessagesQuery.After -> tailResponses.removeFirstOrNull() ?: emptyLatest(direction = "after")
+            is MessagesQuery.Latest -> tailResponses.removeFirstOrNull() ?: emptyLatest(direction = "latest")
         }
     }
 
     override suspend fun getQueuedState(sessionId: String, localIds: List<String>): QueuedStateResponse =
         QueuedStateResponse(queuedLocalIds = emptyList(), invokedLocalMessages = emptyList())
+
+    // Interaction endpoints are exercised by ChatViewModelInteractionTest.
+    override suspend fun sendMessage(sessionId: String, message: SendMessageRequest) {}
+    override suspend fun cancelMessage(sessionId: String, messageId: String): CancelMessageResponse =
+        CancelMessageResponse(status = "cancelled", localId = messageId)
+    override suspend fun steerMessage(sessionId: String, messageId: String): SteerQueuedMessageResponse =
+        SteerQueuedMessageResponse(status = "steered", localId = messageId)
+    override suspend fun abortSession(sessionId: String) {}
+    override suspend fun resumeSession(sessionId: String, permissionMode: String?): ResumeSessionResponse =
+        ResumeSessionResponse(sessionId = sessionId)
+    override suspend fun approvePermission(sessionId: String, requestId: String, options: ApprovePermissionRequest) {}
+    override suspend fun denyPermission(sessionId: String, requestId: String, decision: String?) {}
+    override suspend fun setPermissionMode(sessionId: String, mode: String) {}
+    override suspend fun setModel(sessionId: String, model: String?) {}
+    override suspend fun setEffort(sessionId: String, effort: String?) {}
+    override suspend fun setModelReasoningEffort(sessionId: String, modelReasoningEffort: String?) {}
+    override suspend fun getSessionCodexModels(sessionId: String): CodexModelsResponse =
+        CodexModelsResponse(success = false, error = "not scripted")
 }
 
 private fun page(
@@ -230,6 +265,7 @@ private class Harness(
     )
     val viewModel = ChatViewModel(
         sessionId = SESSION_ID,
+        api = api,
         sessionStore = sessionStore,
         machineStore = FakeMachineStore(),
         lastSeenStore = lastSeenStore,

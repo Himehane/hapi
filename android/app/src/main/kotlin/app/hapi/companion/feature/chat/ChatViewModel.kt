@@ -1,6 +1,9 @@
 package app.hapi.companion.feature.chat
 
+import app.hapi.companion.feature.chat.composer.ChatDrafts
 import app.hapi.companion.feature.sessions.SessionListViewModel
+import app.hapi.data.api.ApiError
+import app.hapi.data.api.ChatSessionApi
 import app.hapi.data.sse.SseEngine
 import app.hapi.data.sse.SseSubscriptionKey
 import app.hapi.data.sse.SyncEventRouter
@@ -10,19 +13,36 @@ import app.hapi.data.store.MachineListStore
 import app.hapi.data.store.MessageWindowStore
 import app.hapi.data.store.MessageWindowStores
 import app.hapi.data.store.SessionDetailStore
+import app.hapi.protocol.catalog.CatalogOption
 import app.hapi.protocol.catalog.Flavors
+import app.hapi.protocol.catalog.ModelCatalog
+import app.hapi.protocol.catalog.PermissionMode
+import app.hapi.protocol.catalog.PermissionModes
 import app.hapi.protocol.chat.NormalizedMessage
 import app.hapi.protocol.chat.ToolGroupBlock
 import app.hapi.protocol.chat.ToolGroupingOptions
 import app.hapi.protocol.chat.VisibleChatBlock
 import app.hapi.protocol.chat.buildVisibleChatBlocks
+import app.hapi.protocol.chat.getInputStringAny
 import app.hapi.protocol.chat.normalizeDecryptedMessage
 import app.hapi.protocol.chat.reduceChatBlocks
+import app.hapi.protocol.window.MessageStatus
 import app.hapi.protocol.window.MessageWindowState
 import app.hapi.protocol.window.WindowMessage
+import app.hapi.protocol.window.asWindowMessage
+import app.hapi.protocol.wire.AgentState
+import app.hapi.protocol.wire.ApprovePermissionRequest
+import app.hapi.protocol.wire.AttachmentMetadata
+import app.hapi.protocol.wire.CodexModelSummary
+import app.hapi.protocol.wire.HapiJson
 import app.hapi.protocol.wire.Machine
+import app.hapi.protocol.wire.SendMessageRequest
 import app.hapi.protocol.wire.Session
 import app.hapi.protocol.wire.SessionSummary
+import app.hapi.protocol.wire.arrayOrNull
+import app.hapi.protocol.wire.objOrNull
+import app.hapi.protocol.wire.stringOrNull
+import java.util.UUID
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -30,13 +50,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -44,7 +68,14 @@ import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transform
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** Chat top-bar model: title cascade + status + meta line. */
 data class ChatHeaderUi(
@@ -55,13 +86,26 @@ data class ChatHeaderUi(
     val thinking: Boolean,
 )
 
+/** Optimistic-permission UI state layered over the reduced blocks (M3b). */
+enum class PermissionRowOverride {
+    /** Decision POSTed; waiting for the agentState patch to settle it. */
+    Resolving,
+
+    /** The hub said the request is no longer pending (404/409) — benign. */
+    AlreadyHandled,
+}
+
 /** What [ChatScreen] renders. */
 data class ChatUiState(
     val sessionId: String,
     val header: ChatHeaderUi,
+    /** Raw agent flavor id (`claude`, `codex`, …); drives permission button sets. */
+    val flavor: String?,
     /** Workspace root, for path display in tool cards. */
     val basePath: String?,
     val blocks: List<VisibleChatBlock>,
+    /** Per-request optimistic permission state, keyed by request id. */
+    val permissionOverrides: Map<String, PermissionRowOverride>,
     val hasMore: Boolean,
     val isLoadingOlder: Boolean,
     val isSyncingTail: Boolean,
@@ -75,30 +119,117 @@ data class ChatUiState(
     val tailRevision: Long,
 )
 
+/** Composer bar state (M3a). */
+data class ComposerUiState(
+    val text: String,
+    /** A send (or its inactive-session resume) is in flight — spinner on the send button. */
+    val isSending: Boolean,
+    /** A turn is active: long-press send offers Steer, and Abort is shown. */
+    val canSteer: Boolean,
+)
+
+/** One row of the queued-messages bar (uninvoked sends). */
+data class QueuedRowUi(
+    val id: String,
+    val localId: String?,
+    val text: String,
+    val attachmentNames: List<String>,
+    val scheduledAt: Long?,
+    /**
+     * Server echo has landed (`id != localId`) and no queued operation is in
+     * flight — Cancel/Edit act only then (web `computeCanCancel`).
+     */
+    val canAct: Boolean,
+    /** Steer offered: turn active, not future-scheduled, actionable. */
+    val canSteer: Boolean,
+)
+
+/** Session config sheet model (M3b switching). */
+data class SessionConfigUi(
+    val flavor: String?,
+    val active: Boolean,
+    /** Terminal-controlled sessions reject config posts with 409. */
+    val controlledByUser: Boolean,
+    /** Raw wire mode; may be outside [permissionModes] (render verbatim). */
+    val permissionMode: String?,
+    /** Catalog modes for this flavor; empty → hide the section (pi). */
+    val permissionModes: List<PermissionMode>,
+    val model: String?,
+    /** null → hide the model section (flavor without a known catalog). */
+    val modelOptions: List<CatalogOption>?,
+    /** True while the codex model catalog loads (sheet shows a spinner row). */
+    val modelOptionsLoading: Boolean,
+    /** Claude `effort` or codex `modelReasoningEffort`, whichever applies. */
+    val effort: String?,
+    /** null → hide the effort section. */
+    val effortOptions: List<CatalogOption>?,
+)
+
+/** One-shot side effects for the screen. */
+sealed interface ChatEvent {
+    /** Resume returned a different session id — renavigate to it. */
+    data class SessionSuperseded(val sessionId: String) : ChatEvent
+
+    /** Transient failure/notice for a snackbar. */
+    data class Notice(val message: String) : ChatEvent
+}
+
+/** A permission decision the UI can request (bodies mirror `PermissionFooter.tsx`). */
+sealed interface PermissionAction {
+    /** Plain allow — `{}` (claude family) or `{"decision":"approved"}` (codex family). */
+    data object Allow : PermissionAction
+
+    /** Claude: `{"allowTools":[…]}`; everyone else: `{"decision":"approved_for_session"}`. */
+    data object AllowForSession : PermissionAction
+
+    /** Claude edit tools: `{"mode":"acceptEdits"}`. */
+    data object AllowAllEdits : PermissionAction
+
+    /** Plain deny — `{}`. */
+    data object Deny : PermissionAction
+
+    /** Codex family: deny with `{"decision":"abort"}`. */
+    data object Abort : PermissionAction
+
+    /** AskUserQuestion: flat `{"<key>": ["label", …]}`. */
+    data class FlatAnswers(val answers: Map<String, List<String>>) : PermissionAction
+
+    /** request_user_input: nested `{"<fieldId>": {"answers": […]}}`. */
+    data class NestedAnswers(val answers: Map<String, List<String>>) : PermissionAction
+}
+
 /**
- * Per-session chat state machine (read-only M2 slice):
+ * Per-session chat state machine. The M2 read-only slice (SSE pipe + window +
+ * pipeline, see below) plus the B-M3ab interaction layer:
  *
- * - owns the session-scope SSE subscription while [start]ed (dual-subscription
- *   model: the list screen owns the global pipe) and routes engine events into
- *   the shared [SyncTargets] — `session-updated` patches the cached detail,
- *   message events reach this session's [MessageWindowStore], a `gap`
- *   handshake verdict triggers the full resync incl. the window's catch-up
- *   tail sync (`StoreSyncTargets.requestFullResync`);
- * - opens the [MessageWindowStore] (snapshot hydration), [MessageWindowStore.activate]s
- *   it and starts a tail sync; [loadOlder] forwards to `fetchOlder`;
- * - runs the chat pipeline (normalize → reduce → toolGroups) over the window +
- *   the detail's `agentState` on [pipelineDispatcher], throttled to one run
- *   per [pipelineIntervalMs] (first input renders immediately). Normalization
- *   is memoized per message id by row instance identity, exactly like the web
- *   (`SessionChat.tsx` normalizedCache);
- * - stamps the [LastSeenStore] watermark on entry and on every `updatedAt`
- *   movement while the screen is open.
+ * - **Composer** ([composer]/[setComposerText]/[sendMessage]): optimistic send
+ *   (`appendOptimistic` → POST → status settle), queue-by-default with an
+ *   explicit steer intent, failed rows retried via [retryFailedMessage];
+ *   `session_inactive` (409) auto-resumes once and retries, following a
+ *   superseding session id with a window seed + draft move +
+ *   [ChatEvent.SessionSuperseded]. Drafts persist per session via [ChatDrafts].
+ * - **Queued bar** ([queuedRows]): uninvoked sends with Cancel (DELETE,
+ *   invoked-race ingested), Edit (cancel + prefill) and Steer (POST steer).
+ * - **Permissions** ([resolvePermission]): flavor-exact approve/deny bodies,
+ *   optimistic [PermissionRowOverride]s settled by the agentState patch.
+ * - **Config** ([config]/[setPermissionMode]/[setModel]/[setEffort]): catalog
+ *   pickers with optimistic detail updates, rolled back to server truth on
+ *   error; codex model catalog fetched per session ([loadModelOptions]).
+ *
+ * M2 core (unchanged): owns the session-scope SSE subscription while
+ * [start]ed (dual-subscription model: `HubGraph` owns the global pipe) and
+ * routes engine events into the shared [SyncTargets]; opens the
+ * [MessageWindowStore], activates it, tail-syncs and reconciles queued state;
+ * runs the normalize → reduce → toolGroups pipeline over the window + the
+ * detail's `agentState` on [pipelineDispatcher], throttled to one run per
+ * [pipelineIntervalMs]; stamps the [LastSeenStore] watermark.
  *
  * Plain constructor — JVM tests drive it with fake stores and a scripted
  * transport; Navigation hosts it behind a lifecycle-aware holder.
  */
 class ChatViewModel(
     val sessionId: String,
+    private val api: ChatSessionApi,
     private val sessionStore: SessionDetailStore,
     private val machineStore: MachineListStore,
     private val lastSeenStore: LastSeenStore,
@@ -106,8 +237,13 @@ class ChatViewModel(
     private val sseEngine: SseEngine,
     syncTargets: SyncTargets,
     private val scope: CoroutineScope,
+    private val drafts: ChatDrafts? = null,
     private val pipelineDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val pipelineIntervalMs: Long = PIPELINE_INTERVAL_MS,
+    private val draftSaveDebounceMs: Long = DRAFT_SAVE_DEBOUNCE_MS,
+    private val now: () -> Long = System::currentTimeMillis,
+    /** Web `makeClientSideId('local')` twin; injectable for deterministic tests. */
+    private val localIdGenerator: () -> String = { "local-${UUID.randomUUID()}" },
 ) {
     private val router = SyncEventRouter(syncTargets)
     private val subscriptionKey = SseSubscriptionKey.Session(sessionId)
@@ -119,6 +255,29 @@ class ChatViewModel(
     private var initJob: Job? = null
     private var seenJob: Job? = null
     private var olderJob: Job? = null
+    private var draftJob: Job? = null
+
+    // ------------------------------------------------------------ M3 state --
+
+    private val composerText = MutableStateFlow("")
+    private val sendInFlight = MutableStateFlow(false)
+    private val queuedOpPending = MutableStateFlow(false)
+    private val permissionOverrides = MutableStateFlow<Map<String, PermissionRowOverride>>(emptyMap())
+    private val configOpPending = MutableStateFlow(false)
+
+    private sealed interface CodexModels {
+        data object Idle : CodexModels
+        data object Loading : CodexModels
+        data class Loaded(val models: List<CodexModelSummary>) : CodexModels
+        data object Failed : CodexModels
+    }
+
+    private val codexModels = MutableStateFlow<CodexModels>(CodexModels.Idle)
+
+    private val _events = MutableSharedFlow<ChatEvent>(extraBufferCapacity = 16)
+
+    /** One-shot effects: renavigation on supersede, snackbar notices. */
+    val events: SharedFlow<ChatEvent> = _events.asSharedFlow()
 
     // Pipeline memo state — touched only inside the single uiState map stage.
     private val normalizeCache = HashMap<String, NormalizeCacheEntry>()
@@ -132,6 +291,7 @@ class ChatViewModel(
         val summary: SessionSummary?,
         val machines: List<Machine>,
         val detailLoadFailed: Boolean,
+        val permissionOverrides: Map<String, PermissionRowOverride>,
     )
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -141,12 +301,11 @@ class ChatViewModel(
             combine(
                 store.state,
                 sessionStore.sessionDetail(sessionId),
-                sessionStore.sessions.map { list -> list.firstOrNull { it.id == sessionId } }
-                    .distinctUntilChanged(),
+                summaryFlow(),
                 machineStore.machines,
                 detailLoadFailed,
-                ::PipelineInputs,
-            )
+                permissionOverrides,
+            ) { values: Array<Any?> -> pipelineInputs(values) }
         }
         // The web samples pipeline runs through React batching; here: emit the
         // first value immediately, then at most one (latest) run per interval.
@@ -158,6 +317,40 @@ class ChatViewModel(
         .map(::buildUiState)
         .flowOn(pipelineDispatcher)
         .stateIn(scope, SharingStarted.Eagerly, initialState())
+
+    /** Composer bar state (text is VM-owned so drafts and edit-prefill flow through it). */
+    val composer: StateFlow<ComposerUiState> = combine(
+        composerText,
+        sendInFlight,
+        sessionStateFlow(),
+    ) { text, sending, session ->
+        ComposerUiState(
+            text = text,
+            isSending = sending,
+            canSteer = session.thinking && session.active,
+        )
+    }.stateIn(scope, SharingStarted.Eagerly, ComposerUiState(text = "", isSending = false, canSteer = false))
+
+    /** Uninvoked sends for the queued bar, ordered like the web (immediate first, then scheduled). */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val queuedRows: StateFlow<List<QueuedRowUi>> = windowStore
+        .filterNotNull()
+        .flatMapLatest { store ->
+            combine(store.state, queuedOpPending, sessionStateFlow()) { window, opPending, session ->
+                buildQueuedRows(window, opPending, session.thinking)
+            }
+        }
+        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    /** Session config sheet model. */
+    val config: StateFlow<SessionConfigUi> = combine(
+        sessionStore.sessionDetail(sessionId),
+        summaryFlow(),
+        codexModels,
+        configOpPending,
+    ) { detail, summary, models, _ ->
+        buildConfigUi(detail, summary, models)
+    }.stateIn(scope, SharingStarted.Eagerly, buildConfigUi(null, null, CodexModels.Idle))
 
     // ------------------------------------------------------------ lifecycle --
 
@@ -180,7 +373,13 @@ class ChatViewModel(
                     .collect { router.route(subscriptionKey, it) }
             }
 
-            launch { runCatching { store.syncTail() } }
+            launch {
+                runCatching { store.syncTail() }
+                // Now that sends exist, verify optimistic queued rows against
+                // the hub on every chat open (web queued-state reconciliation).
+                runCatching { store.reconcileQueuedState() }
+            }
+            launch { restoreDraft() }
             loadDetail()
         }
 
@@ -205,8 +404,26 @@ class ChatViewModel(
         initJob?.cancel()
         seenJob?.cancel()
         olderJob?.cancel()
+        flushPendingDraft()
         sseEngine.unsubscribe(subscriptionKey)
         sessionStore.releaseDetail(sessionId)
+    }
+
+    /**
+     * A debounced draft save cancelled by screen exit would lose the last
+     * keystrokes; flush it on a detached scope — [scope] is torn down right
+     * after [stop] returns (the web analogue is the beforeunload persist).
+     */
+    @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+    private fun flushPendingDraft() {
+        val pending = draftJob?.isActive == true
+        draftJob?.cancel()
+        if (!pending) return
+        val store = drafts ?: return
+        val text = composerText.value
+        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+            runCatching { store.save(sessionId, text) }
+        }
     }
 
     /** Initial-load error state → try again (detail + tail). */
@@ -237,13 +454,626 @@ class ChatViewModel(
         }
     }
 
+    // ------------------------------------------------------------- composer --
+
+    fun setComposerText(text: String) {
+        composerText.value = text
+        draftJob?.cancel()
+        val store = drafts ?: return
+        draftJob = scope.launch {
+            delay(draftSaveDebounceMs)
+            runCatching { store.save(sessionId, text) }
+        }
+    }
+
+    /**
+     * Submit the composer. Delivery defaults to durable queue; [steer] is the
+     * explicit long-press intent that delivers into the active turn
+     * (`deliveryMode: "steer"` — `messageDelivery.ts` semantics).
+     */
+    fun sendMessage(steer: Boolean = false) {
+        val text = composerText.value.trim()
+        if (text.isEmpty() || sendInFlight.value) return
+        composerText.value = ""
+        draftJob?.cancel()
+        scope.launch {
+            drafts?.let { runCatching { it.clear(sessionId) } }
+            performSend(
+                text = text,
+                localId = localIdGenerator(),
+                createdAt = now(),
+                deliveryMode = if (steer) "steer" else "queue",
+                isRetry = false,
+            )
+        }
+    }
+
+    /** Tap-to-retry on a failed optimistic row: re-fires the send with the same localId. */
+    fun retryFailedMessage(localId: String) {
+        if (sendInFlight.value) return
+        scope.launch {
+            val store = awaitWindowStore()
+            val row = store.state.value.messages
+                .firstOrNull { it.localId == localId && it.status == MessageStatus.Failed }
+                ?: return@launch
+            val payload = sendPayloadOf(row) ?: return@launch
+            performSend(
+                text = payload.text,
+                localId = localId,
+                createdAt = row.createdAt,
+                // A retry cannot prove the original turn is still live —
+                // steer degrades to queue (web `getRetryDeliveryMode`).
+                deliveryMode = "queue",
+                attachments = payload.attachments,
+                scheduledAt = row.wire.scheduledAt,
+                isRetry = true,
+            )
+        }
+    }
+
+    private class SendPayload(val text: String, val attachments: List<AttachmentMetadata>?)
+
+    /** Extract text + attachments from an optimistic user row's wire content. */
+    private fun sendPayloadOf(row: WindowMessage): SendPayload? {
+        val inner = row.wire.content.objOrNull?.get("content").objOrNull ?: return null
+        val text = inner["text"].stringOrNull ?: return null
+        val attachments = inner["attachments"].arrayOrNull?.let { array ->
+            runCatching {
+                HapiJson.decodeFromJsonElement(ListSerializer(AttachmentMetadata.serializer()), array)
+            }.getOrNull()
+        }?.takeIf { it.isNotEmpty() }
+        return SendPayload(text, attachments)
+    }
+
+    private suspend fun performSend(
+        text: String,
+        localId: String,
+        createdAt: Long,
+        deliveryMode: String,
+        attachments: List<AttachmentMetadata>? = null,
+        scheduledAt: Long? = null,
+        isRetry: Boolean,
+    ) {
+        sendInFlight.value = true
+        try {
+            val store = awaitWindowStore()
+            if (isRetry) {
+                store.updateStatus(localId, MessageStatus.Sending)
+            } else {
+                store.appendOptimistic(
+                    localId = localId,
+                    text = text,
+                    attachments = attachments,
+                    scheduledAt = scheduledAt,
+                    deliveryMode = deliveryMode,
+                    createdAt = createdAt,
+                )
+            }
+            val request = SendMessageRequest(
+                text = text,
+                localId = localId,
+                attachments = attachments,
+                scheduledAt = scheduledAt,
+                deliveryMode = deliveryMode,
+            )
+            try {
+                api.sendMessage(sessionId, request)
+                store.updateStatus(localId, successStatus())
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                if (error.isSessionInactive()) {
+                    resumeAndRetry(store, request, localId)
+                } else {
+                    store.updateStatus(localId, MessageStatus.Failed)
+                }
+            }
+        } finally {
+            sendInFlight.value = false
+        }
+    }
+
+    /** Queued while a turn is active, sent otherwise (web `onMutate` successStatus). */
+    private fun successStatus(): MessageStatus =
+        if (currentSessionState().thinking) MessageStatus.Queued else MessageStatus.Sent
+
+    /**
+     * `session_inactive` recovery (web `resolveSessionId` semantics,
+     * `router.tsx`): one `POST /resume`, then retry the send against the id
+     * the hub returns. A different id supersedes this session — seed the new
+     * window from this one, migrate the draft, retarget the optimistic row,
+     * and tell the screen to renavigate.
+     */
+    private suspend fun resumeAndRetry(
+        store: MessageWindowStore,
+        request: SendMessageRequest,
+        localId: String,
+    ) {
+        val targetSessionId = try {
+            api.resumeSession(sessionId, currentDetail()?.permissionMode).sessionId
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            store.updateStatus(localId, MessageStatus.Failed)
+            _events.tryEmit(ChatEvent.Notice("Session is inactive and could not be resumed"))
+            return
+        }
+
+        val optimisticRow = store.state.value.messages.firstOrNull { it.localId == localId }
+        var targetStore = store
+        if (targetSessionId != sessionId) {
+            messageWindows.seed(sessionId, targetSessionId)
+            targetStore = messageWindows.open(targetSessionId)
+            if (optimisticRow != null) {
+                // Seeding copies rows across, but make the hand-off explicit:
+                // the pending row must live in the target window only.
+                targetStore.appendOptimistic(optimisticRow)
+                store.removeMessage(localId)
+            }
+            drafts?.let { runCatching { it.move(sessionId, targetSessionId) } }
+        }
+
+        // Resume succeeded: reflect activity locally, refresh the list row.
+        sessionStore.updateDetailLocal(sessionId) { it.copy(active = true) }
+        sessionStore.scheduleRefresh()
+
+        try {
+            api.sendMessage(targetSessionId, request)
+            targetStore.updateStatus(localId, successStatus())
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            targetStore.updateStatus(localId, MessageStatus.Failed)
+        }
+        if (targetSessionId != sessionId) {
+            _events.tryEmit(ChatEvent.SessionSuperseded(targetSessionId))
+        }
+    }
+
+    /** `POST /abort` — confirm-free stop of the active turn. */
+    fun abortSession() {
+        scope.launch {
+            try {
+                api.abortSession(sessionId)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                _events.tryEmit(ChatEvent.Notice(error.message ?: "Failed to abort"))
+            }
+        }
+    }
+
+    // ----------------------------------------------------------- queued bar --
+
+    /**
+     * Cancel one queued message: optimistic removal, `DELETE`; an `invoked`
+     * answer means the agent already consumed it — ingest the authoritative
+     * row as sent (web `useCancelQueuedMessage`). Errors restore the row.
+     */
+    fun cancelQueuedMessage(messageId: String) {
+        scope.launch { cancelQueuedInternal(messageId) }
+    }
+
+    /** @return the cancel verdict: `"cancelled"`, `"invoked"`, or null on guard/error. */
+    private suspend fun cancelQueuedInternal(messageId: String): String? {
+        val store = awaitWindowStore()
+        val row = store.state.value.messages.firstOrNull { it.id == messageId } ?: return null
+        if (!canActOnQueuedRow(row)) return null
+        if (!queuedOpPending.compareAndSet(expect = false, update = true)) return null
+        val localId = row.localId ?: row.id
+        store.removeMessage(localId)
+        return try {
+            val response = api.cancelMessage(sessionId, messageId)
+            val invokedMessage = response.message
+            if (response.status == "invoked" && invokedMessage != null) {
+                store.appendOptimistic(invokedMessage.asWindowMessage(MessageStatus.Sent))
+            }
+            response.status
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            store.appendOptimistic(row)
+            _events.tryEmit(ChatEvent.Notice(error.message ?: "Failed to cancel queued message"))
+            null
+        } finally {
+            queuedOpPending.value = false
+        }
+    }
+
+    /** Edit = cancel + prefill composer (kept when the operator typed meanwhile). */
+    fun editQueuedMessage(messageId: String) {
+        scope.launch {
+            val store = awaitWindowStore()
+            val row = store.state.value.messages.firstOrNull { it.id == messageId } ?: return@launch
+            val preview = queuedPreview(row)
+            val editText = preview.text.ifEmpty { preview.attachmentNames.joinToString(", ") }
+            val composerAtEdit = composerText.value
+            when (cancelQueuedInternal(messageId)) {
+                "cancelled" -> {
+                    if (composerText.value == composerAtEdit) {
+                        setComposerText(editText)
+                    } else {
+                        _events.tryEmit(ChatEvent.Notice("Message cancelled — kept your current draft"))
+                    }
+                }
+                "invoked" -> _events.tryEmit(ChatEvent.Notice("Already delivered to the agent"))
+                else -> Unit
+            }
+        }
+    }
+
+    /**
+     * Steer one queued message into the active turn. Non-optimistic: the
+     * `messages-consumed` event settles the row (web `useSteerQueuedMessage`);
+     * an `invoked` answer reconciles a missed consume.
+     */
+    fun steerQueuedMessage(messageId: String) {
+        scope.launch {
+            val store = awaitWindowStore()
+            val row = store.state.value.messages.firstOrNull { it.id == messageId } ?: return@launch
+            if (!canActOnQueuedRow(row) || row.wire.scheduledAt != null) return@launch
+            if (!queuedOpPending.compareAndSet(expect = false, update = true)) return@launch
+            try {
+                val response = api.steerMessage(sessionId, messageId)
+                when (response.status) {
+                    "failed" -> _events.tryEmit(
+                        ChatEvent.Notice(response.error ?: "Failed to steer message"),
+                    )
+                    "invoked" -> {
+                        val message = response.message
+                        val invokedLocalId = message?.localId
+                        val invokedAt = message?.invokedAtOrNull
+                        if (invokedLocalId != null && invokedAt != null) {
+                            store.markConsumed(listOf(invokedLocalId), invokedAt)
+                        }
+                    }
+                    else -> Unit // "steered": messages-consumed removes the row.
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                _events.tryEmit(ChatEvent.Notice(error.message ?: "Failed to steer message"))
+            } finally {
+                queuedOpPending.value = false
+            }
+        }
+    }
+
+    private fun canActOnQueuedRow(row: WindowMessage): Boolean {
+        val hasServerEcho = row.localId == null || row.id != row.localId
+        return hasServerEcho && !queuedOpPending.value
+    }
+
+    private class QueuedPreview(val text: String, val attachmentNames: List<String>)
+
+    private fun queuedPreview(row: WindowMessage): QueuedPreview {
+        val normalized = normalizeDecryptedMessage(row.wire) as? NormalizedMessage.User
+            ?: return QueuedPreview("", emptyList())
+        return QueuedPreview(
+            text = normalized.text.trim(),
+            attachmentNames = normalized.attachments?.map { it.filename } ?: emptyList(),
+        )
+    }
+
+    private fun buildQueuedRows(
+        window: MessageWindowState,
+        opPending: Boolean,
+        thinking: Boolean,
+    ): List<QueuedRowUi> {
+        val queued = window.messages.filter { it.isQueuedForInvocation }
+        // Web `sortQueuedMessages`: immediate first (submission order), then
+        // scheduled by fire time.
+        val sorted = queued.sortedWith(
+            compareBy<WindowMessage> { it.wire.scheduledAt != null }
+                .thenBy { it.wire.scheduledAt ?: it.createdAt },
+        )
+        return sorted.map { row ->
+            val preview = queuedPreview(row)
+            val hasServerEcho = row.localId == null || row.id != row.localId
+            val canAct = hasServerEcho && !opPending
+            QueuedRowUi(
+                id = row.id,
+                localId = row.localId,
+                text = preview.text,
+                attachmentNames = preview.attachmentNames,
+                scheduledAt = row.wire.scheduledAt,
+                canAct = canAct,
+                canSteer = canAct && thinking && row.wire.scheduledAt == null,
+            )
+        }
+    }
+
+    // ---------------------------------------------------------- permissions --
+
+    /**
+     * Apply one permission decision. Wire bodies match the web
+     * `PermissionFooter`/`AskUserQuestionFooter`/`RequestUserInputFooter`
+     * exactly; 404/409 from the hub mean the request already settled
+     * elsewhere — surfaced as a benign [PermissionRowOverride.AlreadyHandled].
+     */
+    fun resolvePermission(requestId: String, action: PermissionAction) {
+        if (permissionOverrides.value.containsKey(requestId)) return
+        permissionOverrides.update { it + (requestId to PermissionRowOverride.Resolving) }
+        scope.launch {
+            try {
+                when (action) {
+                    PermissionAction.Deny -> api.denyPermission(sessionId, requestId)
+                    PermissionAction.Abort -> api.denyPermission(sessionId, requestId, decision = "abort")
+                    else -> api.approvePermission(sessionId, requestId, approveBody(requestId, action))
+                }
+                // Success: stay `Resolving`; the agentState patch clears the
+                // pending request and the pipeline prunes the override.
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                if (error is ApiError && (error.status == 404 || error.status == 409)) {
+                    permissionOverrides.update { it + (requestId to PermissionRowOverride.AlreadyHandled) }
+                    _events.tryEmit(ChatEvent.Notice("Request was already handled"))
+                } else {
+                    permissionOverrides.update { it - requestId }
+                    _events.tryEmit(ChatEvent.Notice(error.message ?: "Request failed"))
+                }
+            }
+        }
+    }
+
+    private fun approveBody(requestId: String, action: PermissionAction): ApprovePermissionRequest {
+        val flavor = currentFlavor()
+        val request = currentDetail()?.agentState?.requests?.get(requestId)
+        val toolName = request?.tool
+        val codexUx = isCodexPermissionUx(flavor, toolName)
+        return when (action) {
+            PermissionAction.Allow ->
+                if (codexUx) ApprovePermissionRequest(decision = "approved")
+                else ApprovePermissionRequest()
+
+            PermissionAction.AllowForSession ->
+                if (flavor == "claude") {
+                    val command = if (toolName == "Bash") {
+                        getInputStringAny(request?.arguments, listOf("command", "cmd"))
+                    } else {
+                        null
+                    }
+                    val toolIdentifier = if (toolName == "Bash" && command != null) {
+                        "Bash($command)"
+                    } else {
+                        toolName ?: ""
+                    }
+                    ApprovePermissionRequest(allowTools = listOf(toolIdentifier))
+                } else {
+                    ApprovePermissionRequest(decision = "approved_for_session")
+                }
+
+            PermissionAction.AllowAllEdits -> ApprovePermissionRequest(mode = "acceptEdits")
+
+            is PermissionAction.FlatAnswers -> ApprovePermissionRequest(
+                answers = buildJsonObject {
+                    action.answers.forEach { (key, values) ->
+                        put(key, JsonArray(values.map(::JsonPrimitive)))
+                    }
+                },
+            )
+
+            is PermissionAction.NestedAnswers -> ApprovePermissionRequest(
+                answers = buildJsonObject {
+                    action.answers.forEach { (key, values) ->
+                        put(
+                            key,
+                            buildJsonObject {
+                                put("answers", buildJsonArray { values.forEach { add(JsonPrimitive(it)) } })
+                            },
+                        )
+                    }
+                },
+            )
+
+            PermissionAction.Deny, PermissionAction.Abort ->
+                error("deny actions do not build approve bodies")
+        }
+    }
+
+    // ---------------------------------------------------------------- config --
+
+    /** `POST /permission-mode` with an optimistic detail flip; server truth on error. */
+    fun setPermissionMode(mode: PermissionMode) {
+        runConfigChange(
+            optimistic = { it.copy(permissionMode = mode.wireId) },
+            call = { api.setPermissionMode(sessionId, mode.wireId) },
+        )
+    }
+
+    /** `POST /model` — null clears back to the agent default. */
+    fun setModel(model: String?) {
+        runConfigChange(
+            optimistic = { it.copy(model = model) },
+            call = { api.setModel(sessionId, model) },
+        )
+    }
+
+    /**
+     * Effort switch, flavor-routed: claude → `POST /effort`; codex/opencode →
+     * `POST /model-reasoning-effort`. Null clears.
+     */
+    fun setEffort(effort: String?) {
+        val usesReasoningEffort = currentFlavor() == "codex" || currentFlavor() == "opencode"
+        runConfigChange(
+            optimistic = {
+                if (usesReasoningEffort) it.copy(modelReasoningEffort = effort) else it.copy(effort = effort)
+            },
+            call = {
+                if (usesReasoningEffort) {
+                    api.setModelReasoningEffort(sessionId, effort)
+                } else {
+                    api.setEffort(sessionId, effort)
+                }
+            },
+        )
+    }
+
+    /** Fetch the codex model catalog for the picker (no-op for other flavors). */
+    fun loadModelOptions() {
+        if (currentFlavor() != "codex") return
+        if (codexModels.value is CodexModels.Loading || codexModels.value is CodexModels.Loaded) return
+        codexModels.value = CodexModels.Loading
+        scope.launch {
+            codexModels.value = try {
+                val response = api.getSessionCodexModels(sessionId)
+                val models = response.models
+                if (response.success && models != null) {
+                    CodexModels.Loaded(models)
+                } else {
+                    _events.tryEmit(ChatEvent.Notice(response.error ?: "Failed to load models"))
+                    CodexModels.Failed
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                _events.tryEmit(ChatEvent.Notice(error.message ?: "Failed to load models"))
+                CodexModels.Failed
+            }
+        }
+    }
+
+    private fun runConfigChange(optimistic: (Session) -> Session, call: suspend () -> Unit) {
+        if (!configOpPending.compareAndSet(expect = false, update = true)) return
+        sessionStore.updateDetailLocal(sessionId, optimistic)
+        scope.launch {
+            try {
+                call()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                // Roll back by rolling forward to server truth (an SSE patch
+                // may have moved other fields since the optimistic write).
+                runCatching { sessionStore.loadSessionDetail(sessionId) }
+                _events.tryEmit(ChatEvent.Notice(error.message ?: "Failed to update session"))
+            } finally {
+                configOpPending.value = false
+            }
+        }
+    }
+
+    private fun buildConfigUi(detail: Session?, summary: SessionSummary?, models: CodexModels): SessionConfigUi {
+        val flavor = detail?.metadata?.flavor ?: summary?.metadata?.flavor
+        val model = detail?.model
+        val modelOptions: List<CatalogOption>?
+        var modelOptionsLoading = false
+        var effort: String? = null
+        var effortOptions: List<CatalogOption>? = null
+
+        when (flavor) {
+            "claude" -> {
+                modelOptions = ModelCatalog.claudeModelOptions(model)
+                effort = detail?.effort
+                effortOptions = ModelCatalog.claudeEffortOptions(effort)
+            }
+            "codex" -> {
+                when (models) {
+                    is CodexModels.Loaded -> {
+                        modelOptions = models.models.map { summaryRow ->
+                            CatalogOption(
+                                value = summaryRow.id,
+                                label = summaryRow.displayName + if (summaryRow.isDefault) " · default" else "",
+                            )
+                        }
+                        val selected = models.models.firstOrNull { it.id == model }
+                            ?: models.models.firstOrNull { it.isDefault }
+                        val efforts = selected?.supportedReasoningEfforts.orEmpty()
+                        if (efforts.isNotEmpty()) {
+                            effort = detail?.modelReasoningEffort
+                            effortOptions = listOf(CatalogOption(null, "Default")) + efforts.map { level ->
+                                CatalogOption(level, level.replaceFirstChar { it.uppercaseChar() })
+                            }
+                        }
+                    }
+                    is CodexModels.Loading -> {
+                        modelOptions = emptyList()
+                        modelOptionsLoading = true
+                    }
+                    else -> modelOptions = emptyList()
+                }
+            }
+            else -> modelOptions = null // Generic fallback: hide the picker.
+        }
+
+        return SessionConfigUi(
+            flavor = flavor,
+            active = detail?.active ?: summary?.active ?: false,
+            controlledByUser = detail?.agentState?.controlledByUser == true,
+            permissionMode = detail?.permissionMode,
+            permissionModes = PermissionModes.forFlavor(flavor),
+            model = model,
+            modelOptions = modelOptions,
+            modelOptionsLoading = modelOptionsLoading,
+            effort = effort,
+            effortOptions = effortOptions,
+        )
+    }
+
+    // ------------------------------------------------------------- internals --
+
+    private suspend fun awaitWindowStore(): MessageWindowStore =
+        windowStore.filterNotNull().first()
+
+    private fun currentDetail(): Session? =
+        sessionStore.currentDetail(sessionId)
+
+    private fun currentFlavor(): String? =
+        currentDetail()?.metadata?.flavor
+            ?: sessionStore.sessions.value.firstOrNull { it.id == sessionId }?.metadata?.flavor
+
+    private class SessionLiveState(val active: Boolean, val thinking: Boolean)
+
+    private fun currentSessionState(): SessionLiveState {
+        val detail = currentDetail()
+        if (detail != null) return SessionLiveState(detail.active, detail.thinking)
+        val summary = sessionStore.sessions.value.firstOrNull { it.id == sessionId }
+        return SessionLiveState(summary?.active ?: false, summary?.thinking ?: false)
+    }
+
+    private fun sessionStateFlow() = combine(
+        sessionStore.sessionDetail(sessionId),
+        summaryFlow(),
+    ) { detail, summary ->
+        SessionLiveState(
+            active = detail?.active ?: summary?.active ?: false,
+            thinking = detail?.thinking ?: summary?.thinking ?: false,
+        )
+    }
+
+    private fun summaryFlow() = sessionStore.sessions
+        .map { list -> list.firstOrNull { it.id == sessionId } }
+        .distinctUntilChanged()
+
+    private suspend fun restoreDraft() {
+        val store = drafts ?: return
+        val draft = runCatching { store.load(sessionId) }.getOrNull() ?: return
+        if (composerText.value.isEmpty()) {
+            composerText.value = draft
+        }
+    }
+
+    private fun pipelineInputs(values: Array<Any?>): PipelineInputs {
+        @Suppress("UNCHECKED_CAST")
+        return PipelineInputs(
+            window = values[0] as MessageWindowState,
+            detail = values[1] as Session?,
+            summary = values[2] as SessionSummary?,
+            machines = values[3] as List<Machine>,
+            detailLoadFailed = values[4] as Boolean,
+            permissionOverrides = values[5] as Map<String, PermissionRowOverride>,
+        )
+    }
+
     // ------------------------------------------------------------- pipeline --
 
     private fun initialState() = ChatUiState(
         sessionId = sessionId,
         header = ChatHeaderUi(title = sessionId.take(8), subtitle = null, active = false, thinking = false),
+        flavor = null,
         basePath = null,
         blocks = emptyList(),
+        permissionOverrides = emptyMap(),
         hasMore = false,
         isLoadingOlder = false,
         isSyncingTail = true,
@@ -256,8 +1086,8 @@ class ChatViewModel(
     private fun buildUiState(inputs: PipelineInputs): ChatUiState {
         val window = inputs.window
 
-        // Queued-not-yet-invoked rows belong to the composer bar (M3a), not
-        // the thread — shared predicate with the window store, like the web.
+        // Queued-not-yet-invoked rows belong to the composer bar, not the
+        // thread — shared predicate with the window store, like the web.
         val visibleMessages = window.messages.filter { !it.isQueuedForInvocation }
 
         val normalized = ArrayList<NormalizedMessage>(visibleMessages.size)
@@ -283,6 +1113,8 @@ class ChatViewModel(
         )
         previousGroups = visibleBlocks.filterIsInstance<ToolGroupBlock>()
 
+        prunePermissionOverrides(agentState, inputs.permissionOverrides)
+
         val isEmpty = visibleBlocks.isEmpty()
         // syncGeneration 0 = no tail sync has even begun (the moment between
         // open and syncTail) — still "loading", never a flash of empty state.
@@ -290,8 +1122,10 @@ class ChatViewModel(
         return ChatUiState(
             sessionId = sessionId,
             header = buildHeader(inputs),
+            flavor = inputs.detail?.metadata?.flavor ?: inputs.summary?.metadata?.flavor,
             basePath = inputs.detail?.metadata?.path ?: inputs.summary?.metadata?.path,
             blocks = visibleBlocks,
+            permissionOverrides = inputs.permissionOverrides,
             hasMore = window.hasMore,
             isLoadingOlder = window.isLoadingMore,
             isSyncingTail = window.isSyncingTail,
@@ -301,6 +1135,21 @@ class ChatViewModel(
             warning = window.warning,
             tailRevision = window.tailRevision,
         )
+    }
+
+    /** A settled request (gone from `agentState.requests`) drops its override. */
+    private fun prunePermissionOverrides(
+        agentState: AgentState?,
+        overrides: Map<String, PermissionRowOverride>,
+    ) {
+        if (overrides.isEmpty()) return
+        // A missing agentState means the detail is (re)loading, not that the
+        // requests settled — never prune on absence of evidence.
+        if (agentState == null) return
+        val pendingIds = agentState.requests?.keys ?: emptySet()
+        val stale = overrides.keys.filter { it !in pendingIds }
+        if (stale.isEmpty()) return
+        permissionOverrides.update { current -> current - stale.toSet() }
     }
 
     private fun buildHeader(inputs: PipelineInputs): ChatHeaderUi {
@@ -345,5 +1194,24 @@ class ChatViewModel(
     private companion object {
         /** Web-equivalent render batching for the pipeline (the "sample(100ms)"). */
         const val PIPELINE_INTERVAL_MS: Long = 100
+
+        const val DRAFT_SAVE_DEBOUNCE_MS: Long = 300
+
+        fun Exception.isSessionInactive(): Boolean =
+            this is ApiError && status == 409 && code == "session_inactive"
+
+        /**
+         * Codex-style approval UX (`PermissionFooter.isCodexSession`): codex
+         * family or cursor flavor, or a codex-dialect tool name.
+         */
+        fun isCodexPermissionUx(flavor: String?, toolName: String?): Boolean =
+            Flavors.isCodexFamily(flavor) ||
+                flavor == "cursor" ||
+                toolName?.let { name ->
+                    name.startsWith("Codex") || name.startsWith("Gemini") ||
+                        name.startsWith("OpenCode") || name.startsWith("Copilot") ||
+                        name.startsWith("Cursor")
+                } == true
     }
 }
+

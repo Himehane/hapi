@@ -38,6 +38,8 @@ class StoreSyncTargets(
     private val scope: CoroutineScope,
     private val messageWindows: MessageWindowStores? = null,
     private val onToastEvent: (SyncEvent.Toast) -> Unit = {},
+    /** Handshake hook (subscription id per pipe) — feeds visibility reporting. */
+    private val onHandshakeEvent: (SseSubscriptionKey, String?) -> Unit = { _, _ -> },
 ) : SyncTargets {
 
     private val windowEvents: Channel<Pair<SseSubscriptionKey, SyncEvent>>? =
@@ -97,6 +99,10 @@ class StoreSyncTargets(
         onToastEvent(event)
     }
 
+    override fun onHandshake(scope: SseSubscriptionKey, subscriptionId: String?) {
+        onHandshakeEvent(scope, subscriptionId)
+    }
+
     override fun requestFullResync(scope: SseSubscriptionKey) {
         this.scope.launch {
             try {
@@ -113,11 +119,14 @@ class StoreSyncTargets(
             } catch (_: Exception) {
             }
             // A session-pipe gap means that window's replay is unproven:
-            // catch up past any in-flight sync (web `resyncMessages`).
+            // catch up past any in-flight sync (web `resyncMessages`) AND
+            // reconcile queued optimistic sends against the hub verdict
+            // (web `queued-state-reconciliation` — the drain includes the
+            // ensureAfterCurrent tail sync).
             if (scope is SseSubscriptionKey.Session) {
                 val store = messageWindows?.peek(scope.sessionId) ?: return@launch
                 try {
-                    store.syncTail(ensureAfterCurrent = true)
+                    store.reconcileQueuedState()
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (_: Exception) {

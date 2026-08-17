@@ -63,11 +63,21 @@ interface SessionDetailStore : SessionListStore {
     /** Live view of one cached detail; null until [loadSessionDetail] (or a full-session SSE payload). */
     fun sessionDetail(sessionId: String): Flow<Session?>
 
+    /** Synchronous read of the cached detail (send/permission body building). */
+    fun currentDetail(sessionId: String): Session?
+
     /** `GET /api/sessions/:id` into the detail cache (chat open / resync). */
     suspend fun loadSessionDetail(sessionId: String): Session
 
     /** Drops a detail nobody observes anymore (chat closed). */
     fun releaseDetail(sessionId: String)
+
+    /**
+     * Local optimistic patch of a cached detail (config switching, B-M3ab).
+     * No-op when the detail is not cached; server truth (SSE patch or
+     * [loadSessionDetail]) later overwrites it.
+     */
+    fun updateDetailLocal(sessionId: String, transform: (Session) -> Session)
 }
 
 /**
@@ -125,7 +135,7 @@ class SessionStore(
     override fun sessionDetail(sessionId: String): Flow<Session?> =
         _details.map { it[sessionId] }.distinctUntilChanged()
 
-    fun currentDetail(sessionId: String): Session? = _details.value[sessionId]
+    override fun currentDetail(sessionId: String): Session? = _details.value[sessionId]
 
     override suspend fun loadSessionDetail(sessionId: String): Session {
         val session = api.getSession(sessionId).session
@@ -135,6 +145,13 @@ class SessionStore(
 
     override fun releaseDetail(sessionId: String) {
         _details.update { it - sessionId }
+    }
+
+    override fun updateDetailLocal(sessionId: String, transform: (Session) -> Session) {
+        _details.update { map ->
+            val current = map[sessionId] ?: return@update map
+            map + (sessionId to transform(current))
+        }
     }
 
     /** Forces the debounced snapshot to disk (app background / tests). */

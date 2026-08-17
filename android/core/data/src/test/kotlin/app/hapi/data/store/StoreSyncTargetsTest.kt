@@ -228,7 +228,12 @@ class StoreSyncTargetsTest {
     fun `toast events reach the callback`() = runTest {
         val toasts = mutableListOf<SyncEvent.Toast>()
         val router = SyncEventRouter(
-            StoreSyncTargets(FakeSessionListStore(), FakeMachineListStore(), backgroundScope) { toasts += it }
+            StoreSyncTargets(
+                FakeSessionListStore(),
+                FakeMachineListStore(),
+                backgroundScope,
+                onToastEvent = { toasts += it },
+            )
         )
         router.route(
             global,

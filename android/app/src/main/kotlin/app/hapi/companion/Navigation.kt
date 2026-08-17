@@ -163,6 +163,13 @@ fun HapiNavigation() {
                     }
                 },
                 onBack = { navController.popBackStack() },
+                onNavigateToSession = { supersededId ->
+                    // Resume handed the conversation to a different id:
+                    // replace this chat entry with the superseding session.
+                    navController.navigate(Routes.chat(supersededId)) {
+                        popUpTo(Routes.CHAT) { inclusive = true }
+                    }
+                },
             )
         }
 
@@ -273,10 +280,8 @@ private class SessionListViewModelHolder(hubGraph: HubGraph) : ViewModel() {
         sessionStore = hubGraph.sessionStore,
         machineStore = hubGraph.machineStore,
         lastSeenStore = hubGraph.lastSeenStore,
-        sseEngine = hubGraph.sseEngine,
         scope = scope,
         hubKey = hubGraph.hubUrl,
-        messageWindows = hubGraph.messageWindows,
     )
 
     override fun onCleared() {
@@ -291,6 +296,7 @@ private class ChatViewModelHolder(hubGraph: HubGraph, sessionId: String) : ViewM
 
     val viewModel = ChatViewModel(
         sessionId = sessionId,
+        api = hubGraph.session.api,
         sessionStore = hubGraph.sessionStore,
         machineStore = hubGraph.machineStore,
         lastSeenStore = hubGraph.lastSeenStore,
@@ -298,6 +304,7 @@ private class ChatViewModelHolder(hubGraph: HubGraph, sessionId: String) : ViewM
         sseEngine = hubGraph.sseEngine,
         syncTargets = hubGraph.syncTargets,
         scope = scope,
+        drafts = hubGraph.chatDrafts,
     )
 
     override fun onCleared() {

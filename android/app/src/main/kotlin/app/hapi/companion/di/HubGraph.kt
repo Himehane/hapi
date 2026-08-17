@@ -1,20 +1,24 @@
 package app.hapi.companion.di
 
 import android.content.Context
+import app.hapi.companion.feature.chat.composer.ChatDrafts
 import app.hapi.data.HubSession
 import app.hapi.data.auth.AuthEvents
 import app.hapi.data.auth.CredentialStore
+import app.hapi.data.sse.GlobalSsePipe
 import app.hapi.data.sse.OkHttpSseTransport
 import app.hapi.data.sse.SseEngine
 import app.hapi.data.sse.SseTokenProvider
 import app.hapi.data.sse.SyncEventRouter
 import app.hapi.data.sse.SyncTargets
+import app.hapi.data.sse.VisibilityReporter
 import app.hapi.data.store.LastSeenStore
 import app.hapi.data.store.MachineStore
 import app.hapi.data.store.MessageWindowStores
 import app.hapi.data.store.SessionStore
 import app.hapi.data.store.StoreSyncTargets
 import app.hapi.data.store.WindowSnapshots
+import app.hapi.protocol.wire.SyncEvent
 import coil.ImageLoader
 import java.io.Closeable
 import java.io.File
@@ -22,6 +26,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.withContext
 
 /**
@@ -79,10 +86,42 @@ class HubGraph(
         snapshots = WindowSnapshots(File(snapshotDir, "windows")),
     )
 
-    val syncTargets: SyncTargets =
-        StoreSyncTargets(sessionStore, machineStore, scope, messageWindows)
+    private val mutableToasts = MutableSharedFlow<SyncEvent.Toast>(extraBufferCapacity = 16)
+
+    /** Hub-pushed in-app banners (never replayed); UI consumption lands in M4/M5. */
+    val toasts: SharedFlow<SyncEvent.Toast> = mutableToasts.asSharedFlow()
+
+    /** `POST /api/visibility` reporting, fed subscription ids by the handshake hook. */
+    val visibilityReporter: VisibilityReporter =
+        VisibilityReporter(session.api::setVisibility, scope)
+
+    val syncTargets: SyncTargets = StoreSyncTargets(
+        sessions = sessionStore,
+        machines = machineStore,
+        scope = scope,
+        messageWindows = messageWindows,
+        onToastEvent = { mutableToasts.tryEmit(it) },
+        onHandshakeEvent = visibilityReporter::onHandshake,
+    )
 
     val syncEventRouter: SyncEventRouter = SyncEventRouter(syncTargets)
+
+    /**
+     * Hub-lifetime owner of the global SSE subscription (dual-subscription
+     * model): queued/consumed bookkeeping and list badges stay fresh no
+     * matter which screen is open. Torn down with [scope] on [close].
+     */
+    val globalPipe: GlobalSsePipe = GlobalSsePipe(sseEngine, syncTargets, scope).also { it.start() }
+
+    /**
+     * Process foreground/background: defer/release SSE retries and report
+     * visibility to the hub (push suppression). Driven by `AppGraph` from
+     * `ProcessLifecycleOwner`.
+     */
+    fun setLifecycleForeground(foreground: Boolean) {
+        sseEngine.setLifecycleForeground(foreground)
+        visibilityReporter.setForeground(foreground)
+    }
 
     /**
      * Loads `/api/sessions/:id/generated-images/:imageId` (and any other hub
@@ -96,6 +135,9 @@ class HubGraph(
     /** Absolute URL of a generated image, for [imageLoader]. */
     fun generatedImageUrl(sessionId: String, imageId: String): String =
         "${session.hubUrl}/api/sessions/$sessionId/generated-images/$imageId"
+
+    /** Per-session composer drafts, keyed under this hub (process-wide DataStore). */
+    val chatDrafts: ChatDrafts = DataStoreChatDrafts(context.chatDraftsDataStore, hubKey = session.hubUrl)
 
     override fun close() {
         scope.cancel()
