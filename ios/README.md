@@ -47,8 +47,29 @@ ios/
                          The chat pipeline + message window logic (ported from
                          web/src/chat/**) land in M2, validated against
                          shared/fixtures/**.
-    HapiClient           Transport layer: APIClient, AuthManager (single-flight
-                         refresh), SSEClient, @Observable stores, snapshots.
+    HapiClient           Transport layer. As of M1b:
+                           APIClient        typed REST client (Endpoints/*):
+                                            Bearer auth, 401 -> refresh ->
+                                            retry-once, {error, code} parsing
+                                            (APIError), 256 MB URLCache for
+                                            generated images. HTTP goes through
+                                            the HTTPPerforming seam, so tests
+                                            inject a recording performer.
+                           Auth/            JWT payload decoding, AuthManager
+                                            (actor; single-flight refresh via
+                                            POST /api/auth, proactive refresh
+                                            10 min before exp, terminal
+                                            authFailed state), Keychain
+                                            credential store (per-hub records
+                                            under run.hapi.companion),
+                                            HubRegistry (multi-hub + active
+                                            hub in UserDefaults).
+                           MultipartEncoder for the voice-transcription
+                                            endpoint (M4c).
+                         SSEClient (M1c), @Observable stores and snapshots
+                         (M2) land next; feature endpoints (git/files,
+                         scratchlist, voice, usage) join Endpoints/ with
+                         their feature packages.
 ```
 
 The app target stays thin; features live in `HapiKit` so they are testable
