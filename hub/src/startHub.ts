@@ -349,7 +349,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
             })
             const companionDeeplink = `hapicompanion://bind?${companionParams.toString()}`
             console.log('')
-            console.log('Or pair the HAPI companion app (Android phone / Wear OS):')
+            console.log('Or pair the HAPI companion app (iOS / Android / Wear OS):')
             console.log(`  ${companionDeeplink}`)
             try {
                 const companionQrString = await QRCode.toString(companionDeeplink, {
