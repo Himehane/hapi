@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Post-pairing home: the session list for the active hub, with the hub
 /// switcher (switch / add / sign out) and the live global-SSE connection dot
-/// in the toolbar. Tapping a row pushes the M2f chat placeholder.
+/// in the toolbar. Tapping a row pushes the read-only chat (M2f).
 struct HomeView: View {
     let session: HubSession
 
@@ -23,7 +23,7 @@ struct HomeView: View {
                 }
             }
             .navigationDestination(for: String.self) { sessionId in
-                SessionDetailStubView(sessionId: sessionId)
+                ChatView(session: session, sessionId: sessionId)
             }
             .navigationTitle(HubDisplay.host(session.hubUrl))
             .navigationBarTitleDisplayMode(.inline)

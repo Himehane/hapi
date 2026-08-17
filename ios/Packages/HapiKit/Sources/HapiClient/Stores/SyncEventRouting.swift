@@ -22,13 +22,12 @@ import HapiProtocol
 ///
 /// The app's `HubSession` owns one of these per hub and calls
 /// ``handleHandshake(resume:)`` / ``route(_:scope:)`` from its SSE consume
-/// loop.
-///
-/// WIRING(M2f): the message-window bookkeeping the web also performs here
-/// (`markMessagesConsumed` / optimistic reconciliation / ingest into the open
-/// window) belongs to the message-window store — the session-scope branch of
-/// ``route(_:scope:)`` grows a window target when it lands; the session-list
-/// handling below stays as is.
+/// loop. Since M2f the app's per-chat `ChatSession` reuses this router for
+/// the session-scope pipe's non-message events and delivers the
+/// message-stream family to the open `MessageWindowController` itself —
+/// awaiting each ingest from its single consume task, which is what
+/// preserves SSE arrival order into the window actor (the role the Android
+/// port's `StoreSyncTargets` channel plays).
 @MainActor
 public struct SyncEventRouter {
     private let sessions: any SessionListStoring
