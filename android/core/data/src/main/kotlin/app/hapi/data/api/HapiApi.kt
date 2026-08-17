@@ -93,7 +93,7 @@ class HapiApi(
     private val client: OkHttpClient,
     private val imageClient: OkHttpClient = client,
     private val authClient: OkHttpClient = client,
-) {
+) : MessagesApi {
     /** Normalized hub origin this instance talks to. */
     val hubUrl: String = HubUrls.normalize(hubUrl)
         ?: throw IllegalArgumentException("Invalid hub URL: $hubUrl")
@@ -193,6 +193,26 @@ class HapiApi(
         return request("GET", target.build())
     }
 
+    /** [MessagesApi] seam over [getMessages] — the window store's transport. */
+    override suspend fun getMessages(sessionId: String, query: MessagesQuery): MessagesResponse = when (query) {
+        is MessagesQuery.Latest -> getMessages(sessionId, limit = query.limit)
+        is MessagesQuery.Before -> getMessages(
+            sessionId,
+            limit = query.limit,
+            beforeSeq = query.beforeSeq,
+            beforeAt = query.beforeAt,
+        )
+        is MessagesQuery.After -> getMessages(
+            sessionId,
+            limit = query.limit,
+            afterSeq = query.afterSeq,
+            afterAt = query.afterAt,
+            untilSeq = query.untilSeq,
+            untilAt = query.untilAt,
+            epoch = query.epoch,
+        )
+    }
+
     /**
      * `POST /api/sessions/:id/messages` — responds `{ok: true}` only; the
      * message itself arrives via SSE (`message-received`), reconciled by
@@ -211,7 +231,7 @@ class HapiApi(
         request("POST", url("api", "sessions", sessionId, "messages", messageId, "steer").build(), EMPTY_JSON)
 
     /** `POST /api/sessions/:id/messages/queued-state` — resync optimistic sends after reconnect. */
-    suspend fun getQueuedState(sessionId: String, localIds: List<String>): QueuedStateResponse =
+    override suspend fun getQueuedState(sessionId: String, localIds: List<String>): QueuedStateResponse =
         request(
             "POST",
             url("api", "sessions", sessionId, "messages", "queued-state").build(),
