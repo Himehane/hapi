@@ -53,9 +53,10 @@ data class BindLink(
         /**
          * Decodes an `application/x-www-form-urlencoded` query string.
          * First occurrence wins for duplicate keys. Returns null if any
-         * component carries invalid escapes.
+         * component carries invalid escapes. Internal so [PairingLinks] can
+         * decode the web direct-access QR with identical semantics.
          */
-        private fun parseFormQuery(rawQuery: String): Map<String, String>? {
+        internal fun parseFormQuery(rawQuery: String): Map<String, String>? {
             val result = LinkedHashMap<String, String>()
             for (pair in rawQuery.split('&')) {
                 if (pair.isEmpty()) continue
@@ -79,7 +80,7 @@ data class BindLink(
             null // unreachable: UTF-8 is always supported
         }
 
-        private fun isHttpUrl(value: String): Boolean {
+        internal fun isHttpUrl(value: String): Boolean {
             val uri = try {
                 URI(value)
             } catch (_: URISyntaxException) {
