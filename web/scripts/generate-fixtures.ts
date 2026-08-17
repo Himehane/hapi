@@ -3,4 +3,4 @@
 // `cd web && bun scripts/generate-fixtures.ts`. Output is byte-deterministic.
 import { generateAllFixtures } from './fixtures/generate'
 
-generateAllFixtures()
+await generateAllFixtures()
