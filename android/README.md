@@ -11,7 +11,7 @@ independent from the web app; shares only the protocol contract
 
 | Module | Type | Responsibility |
 |---|---|---|
-| `:core:protocol` | **pure Kotlin/JVM** (no Android) | Hub wire types (kotlinx.serialization), chat pipeline port (normalize → reduce → tool groups), message-window/pagination logic, versioned patch application, modes catalog, git output parsers, `BindLink` pairing-link parsing. |
+| `:core:protocol` | **pure Kotlin/JVM** (no Android) | Hub wire types (kotlinx.serialization), chat pipeline port (normalize → reduce → tool groups), message-window/pagination logic, versioned patch application, modes catalog, git output parsers, `BindLink` pairing-link parsing. **M1a landed**: `wire/` (`HapiJson`, `Session`/`SessionPatch`/`SessionSummary`, `DecryptedMessage`, `AgentState`, `Machine`, 13-type `SyncEvent` union via `SyncEvents.parse`, `MessagesResponse`), `catalog/` (flavors + permission/collaboration modes), `patch/SessionPatching.kt` (exact port of `web/src/lib/sessionPatch.ts`), all fixture-verified. |
 | `:core:data` | Android library | Transport + persistence: `HapiApi` (OkHttp REST, single-flight 401 re-auth), `SseEngine` (okhttp-sse, resume/backoff state machine), StateFlow stores + AtomicFile JSON snapshots, credential store, FCM registration, WorkManager workers. Placeholder in M0 — see `DataModule.kt`. |
 | `:app` | Android application | Compose UI, navigation, deep links (`hapicompanion://bind`), FCM service (M4), hand-rolled DI (`AppGraph`, no Hilt). |
 
