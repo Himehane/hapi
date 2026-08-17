@@ -56,6 +56,21 @@ interface SessionListStore {
 }
 
 /**
+ * The detail-cache surface the chat screen depends on, on top of the list
+ * surface ([SessionStore] implements both; chat ViewModel tests fake this).
+ */
+interface SessionDetailStore : SessionListStore {
+    /** Live view of one cached detail; null until [loadSessionDetail] (or a full-session SSE payload). */
+    fun sessionDetail(sessionId: String): Flow<Session?>
+
+    /** `GET /api/sessions/:id` into the detail cache (chat open / resync). */
+    suspend fun loadSessionDetail(sessionId: String): Session
+
+    /** Drops a detail nobody observes anymore (chat closed). */
+    fun releaseDetail(sessionId: String)
+}
+
+/**
  * Session list + detail cache for one hub, fed by the global SSE pipe through
  * [applySessionEvent] (see `SyncEventRouter`/`StoreSyncTargets`) and by REST
  * ([refresh]). Mirrors the web reference's cache handlers in
@@ -86,7 +101,7 @@ class SessionStore(
     private val scope: CoroutineScope,
     snapshotDir: File? = null,
     private val refreshBatchMs: Long = REFRESH_BATCH_MS,
-) : SessionListStore {
+) : SessionDetailStore {
 
     private val snapshot: JsonSnapshotStore<List<SessionSummary>>? = snapshotDir?.let { dir ->
         JsonSnapshotStore(
@@ -107,20 +122,18 @@ class SessionStore(
     private val refreshMutex = Mutex()
     private val refreshQueued = AtomicBoolean(false)
 
-    fun sessionDetail(sessionId: String): Flow<Session?> =
+    override fun sessionDetail(sessionId: String): Flow<Session?> =
         _details.map { it[sessionId] }.distinctUntilChanged()
 
     fun currentDetail(sessionId: String): Session? = _details.value[sessionId]
 
-    /** `GET /api/sessions/:id` into the detail cache (chat open / resync). */
-    suspend fun loadSessionDetail(sessionId: String): Session {
+    override suspend fun loadSessionDetail(sessionId: String): Session {
         val session = api.getSession(sessionId).session
         _details.update { it + (sessionId to session) }
         return session
     }
 
-    /** Drops a detail nobody observes anymore (chat closed). */
-    fun releaseDetail(sessionId: String) {
+    override fun releaseDetail(sessionId: String) {
         _details.update { it - sessionId }
     }
 

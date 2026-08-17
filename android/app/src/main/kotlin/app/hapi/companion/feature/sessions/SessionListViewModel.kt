@@ -5,6 +5,7 @@ import app.hapi.data.sse.SseSubscriptionKey
 import app.hapi.data.sse.SyncEventRouter
 import app.hapi.data.store.LastSeenStore
 import app.hapi.data.store.MachineListStore
+import app.hapi.data.store.MessageWindowStores
 import app.hapi.data.store.SessionListStore
 import app.hapi.data.store.StoreSyncTargets
 import app.hapi.protocol.wire.Machine
@@ -72,13 +73,10 @@ data class SessionListUiState(
  * store-side optimistic updates.
  *
  * Plain constructor — no Android dependency, so JVM tests drive it with fake
- * stores and `AppGraph` wiring is a one-liner.
- *
- * WIRING(M-integration): construct as
- * `SessionListViewModel(sessionStore, machineStore, lastSeenStore, sseEngine, scope, hubKey)`
- * from AppGraph, call [start]/[stop] from the screen's composition lifecycle
- * (foreground/background belongs to `SseEngine.setLifecycleForeground`, wired
- * at the Application level), and hand [errors] to the host's snackbar.
+ * stores. Navigation hosts it behind a per-hub lifecycle holder built from
+ * `HubGraph`; the screen calls [start]/[stop] with its composition
+ * (foreground/background belongs to `SseEngine.setLifecycleForeground`,
+ * wired at the Application level in a later package).
  */
 class SessionListViewModel(
     private val sessionStore: SessionListStore,
@@ -88,6 +86,8 @@ class SessionListViewModel(
     private val scope: CoroutineScope,
     /** Last-seen baseline scope, e.g. the hub origin. */
     private val hubKey: String = "default",
+    /** Open message windows, so global-pipe message events keep them fresh (M2c wiring). */
+    private val messageWindows: MessageWindowStores? = null,
     private val onToast: (SyncEvent.Toast) -> Unit = {},
 ) {
     private val machineFilter = MutableStateFlow<String?>(null)
@@ -100,7 +100,8 @@ class SessionListViewModel(
     /** Transient action failures (pin/archive) for a snackbar. */
     val errors: SharedFlow<SessionListError> = _errors.asSharedFlow()
 
-    private val router = SyncEventRouter(StoreSyncTargets(sessionStore, machineStore, scope, onToast))
+    private val router =
+        SyncEventRouter(StoreSyncTargets(sessionStore, machineStore, scope, messageWindows, onToast))
     private var sseJob: Job? = null
     private var refreshJob: Job? = null
 

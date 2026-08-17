@@ -40,6 +40,17 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests.all { test ->
+            // Chat pipeline smoke tests replay golden fixtures from the repo
+            // root (same wiring as :core:protocol / :core:data).
+            test.systemProperty(
+                "hapi.fixtures.dir",
+                rootDir.parentFile.resolve("shared/fixtures").absolutePath,
+            )
+        }
+    }
 }
 
 kotlin {
@@ -62,6 +73,10 @@ dependencies {
 
     // QR pairing (ScanContract activity-result API; no Play Services).
     implementation(libs.zxing.android.embedded)
+
+    // Generated images (chat, B-M2d2): loader wired in HubGraph over the
+    // authed + disk-cached hub image client.
+    implementation(libs.coil.compose)
 
     // Markdown rendering (B-M2d1). commonmark comes through :core:protocol's
     // `api` too; declared here because ui/markdown walks the AST types directly.

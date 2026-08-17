@@ -77,9 +77,10 @@ import app.hapi.protocol.wire.TodoProgress
  * - long-press → pin (none/project/global) + archive sheet with optimistic
  *   store updates; failures land in a snackbar.
  *
- * WIRING(M-integration): host constructs the ViewModel from AppGraph and
- * passes a real `onOpenSession` (navigation). This screen starts/stops the
- * ViewModel — and with it the global SSE subscription — with its composition.
+ * The host (`HomeScreen` via Navigation) constructs the ViewModel from the
+ * active `HubGraph` and routes [onOpenSession] to the chat screen. This
+ * screen starts/stops the ViewModel — and with it the global SSE
+ * subscription — with its composition.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

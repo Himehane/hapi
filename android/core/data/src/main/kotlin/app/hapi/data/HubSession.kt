@@ -59,7 +59,12 @@ class HubSession(
 
     private val imageCache: Cache? = imageCacheDir?.let { Cache(it, imageCacheMaxBytes) }
 
-    private val imageClient: OkHttpClient =
+    /**
+     * Authed client with the generated-image disk cache. Public so `:app` can
+     * hand it to an image-loading pipeline (Coil) — `/generated-images/:id`
+     * URLs then load with the JWT attached and hit the shared ETag cache.
+     */
+    val imageClient: OkHttpClient =
         imageCache?.let { apiClient.newBuilder().cache(it).build() } ?: apiClient
 
     val api: HapiApi = HapiApi(
