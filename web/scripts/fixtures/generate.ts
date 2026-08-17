@@ -3,8 +3,12 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fixtureCases } from './cases'
 import { FIXTURE_VERSION, toFixtureInput, type FixtureCase, type FixtureDocument, type FixtureInput } from './fixtureTypes'
+import { buildPaginationFixtureDocument } from './pagination/build'
+import { paginationFixtureCases } from './pagination/cases'
 import { runFixturePipeline } from './pipeline'
 import { toCanonicalJson } from './serialize'
+import { buildSseFixtureDocument } from './sse/build'
+import { sseFixtureCases } from './sse/cases'
 
 const FIXTURES_DIR = fileURLToPath(new URL('../../../shared/fixtures', import.meta.url))
 
@@ -23,31 +27,60 @@ export function buildFixtureDocument(fixtureCase: FixtureCase): FixtureDocument 
     }
 }
 
-export function generateAllFixtures(): void {
-    const chatDir = join(FIXTURES_DIR, 'chat')
-    mkdirSync(chatDir, { recursive: true })
+type SuiteWriter = {
+    dir: string
+    names: Set<string>
+}
 
-    const names = new Set<string>()
+function openSuite(suite: string): SuiteWriter {
+    const dir = join(FIXTURES_DIR, suite)
+    mkdirSync(dir, { recursive: true })
+    return { dir, names: new Set() }
+}
+
+function writeSuiteDocument(writer: SuiteWriter, name: string, document: unknown): void {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
+        throw new Error(`Fixture name must be kebab-case: ${name}`)
+    }
+    if (writer.names.has(name)) {
+        throw new Error(`Duplicate fixture name: ${name}`)
+    }
+    writer.names.add(name)
+    writeFileSync(join(writer.dir, `${name}.json`), toCanonicalJson(document))
+}
+
+// Remove stale fixtures from renamed/deleted cases so natives never keep
+// passing against a file the web pipeline no longer generates.
+function pruneSuite(writer: SuiteWriter): void {
+    for (const entry of readdirSync(writer.dir)) {
+        if (entry.endsWith('.json') && !writer.names.has(entry.slice(0, -'.json'.length))) {
+            unlinkSync(join(writer.dir, entry))
+        }
+    }
+}
+
+export async function generateAllFixtures(): Promise<void> {
+    const chat = openSuite('chat')
     for (const fixtureCase of fixtureCases) {
-        if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(fixtureCase.name)) {
-            throw new Error(`Fixture name must be kebab-case: ${fixtureCase.name}`)
-        }
-        if (names.has(fixtureCase.name)) {
-            throw new Error(`Duplicate fixture name: ${fixtureCase.name}`)
-        }
-        names.add(fixtureCase.name)
-        const document = buildFixtureDocument(fixtureCase)
-        writeFileSync(join(chatDir, `${fixtureCase.name}.json`), toCanonicalJson(document))
+        writeSuiteDocument(chat, fixtureCase.name, buildFixtureDocument(fixtureCase))
     }
+    pruneSuite(chat)
 
-    // Remove stale fixtures from renamed/deleted cases so natives never keep
-    // passing against a file the web pipeline no longer generates.
-    for (const entry of readdirSync(chatDir)) {
-        if (entry.endsWith('.json') && !names.has(entry.slice(0, -'.json'.length))) {
-            unlinkSync(join(chatDir, entry))
-        }
+    const sse = openSuite('sse')
+    for (const fixtureCase of sseFixtureCases) {
+        writeSuiteDocument(sse, fixtureCase.name, buildSseFixtureDocument(fixtureCase))
     }
+    pruneSuite(sse)
+
+    const pagination = openSuite('pagination')
+    for (const fixtureCase of paginationFixtureCases) {
+        writeSuiteDocument(pagination, fixtureCase.name, await buildPaginationFixtureDocument(fixtureCase))
+    }
+    pruneSuite(pagination)
 
     writeFileSync(join(FIXTURES_DIR, 'VERSION'), `${FIXTURE_VERSION}\n`)
-    console.log(`Wrote ${names.size} chat fixtures (fixtureVersion ${FIXTURE_VERSION}) to ${chatDir}`)
+    console.log(
+        `Wrote ${chat.names.size} chat + ${sse.names.size} sse + ${pagination.names.size} pagination fixtures `
+        + `(fixtureVersion ${FIXTURE_VERSION}) to ${FIXTURES_DIR}`
+    )
 }
