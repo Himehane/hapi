@@ -35,9 +35,18 @@ ios/
                          folder": add files here and they join the target
                          without touching project.pbxproj.
   Packages/HapiKit/      Local SPM package with the real logic:
-    HapiProtocol         Pure-Foundation protocol layer: wire models, JSONValue,
-                         chat pipeline + message window logic (ported from
-                         web/src/chat/**). Validated against shared/fixtures/**.
+    HapiProtocol         Pure-Foundation protocol layer. As of M1a:
+                           Models/   wire types mirroring shared/src/schemas.ts
+                                     (Session, SessionPatch + VersionedValue,
+                                     AgentState, DecryptedMessage, SessionSummary,
+                                     Machine, SyncEvent union, messages page)
+                           Catalog/  permission-mode / flavor tables ported from
+                                     shared/src/{modes,flavors,copilotModes}.ts
+                           Patch/    versioned session-patch application ported
+                                     from web/src/lib/sessionPatch.ts
+                         The chat pipeline + message window logic (ported from
+                         web/src/chat/**) land in M2, validated against
+                         shared/fixtures/**.
     HapiClient           Transport layer: APIClient, AuthManager (single-flight
                          refresh), SSEClient, @Observable stores, snapshots.
 ```
@@ -47,11 +56,14 @@ with `swift test` and free of UI concerns.
 
 ### Fixtures
 
-`HapiProtocolTests` will run the golden fixtures from the repo-root
-`shared/fixtures/` directory, resolved relative to the package directory
-(`ios/Packages/HapiKit` -> `../../../shared/fixtures`). The wiring lands in
-M2 once the fixture generator (track K, K5) has produced them; until then the
-tests are self-contained.
+`HapiProtocolTests` reads the golden fixtures from the repo-root
+`shared/fixtures/` directory, resolved from the test file's own `#filePath`
+(package root `ios/Packages/HapiKit` -> `../../../shared/fixtures`), so the
+suite needs a full repo checkout. Since M1a, `FixtureDecodingTests` decodes
+every `chat/*.json` input as `[DecryptedMessage]` (+ `AgentState`), and
+`CatalogTests` verifies the ported mode tables against
+`catalogs/modes.json`; the full pipeline conformance against each fixture's
+`expected` projection is the M2 gate.
 
 ## Milestones (track A of the native-clients plan)
 
