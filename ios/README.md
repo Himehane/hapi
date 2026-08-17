@@ -79,7 +79,24 @@ ios/
                                      against shared/fixtures/chat/** by
                                      ChatFixtureTests (one parameterized test
                                      per fixture, line-level diff on mismatch).
-                         The message window logic (M2d) lands next.
+                           Window/   the message window state machine ported
+                                     from web/src/lib/message-window-store.ts +
+                                     messages.ts (M2d): MessageWindowState
+                                     (cursors/epoch/generations + persisted v2
+                                     snapshot shape), MessageWindowLogic (pure
+                                     transitions: tail sync, older pages +
+                                     epoch-mismatch reset, trims that never
+                                     drop queued rows, SSE ingest, optimistic
+                                     lifecycle, queued-state reconcile),
+                                     MessageMerge (position order, localId echo
+                                     replacement, 10 s dedup fallback) and
+                                     WindowMessage (wire row + client status,
+                                     tri-state invokedAt, identity-carrying
+                                     class — reset preservation compares rows
+                                     by instance like the web's `!==`).
+                                     Retention calls the chat pipeline's
+                                     normalize directly, so the two cannot
+                                     drift.
     HapiClient           Transport layer. As of M1b+M1c+M1d:
                            APIClient        typed REST client (Endpoints/*):
                                             Bearer auth, 401 -> refresh ->
@@ -119,9 +136,27 @@ ios/
                                             `acceptEncodingIdentity`).
                            MultipartEncoder for the voice-transcription
                                             endpoint (M4c).
-                         @Observable stores and snapshots (M2) land next;
-                         feature endpoints (git/files, scratchlist, voice,
-                         usage) join Endpoints/ with their feature packages.
+                           Stores/          MessageWindowController (M2d):
+                                            per-session actor driving the
+                                            HapiProtocol window logic —
+                                            single-flight tail sync with
+                                            trailing drain, older-page loads,
+                                            SSE ingest hooks, optimistic
+                                            send/cancel, queued-state
+                                            reconciliation (≤1000-id batches)
+                                            — behind the MessagesProviding
+                                            seam (APIClient conforms; the
+                                            fixture harness scripts it).
+                                            WindowSnapshotStore persists
+                                            per-session windows to Caches
+                                            (LRU 10) for cold-start rendering;
+                                            MessageWindowControllers is the
+                                            per-hub registry (hydrate on open,
+                                            seed across resume/reopen id
+                                            changes).
+                         Remaining @Observable stores (M2) land next; feature
+                         endpoints (git/files, scratchlist, voice, usage) join
+                         Endpoints/ with their feature packages.
     HapiUI               Rendering foundation (M2e). SwiftUI, no app coupling:
                            Markdown/  MarkdownTransforms (string-level ports of
                                       the web remark plugins: table repair,
@@ -159,6 +194,14 @@ gate: for every chat fixture it runs the ported normalize → reduce → group
 pipeline over the stored `input`, applies the normative projection, and
 compares canonical JSON byte-for-byte against the stored `expected` —
 failures are per-fixture and print the first differing line with context.
+Since M2d, `HapiClientTests/PaginationFixtureTests` replays every
+`pagination/*.json` op script against the real `MessageWindowController`
+driven by a scripted `MessagesProviding`: it asserts the exact `GET /messages`
+query objects (`expectedRequests`, including the explicit-null
+`untilAt`/`untilSeq` of the first catch-up request), the older-load outcomes,
+the queued-state reconcile candidates, and the final window projection
+(`expectedState`) — all canonical-JSON compares with the same per-op labels
+and first-differing-line diffs.
 
 ## Pairing (M1d)
 
