@@ -49,9 +49,23 @@ ios/
                                      shared/src/{modes,flavors,copilotModes}.ts
                            Patch/    versioned session-patch application ported
                                      from web/src/lib/sessionPatch.ts
-                         The chat pipeline + message window logic (ported from
-                         web/src/chat/**) land in M2, validated against
-                         shared/fixtures/**.
+                           Chat/     the chat normalization/reduction pipeline
+                                     ported file-for-file from web/src/chat/**
+                                     (M2b+M2c): Normalize/NormalizeUser/
+                                     NormalizeAgent (decode tree incl. agy),
+                                     Tracer (sidechain grouping), Reducer* 
+                                     (timeline, tool pairing, stream coalescing,
+                                     agent-run cards, events dedupe/folding,
+                                     cli-output merge), ToolGroups (+ codex
+                                     exploration family), the normative fixture
+                                     projection (FixtureProjection), and the
+                                     JS-semantics interop layer (JSInterop:
+                                     nullish coalescing, truthiness, canonical
+                                     JSON serializer). Validated block-for-block
+                                     against shared/fixtures/chat/** by
+                                     ChatFixtureTests (one parameterized test
+                                     per fixture, line-level diff on mismatch).
+                         The message window logic (M2d) lands next.
     HapiClient           Transport layer. As of M1b+M1c:
                            APIClient        typed REST client (Endpoints/*):
                                             Bearer auth, 401 -> refresh ->
@@ -121,8 +135,11 @@ with `swift test` and free of UI concerns.
 suite needs a full repo checkout. Since M1a, `FixtureDecodingTests` decodes
 every `chat/*.json` input as `[DecryptedMessage]` (+ `AgentState`), and
 `CatalogTests` verifies the ported mode tables against
-`catalogs/modes.json`; the full pipeline conformance against each fixture's
-`expected` projection is the M2 gate.
+`catalogs/modes.json`. Since M2b/M2c, `ChatFixtureTests` is the pipeline
+gate: for every chat fixture it runs the ported normalize → reduce → group
+pipeline over the stored `input`, applies the normative projection, and
+compares canonical JSON byte-for-byte against the stored `expected` —
+failures are per-fixture and print the first differing line with context.
 
 ## Milestones (track A of the native-clients plan)
 
