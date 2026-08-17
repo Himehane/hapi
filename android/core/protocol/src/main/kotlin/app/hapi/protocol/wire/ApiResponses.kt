@@ -50,3 +50,193 @@ data class SessionResponse(
 data class MachinesResponse(
     val machines: List<Machine>,
 )
+
+/** `POST /api/auth` success body (`AuthResponse`, `shared/src/apiTypes.ts`). */
+@Serializable
+data class AuthResponse(
+    /** The 4-hour JWT — `Authorization: Bearer` on every `/api` request. */
+    val token: String,
+    val user: AuthUser,
+)
+
+@Serializable
+data class AuthUser(
+    val id: Long,
+    val username: String? = null,
+    val firstName: String? = null,
+    val lastName: String? = null,
+)
+
+/**
+ * `GET /health` (no auth; `hub/src/web/server.ts`). [capabilities] keys are
+ * additive — unknown ones must be ignored, hence the raw-`Boolean?` shape.
+ */
+@Serializable
+data class HubHealthResponse(
+    val status: String,
+    val protocolVersion: Int,
+    val capabilities: HubCapabilities? = null,
+)
+
+@Serializable
+data class HubCapabilities(
+    val workGraph: Boolean? = null,
+    val titleSuggestion: Boolean? = null,
+)
+
+/**
+ * `POST /api/sessions/:id/resume` — `{type: 'success', sessionId}`. The
+ * returned [sessionId] **may differ** from the id the call was made on (fresh
+ * spawn superseding the old row); callers must migrate drafts + navigation.
+ */
+@Serializable
+data class ResumeSessionResponse(
+    val sessionId: String,
+)
+
+/**
+ * `POST /api/sessions/:id/reopen` (`ReopenSessionResponseSchema`). Same
+ * superseding-[sessionId] caveat as [ResumeSessionResponse].
+ */
+@Serializable
+data class ReopenSessionResponse(
+    val ok: Boolean = true,
+    val sessionId: String,
+    val resumed: Boolean,
+    /** `'acp' | 'stream-json'` (cursor only). */
+    val cursorSessionProtocol: String? = null,
+)
+
+/**
+ * `DELETE /api/sessions/:id/messages/:messageId`
+ * (`CancelMessageResponseSchema` — discriminated on [status]):
+ * `'cancelled'` carries [localId]; `'invoked'` (too late) carries [message].
+ */
+@Serializable
+data class CancelMessageResponse(
+    val status: String,
+    val localId: String? = null,
+    val message: DecryptedMessage? = null,
+)
+
+/**
+ * `POST /api/sessions/:id/messages/:messageId/steer`
+ * (`SteerQueuedMessageResponseSchema` — discriminated on [status]):
+ * `'steered'` → [localId]; `'invoked'` → [message]; `'failed'` → [error] + [localId].
+ */
+@Serializable
+data class SteerQueuedMessageResponse(
+    val status: String,
+    val localId: String? = null,
+    val message: DecryptedMessage? = null,
+    val error: String? = null,
+)
+
+/**
+ * `POST /api/sessions/:id/messages/queued-state` — resyncs optimistic sends
+ * after reconnect (`QueuedStateResponse`, `shared/src/apiTypes.ts`).
+ */
+@Serializable
+data class QueuedStateResponse(
+    val queuedLocalIds: List<String>,
+    val invokedLocalMessages: List<InvokedLocalMessage>,
+)
+
+@Serializable
+data class InvokedLocalMessage(
+    val localId: String,
+    val invokedAt: Long,
+)
+
+/**
+ * `POST /api/machines/:id/spawn` — discriminated on [type], **not** HTTP
+ * status: a failed spawn is still HTTP 200 with `type: 'error'` + [message].
+ */
+@Serializable
+data class SpawnResponse(
+    /** `'success' | 'error'`. */
+    val type: String,
+    val sessionId: String? = null,
+    val message: String? = null,
+)
+
+/** `GET /api/sessions/:id/slash-commands` (RPC-wrapped: check [success]). */
+@Serializable
+data class SlashCommandsResponse(
+    val success: Boolean,
+    val commands: List<SlashCommand>? = null,
+    val error: String? = null,
+)
+
+@Serializable
+data class SlashCommand(
+    val name: String,
+    val description: String? = null,
+    /** `'builtin' | 'user' | 'plugin' | 'project'`. */
+    val source: String,
+    val content: String? = null,
+    val pluginName: String? = null,
+)
+
+/** `GET /api/sessions/:id/skills` (RPC-wrapped: check [success]). */
+@Serializable
+data class SkillsResponse(
+    val success: Boolean,
+    val skills: List<SkillSummary>? = null,
+    val error: String? = null,
+)
+
+@Serializable
+data class SkillSummary(
+    val name: String,
+    val description: String? = null,
+)
+
+/** `POST /api/machines/:id/list-directory` (RPC-wrapped: check [success]). */
+@Serializable
+data class MachineListDirectoryResponse(
+    val success: Boolean,
+    val entries: List<MachineDirectoryEntry>? = null,
+    val error: String? = null,
+)
+
+/** `DirectoryEntry & {isGitRepo?}` (`shared/src/apiTypes.ts`). */
+@Serializable
+data class MachineDirectoryEntry(
+    val name: String,
+    /** `'file' | 'directory' | 'other'`. */
+    val type: String,
+    val size: Long? = null,
+    /** Epoch ms. */
+    val modified: Long? = null,
+    val isGitRepo: Boolean? = null,
+)
+
+/** `POST /api/machines/:id/paths/exists`. */
+@Serializable
+data class MachinePathsExistsResponse(
+    val exists: Map<String, Boolean>,
+)
+
+/** `POST /api/sessions/:id/upload` (RPC-wrapped: check [success]). */
+@Serializable
+data class UploadFileResponse(
+    val success: Boolean,
+    /** Pass through as `AttachmentMetadata.path` when sending the message. */
+    val path: String? = null,
+    val error: String? = null,
+)
+
+/** `POST /api/sessions/:id/upload/delete` (RPC-wrapped: check [success]). */
+@Serializable
+data class DeleteUploadResponse(
+    val success: Boolean,
+    val error: String? = null,
+)
+
+/** `POST /api/voice/transcription` (the one multipart endpoint). */
+@Serializable
+data class TranscriptionResponse(
+    val text: String,
+    val language: String? = null,
+)
