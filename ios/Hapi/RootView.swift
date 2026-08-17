@@ -1,26 +1,65 @@
 import HapiClient
-import HapiProtocol
 import SwiftUI
 
+/// Switches the app root on pairing state and hosts the presentation that
+/// must survive that switch: the deep-link pairing confirm sheet and the
+/// "already paired" notice.
 struct RootView: View {
+    @Environment(AppModel.self) private var model
+
     var body: some View {
-        NavigationStack {
-            ContentUnavailableView {
-                Label("HAPI", systemImage: "antenna.radiowaves.left.and.right")
-            } description: {
-                Text("Native companion scaffold (M0). Pairing and sessions arrive in M1.")
+        @Bindable var model = model
+        Group {
+            switch model.state {
+            case .unpaired:
+                PairingFlowView()
+            case .paired:
+                if let session = model.session {
+                    // TODO(M2a): replace HomePlaceholderView with SessionListView.
+                    HomePlaceholderView(session: session)
+                } else {
+                    // Defensive: .paired always carries a session; fall back
+                    // to pairing rather than a dead screen.
+                    PairingFlowView()
+                }
             }
-            .navigationTitle("HAPI")
-            .safeAreaInset(edge: .bottom) {
-                Text("HapiKit \(HapiClientVersion.current) · protocol v\(ProtocolVersion.supported)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 8)
+        }
+        .sheet(item: $model.pendingPairing) { pending in
+            NavigationStack {
+                PairingConfirmView(pending: pending)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") {
+                                model.pendingPairing = nil
+                            }
+                        }
+                    }
             }
+        }
+        .alert(
+            "Hub already paired",
+            isPresented: Binding(
+                get: { model.infoNotice != nil },
+                set: { presented in
+                    if !presented {
+                        model.infoNotice = nil
+                    }
+                }
+            )
+        ) {
+            Button("OK") {
+                model.infoNotice = nil
+            }
+        } message: {
+            Text(model.infoNotice ?? "")
         }
     }
 }
 
 #Preview {
     RootView()
+        .environment(AppModel(
+            registry: HubRegistry(defaults: UserDefaults(suiteName: "preview") ?? .standard),
+            credentialStore: InMemoryCredentialStore()
+        ))
 }

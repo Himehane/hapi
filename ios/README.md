@@ -38,9 +38,19 @@ ios/
   Hapi.xcodeproj/        Hand-rolled minimal project (objectVersion 77).
   Hapi/                  App target sources. This is an Xcode 16 "synchronized
                          folder": add files here and they join the target
-                         without touching project.pbxproj.
+                         without touching project.pbxproj. As of M1d:
+                           Models/    AppModel (pairing state machine, hub
+                                      switching, deep-link routing, scene
+                                      phase) + HubSession (per-active-hub
+                                      APIClient/AuthManager/global SSEClient,
+                                      connection state for the UI).
+                           Features/  Pairing/ (welcome, VisionKit QR scan,
+                                      manual entry, shared confirm + error
+                                      states) and Home/ (post-pairing
+                                      placeholder with hub switcher and
+                                      connection dot; session list lands M2).
   Packages/HapiKit/      Local SPM package with the real logic:
-    HapiProtocol         Pure-Foundation protocol layer. As of M1a:
+    HapiProtocol         Pure-Foundation protocol layer. As of M1a+M1d:
                            Models/   wire types mirroring shared/src/schemas.ts
                                      (Session, SessionPatch + VersionedValue,
                                      AgentState, DecryptedMessage, SessionSummary,
@@ -49,10 +59,14 @@ ios/
                                      shared/src/{modes,flavors,copilotModes}.ts
                            Patch/    versioned session-patch application ported
                                      from web/src/lib/sessionPatch.ts
+                           Pairing/  BindLink — parses both pairing QR forms
+                                     (hapicompanion://bind?hub=&code= and the
+                                     web /?hub=&token= URL), form-decoding in
+                                     lockstep with the Android port
                          The chat pipeline + message window logic (ported from
                          web/src/chat/**) land in M2, validated against
                          shared/fixtures/**.
-    HapiClient           Transport layer. As of M1b+M1c:
+    HapiClient           Transport layer. As of M1b+M1c+M1d:
                            APIClient        typed REST client (Endpoints/*):
                                             Bearer auth, 401 -> refresh ->
                                             retry-once, {error, code} parsing
@@ -68,7 +82,12 @@ ios/
                                             credential store (per-hub records
                                             under run.hapi.companion),
                                             HubRegistry (multi-hub + active
-                                            hub in UserDefaults).
+                                            hub in UserDefaults),
+                                            HubPairingService (normalize ->
+                                            /health + protocolVersion check ->
+                                            /api/auth -> persist; unpair with
+                                            fallback), tested through the
+                                            HTTPPerforming seam.
                            SSE/             actor SSEClient — handshake-gated
                                             connect (resume ok/gap surfaced),
                                             sticky per-subscription cursor with
@@ -123,6 +142,46 @@ every `chat/*.json` input as `[DecryptedMessage]` (+ `AgentState`), and
 `CatalogTests` verifies the ported mode tables against
 `catalogs/modes.json`; the full pipeline conformance against each fixture's
 `expected` projection is the M2 gate.
+
+## Pairing (M1d)
+
+How to pair the app with a hub (`docs/api/client-contract/auth.md` is the
+contract; the app accepts multiple hubs and keeps one active):
+
+- **Local hub, manual entry** — the everyday dev loop:
+  1. Start the stack from the repo root: `bun run dev` (or just the hub). The
+     hub prints its URL and the access token (`CLI_API_TOKEN`, auto-generated
+     into the hub's `settings.json` on first run).
+  2. In the app: *Enter Manually* → hub URL (e.g. `http://192.168.1.20:3006`
+     — the phone must reach the hub's LAN address, not `localhost`; a typed
+     address without a scheme gets `http://` prefixed) → paste the token →
+     *Continue* → *Pair*.
+  3. The app checks `GET /health` (reachability + `protocolVersion`), then
+     exchanges the token via `POST /api/auth` and stores it in the Keychain.
+- **QR scan** — start the hub with `--relay`: the terminal prints two QR
+  codes. The scanner accepts **both** — the companion deeplink
+  (`hapicompanion://bind?hub=…&code=…`, canonical) and the web direct-access
+  URL (`https://<web>/?hub=…&token=…`). The web app's Settings → Companion
+  Pairing screen renders the deeplink QR too.
+- **Deep link** — opening a `hapicompanion://bind` link routes through the
+  same confirm sheet; a link for an already-paired hub just switches to it.
+- **Simulator**: camera scanning is unavailable (`DataScannerViewController`
+  unsupported) — the scanner screen says so; use manual entry. Plain-HTTP LAN
+  hubs work because `NSAllowsLocalNetworking` stays enabled (ATS default
+  otherwise).
+- **Sign out** (home → hub menu) deletes the stored token for that hub and
+  falls back to the next paired hub, or to pairing. A hub that terminally
+  rejects its stored token (rotated/revoked → `POST /api/auth` 401) is signed
+  out automatically with a banner.
+
+Manual test pass for the app layer (the pairing sequence itself is covered by
+`PairingLogicTests` via injected HTTP fakes; `AppModel`/views are UI-bound):
+pair via manual entry against a local hub → kill + relaunch (restores paired
+state, SSE reconnects) → background/foreground (connection dot pauses and
+resumes) → pair a second hub and switch between them → sign out of both →
+scan both `--relay` QR forms → open a `hapicompanion://bind` link from Notes
+(unpaired: confirm; paired: "already paired" notice) → rotate
+`CLI_API_TOKEN` on the hub and watch the auto sign-out banner.
 
 ## Milestones (track A of the native-clients plan)
 
