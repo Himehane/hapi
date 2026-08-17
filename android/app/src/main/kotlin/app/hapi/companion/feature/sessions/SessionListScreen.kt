@@ -27,9 +27,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -50,10 +54,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import app.hapi.companion.R
 import app.hapi.companion.ui.theme.HapiTheme
 import app.hapi.protocol.catalog.Flavors
 import app.hapi.protocol.wire.PendingRequest
@@ -88,6 +94,8 @@ fun SessionListScreen(
     viewModel: SessionListViewModel,
     onOpenSession: (sessionId: String) -> Unit,
     modifier: Modifier = Modifier,
+    /** Shows the "+" FAB (new-session form, B-M3d) when non-null. */
+    onNewSession: (() -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -139,6 +147,19 @@ fun SessionListScreen(
                         onLongPress = { sheetRow = it },
                     )
                 }
+            }
+        }
+        onNewSession?.let { openNewSession ->
+            FloatingActionButton(
+                onClick = openNewSession,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = stringResource(R.string.new_session_fab),
+                )
             }
         }
         SnackbarHost(

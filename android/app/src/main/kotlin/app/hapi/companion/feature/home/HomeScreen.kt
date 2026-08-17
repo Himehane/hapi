@@ -49,6 +49,8 @@ fun HomeScreen(
     onPairAnotherHub: () -> Unit,
     onSignOut: () -> Unit,
     onOpenSession: (sessionId: String) -> Unit,
+    /** "+" FAB on the session list → new-session form (B-M3d). */
+    onNewSession: (() -> Unit)? = null,
 ) {
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var showSwitcher by rememberSaveable { mutableStateOf(false) }
@@ -114,6 +116,7 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
+            onNewSession = onNewSession,
         )
     }
 

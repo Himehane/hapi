@@ -2,6 +2,8 @@ package app.hapi.companion.di
 
 import android.content.Context
 import androidx.datastore.preferences.preferencesDataStore
+import app.hapi.companion.feature.newsession.DataStoreNewSessionPrefs
+import app.hapi.companion.feature.newsession.NewSessionPrefs
 import app.hapi.companion.feature.pairing.PairingClient
 import app.hapi.companion.feature.pairing.PairingClientFactory
 import app.hapi.data.api.HapiApi
@@ -67,6 +69,13 @@ class AppGraph(context: Context) {
     val credentialStore: CredentialStore = EncryptedPrefsCredentialStore(appContext)
 
     val hubRegistry: HubRegistry = HubRegistry(hubRegistryStorage)
+
+    /**
+     * Create-form persistence (last machine / recent paths / draft), app-wide
+     * like the web's localStorage twin — machine ids are globally unique, so
+     * hub scoping is unnecessary.
+     */
+    val newSessionPrefs: NewSessionPrefs = DataStoreNewSessionPrefs(appContext.hapiDataStore)
 
     private val mutableAuthTerminals = MutableSharedFlow<AuthTerminal>(extraBufferCapacity = 16)
 

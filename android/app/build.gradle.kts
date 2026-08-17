@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    // New-session form draft + prefs persist as JSON blobs in DataStore (B-M3d).
+    alias(libs.plugins.kotlin.serialization)
     // NOTE: com.google.gms.google-services is deliberately NOT applied in M0.
     // It is added in M4a together with google-services.json + the FCM service,
     // so the scaffold builds green without any Firebase project configured.

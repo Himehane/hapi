@@ -218,6 +218,33 @@ data class MachinePathsExistsResponse(
     val exists: Map<String, Boolean>,
 )
 
+/**
+ * `GET /api/machines/:id/codex-models` (also the session-level twin) —
+ * RPC-wrapped: check [success]. A runner that does not expose the machine RPC
+ * answers 503 `{success:false, code:'rpc_target_missing'}` (surfaces as
+ * [app.hapi.data.api] ApiError, not this body). Added for B-M3d (new-session
+ * codex model picker); `CodexModelsResponse` in `shared/src/apiTypes.ts`.
+ */
+@Serializable
+data class CodexModelsResponse(
+    val success: Boolean,
+    val models: List<CodexModelSummary>? = null,
+    val error: String? = null,
+)
+
+/** `CodexModelSummary` (`shared/src/apiTypes.ts`). */
+@Serializable
+data class CodexModelSummary(
+    val id: String,
+    val displayName: String,
+    val isDefault: Boolean,
+    val defaultReasoningEffort: String? = null,
+    val defaultServiceTier: String? = null,
+    val supportedReasoningEfforts: List<String>? = null,
+    /** Service tier ids advertised for this model in the current auth/plan context (e.g. `fast`). */
+    val serviceTiers: List<String>? = null,
+)
+
 /** `POST /api/sessions/:id/upload` (RPC-wrapped: check [success]). */
 @Serializable
 data class UploadFileResponse(

@@ -52,4 +52,43 @@
     <string name="home_sign_out">Sign out</string>
     <string name="home_sign_out_message">Remove this hub pairing? The stored credentials are deleted from this device (the hub itself is untouched).</string>
     <string name="home_cancel">Cancel</string>
+
+    <!-- New session (B-M3d) -->
+    <string name="new_session_title">New session</string>
+    <string name="new_session_back">Back</string>
+    <string name="new_session_fab">New session</string>
+    <string name="new_session_machine">Machine</string>
+    <string name="new_session_machines_loading">Loading machines…</string>
+    <string name="new_session_no_machines">No machines online</string>
+    <string name="new_session_runner_spawn_error">Runner last spawn error: %1$s</string>
+    <string name="new_session_directory">Directory</string>
+    <string name="new_session_directory_placeholder">/path/to/project</string>
+    <string name="new_session_recent_paths">Recent paths</string>
+    <string name="new_session_type">Session type</string>
+    <string name="new_session_type_simple">Simple</string>
+    <string name="new_session_type_simple_desc">Use selected directory as-is</string>
+    <string name="new_session_type_worktree">Worktree</string>
+    <string name="new_session_type_worktree_desc">Create a new git worktree next to the repo</string>
+    <string name="new_session_worktree_name">Worktree name</string>
+    <string name="new_session_worktree_name_placeholder">feature-x (optional)</string>
+    <string name="new_session_agent">Agent</string>
+    <string name="new_session_model">Model</string>
+    <string name="new_session_effort">Effort</string>
+    <string name="new_session_reasoning_effort">Reasoning effort</string>
+    <string name="new_session_permission_mode">Permission mode</string>
+    <string name="new_session_permission_managed">Managed by agent</string>
+    <string name="new_session_permission_managed_desc">This agent manages its own permissions. YOLO mode is not available.</string>
+    <string name="new_session_yolo">YOLO mode</string>
+    <string name="new_session_yolo_title">Bypass approvals and sandbox</string>
+    <string name="new_session_yolo_desc">Uses dangerous agent flags when spawning.</string>
+    <string name="new_session_yolo_maps_to">Applies native %1$s mode.</string>
+    <string name="new_session_collaboration_mode">Collaboration mode</string>
+    <string name="new_session_copilot_agent_mode">Agent mode</string>
+    <string name="new_session_fast_mode">Fast mode</string>
+    <string name="new_session_fast_mode_standard">Standard</string>
+    <string name="new_session_fast_mode_fast">Fast</string>
+    <string name="new_session_loading">Loading…</string>
+    <string name="new_session_create">Create</string>
+    <string name="new_session_creating">Creating…</string>
+    <string name="new_session_create_and_make_directory">Create and make directory</string>
 </resources>
