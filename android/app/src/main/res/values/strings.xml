@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">HAPI</string>
+
+    <!-- Markdown / code / diff rendering (B-M2d1) -->
+    <string name="code_copy">Copy</string>
+    <string name="code_copied">Copied</string>
+    <string name="code_plain_fallback">text</string>
+    <string name="diff_binary_file">Binary file not shown</string>
+    <string name="diff_show_more">Show %1$d more lines</string>
+    <string name="diff_collapse">Collapse</string>
 </resources>

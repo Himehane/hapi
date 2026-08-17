@@ -11,6 +11,10 @@ coreKtx = "1.16.0"
 kotlinxSerialization = "1.8.1"
 kotlinxCoroutines = "1.10.2"
 junit = "4.13.2"
+# Markdown / syntax highlighting (B-M2d1). Both verified on Maven Central:
+# org.commonmark 0.24.0 (latest, 2024-10) + dev.snipme:highlights 1.0.0 (KMP, jvm variant).
+commonmark = "0.24.0"
+highlights = "1.0.0"
 
 [libraries]
 # AndroidX
@@ -23,6 +27,13 @@ androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+
+# Markdown rendering (commonmark-java is pure JVM -- safe for :core:protocol)
+commonmark = { group = "org.commonmark", name = "commonmark", version.ref = "commonmark" }
+commonmark-ext-gfm-tables = { group = "org.commonmark", name = "commonmark-ext-gfm-tables", version.ref = "commonmark" }
+commonmark-ext-gfm-strikethrough = { group = "org.commonmark", name = "commonmark-ext-gfm-strikethrough", version.ref = "commonmark" }
+commonmark-ext-autolink = { group = "org.commonmark", name = "commonmark-ext-autolink", version.ref = "commonmark" }
+highlights = { group = "dev.snipme", name = "highlights", version.ref = "highlights" }
 
 # KotlinX
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
