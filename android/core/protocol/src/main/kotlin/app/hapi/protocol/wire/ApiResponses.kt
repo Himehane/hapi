@@ -268,26 +268,3 @@ data class TranscriptionResponse(
     val language: String? = null,
 )
 
-/**
- * One codex-family model row (`CodexModelSummary`, `shared/src/apiTypes.ts`).
- * Added with B-M3ab for the session config sheet's model picker.
- */
-@Serializable
-data class CodexModelSummary(
-    val id: String,
-    val displayName: String,
-    val isDefault: Boolean,
-    val defaultReasoningEffort: String? = null,
-    val defaultServiceTier: String? = null,
-    val supportedReasoningEfforts: List<String>? = null,
-    /** Service tier ids advertised in the current auth/plan context (e.g. `'fast'`). */
-    val serviceTiers: List<String>? = null,
-)
-
-/** `GET /api/sessions/:id/codex-models` (RPC-wrapped: check [success]). */
-@Serializable
-data class CodexModelsResponse(
-    val success: Boolean,
-    val models: List<CodexModelSummary>? = null,
-    val error: String? = null,
-)
