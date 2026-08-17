@@ -49,9 +49,16 @@ actor RecordingPerformer: HTTPPerforming {
     private var queue: [Stub] = []
     private var fallback = Stub()
     private var delayNanoseconds: UInt64 = 0
+    private var transportError: (any Error & Sendable)?
 
     func enqueue(status: Int = 200, json: String = "{}", headers: [String: String] = [:]) {
         queue.append(Stub(status: status, body: Data(json.utf8), headers: headers))
+    }
+
+    /// Makes every subsequent request fail at the transport level (URLError),
+    /// as `HTTPPerforming` implementations do for unreachable hosts.
+    func setError(_ error: any Error & Sendable) {
+        transportError = error
     }
 
     func setFallback(status: Int, json: String) {
@@ -66,6 +73,9 @@ actor RecordingPerformer: HTTPPerforming {
 
     func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         requests.append(request)
+        if let transportError {
+            throw transportError
+        }
         if delayNanoseconds > 0 {
             try await Task.sleep(nanoseconds: delayNanoseconds)
         }
