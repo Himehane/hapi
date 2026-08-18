@@ -8,6 +8,8 @@ struct ChatHeaderUI: Equatable {
     var title: String
     /// "Flavor · machine · worktree" meta line; nil when nothing is known.
     var subtitle: String?
+    /// Raw `metadata.flavor` — drives the brand icon next to the meta line.
+    var flavor: String?
     var active: Bool
     var thinking: Bool
 }
@@ -110,6 +112,7 @@ final class ChatModel {
         self.header = ChatHeaderUI(
             title: String(sessionId.prefix(8)),
             subtitle: nil,
+            flavor: nil,
             active: false,
             thinking: false
         )
@@ -356,6 +359,7 @@ final class ChatModel {
         return ChatHeaderUI(
             title: title,
             subtitle: parts.isEmpty ? nil : parts.joined(separator: " · "),
+            flavor: flavor,
             active: detail?.active ?? summary?.active ?? false,
             thinking: detail?.thinking ?? summary?.thinking ?? false
         )

@@ -10,9 +10,9 @@ import SwiftUI
 ///   pull-to-refresh, empty/loading states;
 /// - pinned section first (the sort already puts globalPinned/pinned rows on
 ///   top; a header makes the boundary visible);
-/// - per row: status dot (active / thinking pulse), title, flavor + machine +
-///   worktree meta line, summary/path line, relative `updatedAt`,
-///   pending-request badge, todo-progress chip, unread dot;
+/// - per row: status dot (active / thinking pulse), flavor brand icon +
+///   title, machine + worktree meta line, summary/path line, relative
+///   `updatedAt`, pending-request badge, todo-progress chip, unread dot;
 /// - long-press context menu → pin (none/project/global) + archive with
 ///   optimistic store updates; failures land in an alert.
 struct SessionListView: View {
@@ -219,6 +219,7 @@ struct SessionRowView: View {
 
     private var titleLine: some View {
         HStack(spacing: 6) {
+            AgentFlavorIconView(flavor: row.flavor)
             Text(row.title)
                 .font(.body)
                 .fontWeight(row.unread ? .semibold : .regular)
@@ -236,6 +237,8 @@ struct SessionRowView: View {
         }
     }
 
+    // The agent flavor moved into the title line as a brand icon (web parity:
+    // `SessionRowSummary`), so the meta line carries machine + worktree only.
     @ViewBuilder
     private var metaLine: some View {
         let worktree = row.summary.metadata?.worktree
@@ -243,7 +246,6 @@ struct SessionRowView: View {
             tree.name.trimmingCharacters(in: .whitespaces).isEmpty ? tree.branch : tree.name
         }
         let parts: [String] = [
-            row.flavor.map { flavorLabel(forFlavor: $0) },
             row.machineLabel,
             worktreeLabel,
         ].compactMap { $0 }

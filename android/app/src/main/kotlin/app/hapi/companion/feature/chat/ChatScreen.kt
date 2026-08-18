@@ -36,6 +36,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -83,6 +84,7 @@ import app.hapi.companion.feature.chat.composer.QueuedMessagesBar
 import app.hapi.companion.feature.files.FolderGlyph
 import app.hapi.companion.feature.sessions.DeleteSessionDialog
 import app.hapi.companion.feature.sessions.RenameSessionDialog
+import app.hapi.companion.ui.components.AgentFlavorIcon
 import app.hapi.companion.ui.markdown.LocalMarkdownLinkHandler
 import app.hapi.companion.ui.theme.hapi
 import app.hapi.protocol.chat.VisibleChatBlock
@@ -550,13 +552,25 @@ private fun ChatTitle(header: ChatHeaderUi) {
                 overflow = TextOverflow.Ellipsis,
             )
             header.subtitle?.let { subtitle ->
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    header.flavor?.let { flavor ->
+                        // Hint-colored like the meta text (web: currentColor
+                        // under --app-hint); color variants ignore the tint.
+                        CompositionLocalProvider(
+                            LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant,
+                        ) {
+                            AgentFlavorIcon(flavor, modifier = Modifier.size(14.dp))
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
