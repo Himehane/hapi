@@ -31,6 +31,12 @@ import app.hapi.companion.feature.chat.ChatViewModel
 import app.hapi.companion.feature.chat.composer.DictationController
 import app.hapi.companion.feature.chat.composer.HapiDictationApi
 import app.hapi.companion.feature.chat.composer.MediaRecorderDictation
+import app.hapi.companion.feature.files.ApiFilesGateway
+import app.hapi.companion.feature.files.FileViewerScreen
+import app.hapi.companion.feature.files.FileViewerViewModel
+import app.hapi.companion.feature.files.FilesScreen
+import app.hapi.companion.feature.files.FilesViewModel
+import app.hapi.companion.feature.files.ViewerMode
 import app.hapi.companion.feature.home.HomeScreen
 import app.hapi.companion.feature.newsession.ApiNewSessionGateway
 import app.hapi.companion.feature.newsession.NewSessionPrefs
@@ -43,6 +49,7 @@ import app.hapi.companion.feature.pairing.PairingViewModel
 import app.hapi.companion.feature.pairing.QrScanScreen
 import app.hapi.companion.feature.sessions.SessionListViewModel
 import app.hapi.data.auth.AuthTerminalReason
+import java.util.Base64
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -56,6 +63,41 @@ object Routes {
     const val CHAT = "chat/{sessionId}"
 
     fun chat(sessionId: String) = "chat/$sessionId"
+
+    /** Session files browser (B-M4c): Changes / Browse / Search tabs. */
+    const val FILES = "chat/{sessionId}/files"
+
+    fun files(sessionId: String) = "chat/$sessionId/files"
+
+    /**
+     * File viewer (B-M4c). `path` is base64url (no padding) so slashes and
+     * specials survive the route pattern — the web twin does the same
+     * (`encodeBase64` in `files.tsx`). `staged` picks the diff side, `mode`
+     * (`diff`/`file`) the initial mode, `line` a citation line hint.
+     */
+    const val FILE_VIEWER = "chat/{sessionId}/file?path={path}&staged={staged}&mode={mode}&line={line}"
+
+    fun fileViewer(
+        sessionId: String,
+        path: String,
+        staged: Boolean? = null,
+        mode: String? = null,
+        line: Int? = null,
+    ): String = buildString {
+        append("chat/").append(sessionId).append("/file?path=").append(encodeFilePath(path))
+        staged?.let { append("&staged=").append(it) }
+        mode?.let { append("&mode=").append(it) }
+        line?.let { append("&line=").append(it) }
+    }
+
+    fun encodeFilePath(path: String): String =
+        Base64.getUrlEncoder().withoutPadding().encodeToString(path.toByteArray(Charsets.UTF_8))
+
+    fun decodeFilePath(encoded: String): String? = try {
+        String(Base64.getUrlDecoder().decode(encoded), Charsets.UTF_8)
+    } catch (_: IllegalArgumentException) {
+        null
+    }
 
     /** New-session form (B-M3d); optional machine preselect. */
     const val NEW_SESSION = "newSession?machineId={machineId}"
@@ -124,7 +166,9 @@ fun HapiNavigation() {
             if (!onPairing) {
                 navController.navigateClearingBackStack(Routes.PAIRING)
             }
-        } else if (navController.currentDestination?.route == Routes.CHAT) {
+        } else if (
+            navController.currentDestination?.route in setOf(Routes.CHAT, Routes.FILES, Routes.FILE_VIEWER)
+        ) {
             navController.popBackStack(Routes.HOME, inclusive = false)
         }
     }
@@ -177,6 +221,80 @@ fun HapiNavigation() {
                     }
                 },
                 dictation = holder.dictation,
+                onOpenFiles = { navController.navigate(Routes.files(sessionId)) },
+                onOpenFile = { path, line ->
+                    // Chat citations open full mode; the cited line renders as
+                    // a hint chip (no per-line highlight — B-M4c trade-off).
+                    navController.navigate(Routes.fileViewer(sessionId, path, mode = "file", line = line))
+                },
+            )
+        }
+
+        composable(
+            route = Routes.FILES,
+            arguments = listOf(navArgument("sessionId") { type = NavType.StringType }),
+        ) { entry ->
+            val sessionId = entry.arguments?.getString("sessionId") ?: return@composable
+            val hubGraph = activeHubGraph ?: return@composable
+            val holder = viewModel<FilesViewModelHolder>(
+                key = "files:${hubGraph.hubUrl}:$sessionId",
+                factory = viewModelFactory { FilesViewModelHolder(hubGraph, sessionId) },
+            )
+            FilesScreen(
+                viewModel = holder.viewModel,
+                onBack = { navController.popBackStack() },
+                onOpenFile = { path, staged ->
+                    navController.navigate(Routes.fileViewer(sessionId, path, staged = staged))
+                },
+            )
+        }
+
+        composable(
+            route = Routes.FILE_VIEWER,
+            arguments = listOf(
+                navArgument("sessionId") { type = NavType.StringType },
+                navArgument("path") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("staged") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("mode") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("line") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { entry ->
+            val sessionId = entry.arguments?.getString("sessionId") ?: return@composable
+            val hubGraph = activeHubGraph ?: return@composable
+            val encodedPath = entry.arguments?.getString("path") ?: return@composable
+            val path = Routes.decodeFilePath(encodedPath) ?: return@composable
+            val staged = entry.arguments?.getString("staged")?.toBooleanStrictOrNull()
+            val mode = when (entry.arguments?.getString("mode")) {
+                "diff" -> ViewerMode.DIFF
+                "file" -> ViewerMode.FILE
+                else -> null
+            }
+            val line = entry.arguments?.getString("line")?.toIntOrNull()
+            val holder = viewModel<FileViewerViewModelHolder>(
+                key = "file:${hubGraph.hubUrl}:$sessionId:$encodedPath:$staged:$mode",
+                factory = viewModelFactory {
+                    FileViewerViewModelHolder(hubGraph, sessionId, path, staged, mode, line)
+                },
+            )
+            FileViewerScreen(
+                viewModel = holder.viewModel,
+                onBack = { navController.popBackStack() },
             )
         }
 
@@ -331,6 +449,47 @@ private class ChatViewModelHolder(
     override fun onCleared() {
         dictation.cancel()
         viewModel.stop()
+        scope.cancel()
+    }
+}
+
+/** Shell for the files browser (B-M4c); keyed per hub+session. */
+private class FilesViewModelHolder(hubGraph: HubGraph, sessionId: String) : ViewModel() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val viewModel = FilesViewModel(
+        sessionId = sessionId,
+        gateway = ApiFilesGateway(hubGraph.session.api),
+        scope = scope,
+    )
+
+    override fun onCleared() {
+        scope.cancel()
+    }
+}
+
+/** Shell for the single-file viewer (B-M4c). */
+private class FileViewerViewModelHolder(
+    hubGraph: HubGraph,
+    sessionId: String,
+    path: String,
+    staged: Boolean?,
+    mode: ViewerMode?,
+    line: Int?,
+) : ViewModel() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val viewModel = FileViewerViewModel(
+        sessionId = sessionId,
+        path = path,
+        initialStaged = staged,
+        initialMode = mode,
+        focusLine = line,
+        gateway = ApiFilesGateway(hubGraph.session.api),
+        scope = scope,
+    )
+
+    override fun onCleared() {
         scope.cancel()
     }
 }

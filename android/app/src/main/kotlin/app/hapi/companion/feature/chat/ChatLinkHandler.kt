@@ -21,11 +21,14 @@ import app.hapi.protocol.markdown.HrefDecision
  * The confirm-aware URL opener the M2d1 markdown module defers to this
  * milestone: [HrefDecision.Allowed] dispatches immediately,
  * [HrefDecision.ConfirmFirst] asks first (custom schemes), blocked never gets
- * here. Workspace-file citations stay inert until the session file viewer
- * lands (M4) — a toast tells the user why.
+ * here. Workspace-file citations route to the session file viewer (B-M4c) via
+ * [onOpenFile] — the chat screen wires it to `chat/{id}/file` in full mode,
+ * passing the cited line along as a hint.
  */
 @Composable
-fun rememberChatLinkHandler(): MarkdownLinkHandler {
+fun rememberChatLinkHandler(
+    onOpenFile: (path: String, line: Int?) -> Unit = { _, _ -> },
+): MarkdownLinkHandler {
     val context = LocalContext.current
     var confirmUrl by remember { mutableStateOf<String?>(null) }
 
@@ -48,11 +51,9 @@ fun rememberChatLinkHandler(): MarkdownLinkHandler {
         )
     }
 
-    return remember(context) {
+    return remember(context, onOpenFile) {
         object : MarkdownLinkHandler {
-            override fun onFilePath(path: String, line: Int?) {
-                Toast.makeText(context, "File viewer arrives in a later milestone", Toast.LENGTH_SHORT).show()
-            }
+            override fun onFilePath(path: String, line: Int?) = onOpenFile(path, line)
 
             override fun onUrl(url: String, decision: HrefDecision) {
                 when (decision) {
