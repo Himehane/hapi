@@ -76,6 +76,11 @@ final class ChatModel {
     let interactor: ChatInteractor
     @ObservationIgnored private let pipeline = ChatPipeline()
     @ObservationIgnored let imageLoader: GeneratedImageLoader
+    /// Authed thumbnail/viewer loader for scratchlist attachments (A-M4b).
+    @ObservationIgnored let scratchlistAttachments: ScratchlistAttachmentLoader
+
+    /// The hub's scratchlist store, for the toolbar-badge sheet (A-M4b).
+    var scratchlist: ScratchlistStore { hub.scratchlist }
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
 
     @ObservationIgnored private var windowState: MessageWindowState?
@@ -93,6 +98,7 @@ final class ChatModel {
         self.chat = session.makeChatSession(sessionId: sessionId)
         self.interactor = session.makeChatInteractor(sessionId: sessionId)
         self.imageLoader = GeneratedImageLoader(api: session.api, sessionId: sessionId)
+        self.scratchlistAttachments = ScratchlistAttachmentLoader(api: session.api, sessionId: sessionId)
         self.header = ChatHeaderUI(
             title: String(sessionId.prefix(8)),
             subtitle: nil,
@@ -122,6 +128,9 @@ final class ChatModel {
             }
         }
         interactor.activate()
+        // Badge count + SSE-invalidation refetch while the chat is open
+        // (the Android ChatViewModel start/stop pairing).
+        hub.scratchlist.open(sessionId)
         let chat = chat
         chat.onStoreActivity = { [weak self] in
             self?.scheduleRecompute()
@@ -154,6 +163,7 @@ final class ChatModel {
         noticeTask?.cancel()
         noticeTask = nil
         interactor.deactivate()
+        hub.scratchlist.release(sessionId)
         chat.stop()
     }
 
