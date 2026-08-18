@@ -3,6 +3,9 @@ import HapiClient
 import HapiProtocol
 import Observation
 import PhotosUI
+// PhotosPickerItem lives in the `_PhotosUI_SwiftUI` cross-import overlay:
+// it is only visible when SwiftUI is imported alongside PhotosUI.
+import SwiftUI
 import UniformTypeIdentifiers
 
 /// Edit-sheet model; `entryId == nil` = drafting a brand-new entry.
