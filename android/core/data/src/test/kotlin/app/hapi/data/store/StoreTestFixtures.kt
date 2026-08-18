@@ -27,6 +27,7 @@ fun summary(
     todosUpdatedAt: Long = 0,
     futureScheduledMessageCount: Int = 0,
     nextScheduledAt: Long? = null,
+    metadata: app.hapi.protocol.wire.SessionSummaryMetadata? = null,
 ): SessionSummary = SessionSummary(
     id = id,
     active = active,
@@ -35,7 +36,7 @@ fun summary(
     updatedAt = updatedAt,
     pinned = pinned,
     globalPinned = globalPinned,
-    metadata = null,
+    metadata = metadata,
     metadataVersion = metadataVersion,
     agentStateVersion = agentStateVersion,
     todosUpdatedAt = todosUpdatedAt,

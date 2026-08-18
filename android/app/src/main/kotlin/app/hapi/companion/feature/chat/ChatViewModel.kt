@@ -1,7 +1,10 @@
 package app.hapi.companion.feature.chat
 
 import app.hapi.companion.feature.chat.composer.ChatDrafts
+import app.hapi.companion.feature.chat.composer.SlashCommands
+import app.hapi.companion.feature.chat.composer.appendTranscript
 import app.hapi.companion.feature.sessions.SessionListViewModel
+import app.hapi.companion.feature.sessions.formatReopenError
 import app.hapi.data.api.ApiError
 import app.hapi.data.api.ChatSessionApi
 import app.hapi.data.sse.SseEngine
@@ -39,6 +42,7 @@ import app.hapi.protocol.wire.Machine
 import app.hapi.protocol.wire.SendMessageRequest
 import app.hapi.protocol.wire.Session
 import app.hapi.protocol.wire.SessionSummary
+import app.hapi.protocol.wire.SlashCommand
 import app.hapi.protocol.wire.arrayOrNull
 import app.hapi.protocol.wire.objOrNull
 import app.hapi.protocol.wire.stringOrNull
@@ -82,6 +86,8 @@ data class ChatHeaderUi(
     val title: String,
     /** "Flavor · machine · worktree/path" meta line; null when nothing known. */
     val subtitle: String?,
+    /** Raw custom `metadata.name` (rename-dialog prefill; the title cascade may show more). */
+    val name: String? = null,
     val active: Boolean,
     val thinking: Boolean,
 )
@@ -167,8 +173,11 @@ data class SessionConfigUi(
 
 /** One-shot side effects for the screen. */
 sealed interface ChatEvent {
-    /** Resume returned a different session id — renavigate to it. */
+    /** Resume/reopen returned a different session id — renavigate to it. */
     data class SessionSuperseded(val sessionId: String) : ChatEvent
+
+    /** The session was deleted — leave the chat screen. */
+    data object SessionDeleted : ChatEvent
 
     /** Transient failure/notice for a snackbar. */
     data class Notice(val message: String) : ChatEvent
@@ -215,6 +224,17 @@ sealed interface PermissionAction {
  * - **Config** ([config]/[setPermissionMode]/[setModel]/[setEffort]): catalog
  *   pickers with optimistic detail updates, rolled back to server truth on
  *   error; codex model catalog fetched per session ([loadModelOptions]).
+ *
+ * B-M3ce adds:
+ * - **Slash commands** ([slashSuggestions]/[selectSlashCommand]): `/token`
+ *   composer input opens the dropdown; sources = `metadata.slashCommands`
+ *   names + the lazily-fetched `GET /slash-commands` list (RPC wins dedupe).
+ * - **Dictation hand-off** ([appendDictatedText]): the screen-owned
+ *   `DictationController` emits transcripts; they append via `appendTranscript`.
+ * - **Session ops** ([renameSession]/[deleteSession]/[reopenSession]):
+ *   store-optimistic rename, delete (409-aware) with [ChatEvent.SessionDeleted],
+ *   reopen reusing the supersede path (window seed + draft move +
+ *   [ChatEvent.SessionSuperseded]) and [formatReopenError] for 422s.
  *
  * M2 core (unchanged): owns the session-scope SSE subscription while
  * [start]ed (dual-subscription model: `HubGraph` owns the global pipe) and
@@ -273,6 +293,16 @@ class ChatViewModel(
     }
 
     private val codexModels = MutableStateFlow<CodexModels>(CodexModels.Idle)
+
+    private sealed interface SlashFetch {
+        data object Idle : SlashFetch
+        data object Loading : SlashFetch
+        data class Loaded(val commands: List<SlashCommand>) : SlashFetch
+        data object Failed : SlashFetch
+    }
+
+    private val slashFetch = MutableStateFlow<SlashFetch>(SlashFetch.Idle)
+    private val sessionOpPending = MutableStateFlow(false)
 
     private val _events = MutableSharedFlow<ChatEvent>(extraBufferCapacity = 16)
 
@@ -351,6 +381,22 @@ class ChatViewModel(
     ) { detail, summary, models, _ ->
         buildConfigUi(detail, summary, models)
     }.stateIn(scope, SharingStarted.Eagerly, buildConfigUi(null, null, CodexModels.Idle))
+
+    /**
+     * Slash-command dropdown rows (B-M3ce): non-empty only while the composer
+     * text is a lone `/token`. Sources: the session's `metadata.slashCommands`
+     * names merged with the `GET /slash-commands` RPC list (fetched lazily on
+     * the first `/`), RPC entries winning dedupe.
+     */
+    val slashSuggestions: StateFlow<List<SlashCommand>> = combine(
+        composerText,
+        slashFetch,
+        sessionStore.sessionDetail(sessionId),
+    ) { text, fetch, detail ->
+        val query = SlashCommands.queryOf(text) ?: return@combine emptyList()
+        val fetched = (fetch as? SlashFetch.Loaded)?.commands
+        SlashCommands.filter(SlashCommands.merge(detail?.metadata?.slashCommands, fetched), query)
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     // ------------------------------------------------------------ lifecycle --
 
@@ -457,12 +503,49 @@ class ChatViewModel(
     // ------------------------------------------------------------- composer --
 
     fun setComposerText(text: String) {
+        // Fetch the RPC command list on the transition INTO slash mode (the
+        // web refetches when the menu opens) — not on every keystroke, so a
+        // wedged CLI cannot be hammered while the user types a command.
+        val enteredSlashMode = SlashCommands.queryOf(text) != null &&
+            SlashCommands.queryOf(composerText.value) == null
         composerText.value = text
+        if (enteredSlashMode) loadSlashCommands()
         draftJob?.cancel()
         val store = drafts ?: return
         draftJob = scope.launch {
             delay(draftSaveDebounceMs)
             runCatching { store.save(sessionId, text) }
+        }
+    }
+
+    /** Dictation transcript arrived: append with a space separator (web `appendTranscript`). */
+    fun appendDictatedText(transcript: String) {
+        setComposerText(appendTranscript(composerText.value, transcript))
+    }
+
+    /** Dropdown tap: replace the slash token with `/name ` ready for arguments. */
+    fun selectSlashCommand(command: SlashCommand) {
+        setComposerText("/${command.name} ")
+    }
+
+    /**
+     * `GET /slash-commands` once per screen (near-static list; a failed fetch
+     * retries on the next `/`). RPC failure is silent — the metadata names
+     * still populate the menu, like the web's builtin fallback.
+     */
+    private fun loadSlashCommands() {
+        if (slashFetch.value is SlashFetch.Loading || slashFetch.value is SlashFetch.Loaded) return
+        slashFetch.value = SlashFetch.Loading
+        scope.launch {
+            slashFetch.value = try {
+                val response = api.getSlashCommands(sessionId)
+                val commands = response.commands
+                if (response.success && commands != null) SlashFetch.Loaded(commands) else SlashFetch.Failed
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                SlashFetch.Failed
+            }
         }
     }
 
@@ -639,6 +722,71 @@ class ChatViewModel(
                 throw cancellation
             } catch (error: Exception) {
                 _events.tryEmit(ChatEvent.Notice(error.message ?: "Failed to abort"))
+            }
+        }
+    }
+
+    // ---------------------------------------------------------- session ops --
+
+    /** `PATCH /sessions/:id` rename — optimistic name in the store, rolled forward on failure. */
+    fun renameSession(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        scope.launch {
+            try {
+                sessionStore.renameSession(sessionId, trimmed)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                _events.tryEmit(ChatEvent.Notice(error.message ?: "Failed to rename session"))
+            }
+        }
+    }
+
+    /** `DELETE /sessions/:id` — [ChatEvent.SessionDeleted] on success; 409 while active. */
+    fun deleteSession() {
+        if (!sessionOpPending.compareAndSet(expect = false, update = true)) return
+        scope.launch {
+            try {
+                sessionStore.deleteSession(sessionId)
+                _events.tryEmit(ChatEvent.SessionDeleted)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                val message = if (error is ApiError && error.status == 409) {
+                    "Session is still active — archive it first"
+                } else {
+                    error.message ?: "Failed to delete session"
+                }
+                _events.tryEmit(ChatEvent.Notice(message))
+            } finally {
+                sessionOpPending.value = false
+            }
+        }
+    }
+
+    /**
+     * `POST /reopen` for an inactive session. A superseding id gets the same
+     * treatment as the send-resume path: window seed + draft move +
+     * [ChatEvent.SessionSuperseded]. 422 (metadata incomplete) surfaces via
+     * [formatReopenError].
+     */
+    fun reopenSession() {
+        if (!sessionOpPending.compareAndSet(expect = false, update = true)) return
+        scope.launch {
+            try {
+                val response = sessionStore.reopenSession(sessionId)
+                if (response.sessionId != sessionId) {
+                    messageWindows.seed(sessionId, response.sessionId)
+                    drafts?.let { runCatching { it.move(sessionId, response.sessionId) } }
+                    _events.tryEmit(ChatEvent.SessionSuperseded(response.sessionId))
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                _events.tryEmit(ChatEvent.Notice(formatReopenError(error)))
+            } finally {
+                sessionOpPending.value = false
             }
         }
     }
@@ -1178,6 +1326,7 @@ class ChatViewModel(
         return ChatHeaderUi(
             title = title,
             subtitle = subtitle,
+            name = detail?.metadata?.name ?: summary?.metadata?.name,
             active = detail?.active ?: summary?.active ?: false,
             thinking = detail?.thinking ?: summary?.thinking ?: false,
         )

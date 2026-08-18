@@ -11,6 +11,14 @@
         android:name="android.hardware.camera.any"
         android:required="false" />
 
+    <!-- Voice dictation (B-M3ce): press-to-talk transcription in the chat
+         composer. Requested at first mic use; typing works without it,
+         hence required="false". -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+
     <!-- usesCleartextTraffic: self-hosted hubs on a LAN speak plain http
          (http://192.168.x.x:3006 / emulator 10.0.2.2) — the primary pairing
          target. Android cannot scope cleartext to "local addresses only" via

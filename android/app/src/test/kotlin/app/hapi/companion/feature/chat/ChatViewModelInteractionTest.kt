@@ -27,11 +27,14 @@ import app.hapi.protocol.wire.MessagesPage
 import app.hapi.protocol.wire.MessagesResponse
 import app.hapi.protocol.wire.OptionalField
 import app.hapi.protocol.wire.QueuedStateResponse
+import app.hapi.protocol.wire.ReopenSessionResponse
 import app.hapi.protocol.wire.ResumeSessionResponse
 import app.hapi.protocol.wire.SendMessageRequest
 import app.hapi.protocol.wire.Session
 import app.hapi.protocol.wire.SessionMetadata
 import app.hapi.protocol.wire.SessionSummary
+import app.hapi.protocol.wire.SlashCommand
+import app.hapi.protocol.wire.SlashCommandsResponse
 import app.hapi.protocol.wire.SteerQueuedMessageResponse
 import app.hapi.protocol.wire.SyncEvent
 import kotlin.test.Test
@@ -105,6 +108,26 @@ private class InteractionSessionStore : SessionDetailStore {
     override fun applySessionEvent(scope: app.hapi.data.sse.SseSubscriptionKey, event: SyncEvent) = record("event")
     override suspend fun setPinMode(sessionId: String, mode: String) = record("pin")
     override suspend fun archiveSession(sessionId: String) = record("archive")
+
+    var renameFailure: Exception? = null
+    override suspend fun renameSession(sessionId: String, name: String) {
+        record("rename:$sessionId:$name")
+        renameFailure?.let { throw it }
+    }
+
+    var deleteFailure: Exception? = null
+    override suspend fun deleteSession(sessionId: String) {
+        record("delete:$sessionId")
+        deleteFailure?.let { throw it }
+    }
+
+    var reopenResult: ReopenSessionResponse? = null
+    var reopenFailure: Exception? = null
+    override suspend fun reopenSession(sessionId: String): ReopenSessionResponse {
+        record("reopen:$sessionId")
+        reopenFailure?.let { throw it }
+        return reopenResult ?: ReopenSessionResponse(sessionId = sessionId, resumed = true)
+    }
 }
 
 private class InteractionMachineStore : MachineListStore {
@@ -212,6 +235,13 @@ private class RecordingChatApi : ChatSessionApi {
     }
 
     override suspend fun getSessionCodexModels(sessionId: String): CodexModelsResponse = codexModelsResult
+
+    var slashCommandsResult: SlashCommandsResponse = SlashCommandsResponse(success = false, error = "not scripted")
+    val slashCommandsCalls = MutableStateFlow(0)
+    override suspend fun getSlashCommands(sessionId: String): SlashCommandsResponse {
+        slashCommandsCalls.value += 1
+        return slashCommandsResult
+    }
 }
 
 private class FakeDrafts : ChatDrafts {
@@ -734,5 +764,192 @@ class ChatViewModelInteractionTest {
         harness.viewModel.start()
         harness.viewModel.abortSession()
         harness.api.configCalls.first { "abort:$IX_SESSION" in it }
+    }
+
+    // -------------------------------------------------------- session ops --
+
+    @Test
+    fun `explicit reopen with a superseding id migrates the draft and emits the event`() = runTest {
+        val harness = InteractionHarness(this, detail(active = false))
+        harness.sessionStore.reopenResult =
+            ReopenSessionResponse(sessionId = "sess-2", resumed = false)
+        harness.drafts.map[IX_SESSION] = "carry me over"
+        harness.viewModel.start()
+
+        var superseded: String? = null
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+            superseded = harness.viewModel.events
+                .filterIsInstance<ChatEvent.SessionSuperseded>()
+                .first()
+                .sessionId
+        }
+
+        harness.viewModel.reopenSession()
+        collector.join()
+
+        assertEquals("sess-2", superseded)
+        assertEquals("carry me over", harness.drafts.map["sess-2"])
+        assertNull(harness.drafts.map[IX_SESSION])
+        assertTrue(harness.sessionStore.calls.value.any { it == "reopen:$IX_SESSION" })
+    }
+
+    @Test
+    fun `reopen returning the same id stays put`() = runTest {
+        val harness = InteractionHarness(this, detail(active = false))
+        harness.sessionStore.reopenResult =
+            ReopenSessionResponse(sessionId = IX_SESSION, resumed = true)
+        harness.viewModel.start()
+
+        val events = mutableListOf<ChatEvent>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            harness.viewModel.events.collect { events += it }
+        }
+
+        harness.viewModel.reopenSession()
+        harness.sessionStore.calls.first { calls -> calls.any { it == "reopen:$IX_SESSION" } }
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(events.none { it is ChatEvent.SessionSuperseded })
+    }
+
+    @Test
+    fun `reopen 422 surfaces the missing-metadata notice`() = runTest {
+        val harness = InteractionHarness(this, detail(active = false))
+        harness.sessionStore.reopenFailure = ApiError(
+            422,
+            code = "reopen_missing_metadata",
+            body = """{"error":"Cannot reopen","missing":["cursorSessionId"]}""",
+        )
+        harness.viewModel.start()
+
+        var notice: String? = null
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+            notice = harness.viewModel.events.filterIsInstance<ChatEvent.Notice>().first().message
+        }
+
+        harness.viewModel.reopenSession()
+        collector.join()
+
+        assertEquals("Cannot reopen (missing: cursorSessionId)", notice)
+    }
+
+    @Test
+    fun `delete emits SessionDeleted on success and a 409 notice while active`() = runTest {
+        val harness = InteractionHarness(this)
+        harness.viewModel.start()
+
+        val deleted = launch(start = CoroutineStart.UNDISPATCHED) {
+            harness.viewModel.events.first { it is ChatEvent.SessionDeleted }
+        }
+        harness.viewModel.deleteSession()
+        deleted.join()
+
+        harness.sessionStore.deleteFailure = ApiError(409, code = "session_active")
+        var notice: String? = null
+        val noticeJob = launch(start = CoroutineStart.UNDISPATCHED) {
+            notice = harness.viewModel.events.filterIsInstance<ChatEvent.Notice>().first().message
+        }
+        harness.viewModel.deleteSession()
+        noticeJob.join()
+
+        assertEquals(2, harness.sessionStore.calls.value.count { it == "delete:$IX_SESSION" })
+        assertTrue("archive it first" in notice!!)
+    }
+
+    @Test
+    fun `rename trims, calls the store, and surfaces failure as a notice`() = runTest {
+        val harness = InteractionHarness(this)
+        harness.viewModel.start()
+
+        harness.viewModel.renameSession("  New title  ")
+        harness.sessionStore.calls.first { calls -> calls.any { it == "rename:$IX_SESSION:New title" } }
+
+        harness.viewModel.renameSession("   ")
+        harness.sessionStore.calls.first { calls -> calls.count { it.startsWith("rename:") } == 1 }
+
+        var notice: String? = null
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+            notice = harness.viewModel.events.filterIsInstance<ChatEvent.Notice>().first().message
+        }
+        harness.sessionStore.renameFailure = RuntimeException("nope")
+        harness.viewModel.renameSession("Other")
+        collector.join()
+        assertEquals("nope", notice)
+    }
+
+    // ------------------------------------------------------ slash commands --
+
+    @Test
+    fun `slash mode merges metadata names with the RPC list and filters while typing`() = runTest {
+        val metadata = SessionMetadata(
+            path = "/repo/app",
+            host = "devbox",
+            flavor = "claude",
+            slashCommands = listOf("deploy", "compact"),
+        )
+        val harness = InteractionHarness(this, detail().copy(metadata = metadata))
+        harness.api.slashCommandsResult = SlashCommandsResponse(
+            success = true,
+            commands = listOf(
+                SlashCommand(name = "compact", description = "Compact the thread", source = "builtin"),
+                SlashCommand(name = "code-review", description = null, source = "project"),
+            ),
+        )
+        harness.viewModel.start()
+
+        harness.viewModel.setComposerText("/")
+        val all = harness.viewModel.slashSuggestions.first { it.size == 3 }
+        // RPC "compact" overrides the bare metadata name and carries the description.
+        assertEquals("Compact the thread", all.first { it.name == "compact" }.description)
+        assertEquals(1, harness.api.slashCommandsCalls.value)
+
+        harness.viewModel.setComposerText("/co")
+        val filtered = harness.viewModel.slashSuggestions.first { it.size == 2 }
+        assertEquals(listOf("compact", "code-review"), filtered.map { it.name })
+        // Typing within slash mode must not refetch.
+        assertEquals(1, harness.api.slashCommandsCalls.value)
+
+        harness.viewModel.setComposerText("/co bar")
+        harness.viewModel.slashSuggestions.first { it.isEmpty() }
+    }
+
+    @Test
+    fun `selecting a command inserts the slash token ready for arguments`() = runTest {
+        val harness = InteractionHarness(this)
+        harness.viewModel.start()
+
+        harness.viewModel.selectSlashCommand(SlashCommand(name = "compact", source = "builtin"))
+
+        harness.viewModel.composer.first { it.text == "/compact " }
+    }
+
+    @Test
+    fun `RPC failure still serves the metadata names`() = runTest {
+        val metadata = SessionMetadata(
+            path = "/repo/app",
+            host = "devbox",
+            flavor = "claude",
+            slashCommands = listOf("deploy"),
+        )
+        val harness = InteractionHarness(this, detail().copy(metadata = metadata))
+        harness.api.slashCommandsResult = SlashCommandsResponse(success = false, error = "cli wedged")
+        harness.viewModel.start()
+
+        harness.viewModel.setComposerText("/")
+        val suggestions = harness.viewModel.slashSuggestions.first { it.isNotEmpty() }
+        assertEquals(listOf("deploy"), suggestions.map { it.name })
+    }
+
+    // ------------------------------------------------------------ dictation --
+
+    @Test
+    fun `dictated text appends to the composer with a space separator`() = runTest {
+        val harness = InteractionHarness(this)
+        harness.viewModel.start()
+
+        harness.viewModel.setComposerText("fix the bug")
+        harness.viewModel.appendDictatedText(" and add tests ")
+
+        harness.viewModel.composer.first { it.text == "fix the bug and add tests" }
     }
 }

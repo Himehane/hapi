@@ -34,6 +34,7 @@ import app.hapi.protocol.wire.SlashCommandsResponse
 import app.hapi.protocol.wire.SpawnResponse
 import app.hapi.protocol.wire.SpawnSessionRequest
 import app.hapi.protocol.wire.SteerQueuedMessageResponse
+import app.hapi.protocol.wire.TranscriptionProvidersResponse
 import app.hapi.protocol.wire.TranscriptionResponse
 import app.hapi.protocol.wire.UnregisterDeviceRequest
 import app.hapi.protocol.wire.UpdateSessionSummaryRequest
@@ -418,7 +419,7 @@ class HapiApi(
     // ------------------------------------------------- commands & skills --
 
     /** `GET /api/sessions/:id/slash-commands` (RPC-wrapped: check `success`). */
-    suspend fun getSlashCommands(sessionId: String): SlashCommandsResponse =
+    override suspend fun getSlashCommands(sessionId: String): SlashCommandsResponse =
         request("GET", url("api", "sessions", sessionId, "slash-commands").build())
 
     /** `GET /api/sessions/:id/skills` (RPC-wrapped: check `success`). */
@@ -560,6 +561,15 @@ class HapiApi(
     }
 
     // --------------------------------------------------------------- voice --
+
+    /**
+     * `GET /api/voice/transcription/providers` — providers whose keys are
+     * configured on the hub. Dictation (B-M3ce) picks the first entry
+     * supporting `standard`; an empty list means "no transcription provider
+     * configured on hub".
+     */
+    suspend fun getTranscriptionProviders(): TranscriptionProvidersResponse =
+        request("GET", url("api", "voice", "transcription", "providers").build())
 
     /**
      * `POST /api/voice/transcription` — the one `multipart/form-data`

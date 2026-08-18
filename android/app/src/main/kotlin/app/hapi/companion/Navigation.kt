@@ -1,5 +1,6 @@
 package app.hapi.companion
 
+import android.content.Context
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -9,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
@@ -26,6 +28,9 @@ import app.hapi.companion.di.viewModelFactory
 import app.hapi.companion.feature.chat.ChatMedia
 import app.hapi.companion.feature.chat.ChatScreen
 import app.hapi.companion.feature.chat.ChatViewModel
+import app.hapi.companion.feature.chat.composer.DictationController
+import app.hapi.companion.feature.chat.composer.HapiDictationApi
+import app.hapi.companion.feature.chat.composer.MediaRecorderDictation
 import app.hapi.companion.feature.home.HomeScreen
 import app.hapi.companion.feature.newsession.ApiNewSessionGateway
 import app.hapi.companion.feature.newsession.NewSessionPrefs
@@ -151,9 +156,10 @@ fun HapiNavigation() {
         ) { entry ->
             val sessionId = entry.arguments?.getString("sessionId") ?: return@composable
             val hubGraph = activeHubGraph ?: return@composable
+            val appContext = LocalContext.current.applicationContext
             val holder = viewModel<ChatViewModelHolder>(
                 key = "chat:${hubGraph.hubUrl}:$sessionId",
-                factory = viewModelFactory { ChatViewModelHolder(hubGraph, sessionId) },
+                factory = viewModelFactory { ChatViewModelHolder(hubGraph, sessionId, appContext) },
             )
             ChatScreen(
                 viewModel = holder.viewModel,
@@ -164,12 +170,13 @@ fun HapiNavigation() {
                 },
                 onBack = { navController.popBackStack() },
                 onNavigateToSession = { supersededId ->
-                    // Resume handed the conversation to a different id:
+                    // Resume/reopen handed the conversation to a different id:
                     // replace this chat entry with the superseding session.
                     navController.navigate(Routes.chat(supersededId)) {
                         popUpTo(Routes.CHAT) { inclusive = true }
                     }
                 },
+                dictation = holder.dictation,
             )
         }
 
@@ -290,8 +297,12 @@ private class SessionListViewModelHolder(hubGraph: HubGraph) : ViewModel() {
     }
 }
 
-/** Same shell for the per-session [ChatViewModel]. */
-private class ChatViewModelHolder(hubGraph: HubGraph, sessionId: String) : ViewModel() {
+/** Same shell for the per-session [ChatViewModel] (+ its dictation controller). */
+private class ChatViewModelHolder(
+    hubGraph: HubGraph,
+    sessionId: String,
+    appContext: Context,
+) : ViewModel() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val viewModel = ChatViewModel(
@@ -307,7 +318,18 @@ private class ChatViewModelHolder(hubGraph: HubGraph, sessionId: String) : ViewM
         drafts = hubGraph.chatDrafts,
     )
 
+    /**
+     * Holder-scoped so a recording survives rotation; [onCleared] discards
+     * any take still open when the screen goes away for good.
+     */
+    val dictation = DictationController(
+        api = HapiDictationApi(hubGraph.session.api),
+        recorder = MediaRecorderDictation(appContext),
+        scope = scope,
+    )
+
     override fun onCleared() {
+        dictation.cancel()
         viewModel.stop()
         scope.cancel()
     }

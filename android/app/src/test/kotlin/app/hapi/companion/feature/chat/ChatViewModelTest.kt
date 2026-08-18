@@ -104,6 +104,12 @@ private class FakeSessionStore : SessionDetailStore {
 
     override suspend fun setPinMode(sessionId: String, mode: String) = record("pin")
     override suspend fun archiveSession(sessionId: String) = record("archive")
+    override suspend fun renameSession(sessionId: String, name: String) = record("rename")
+    override suspend fun deleteSession(sessionId: String) = record("delete")
+    override suspend fun reopenSession(sessionId: String): app.hapi.protocol.wire.ReopenSessionResponse {
+        record("reopen")
+        return app.hapi.protocol.wire.ReopenSessionResponse(sessionId = sessionId, resumed = true)
+    }
 }
 
 private class FakeMachineStore : MachineListStore {
@@ -151,6 +157,8 @@ private class FakeMessagesApi : ChatSessionApi {
     override suspend fun setModelReasoningEffort(sessionId: String, modelReasoningEffort: String?) {}
     override suspend fun getSessionCodexModels(sessionId: String): CodexModelsResponse =
         CodexModelsResponse(success = false, error = "not scripted")
+    override suspend fun getSlashCommands(sessionId: String): app.hapi.protocol.wire.SlashCommandsResponse =
+        app.hapi.protocol.wire.SlashCommandsResponse(success = false, error = "not scripted")
 }
 
 private fun page(
