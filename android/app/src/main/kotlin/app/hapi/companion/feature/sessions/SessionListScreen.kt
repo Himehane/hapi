@@ -1,11 +1,5 @@
 package app.hapi.companion.feature.sessions
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -78,9 +73,11 @@ import app.hapi.protocol.wire.TodoProgress
  *   pull-to-refresh, empty state;
  * - pinned section first (the sort already puts globalPinned/pinned rows on
  *   top; a header + divider make the boundary visible);
- * - per row: status dot (active / thinking pulse), flavor brand icon +
- *   title, machine + worktree labels, summary/path line, relative
- *   `updatedAt`, pending-request badge, todo-progress chip, unread dot;
+ * - per row: flavor brand icon + title, spinner while a turn is in flight,
+ *   machine + worktree labels, summary/path line, relative `updatedAt`,
+ *   pending-request badge, todo-progress chip, unread dot; disconnected
+ *   rows are dimmed — connected is the resting state, so no presence dot
+ *   (web parity);
  * - long-press → actions sheet: pin (none/project/global), rename (dialog),
  *   reopen (inactive rows; navigates into the possibly-superseding id),
  *   archive, delete (confirm; 409 while active) — optimistic store updates;
@@ -294,61 +291,64 @@ private fun SessionRow(
     onLongPress: (SessionRowUi) -> Unit,
 ) {
     val summary = row.summary
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
                 onClick = { onOpen(row.id) },
                 onLongClick = { onLongPress(row) },
             )
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.Top,
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+            // Dimming expresses "disconnected" (web parity): connected is the
+            // resting state here, so only the exception gets marked — no
+            // per-row presence dot.
+            .alpha(if (summary.active) 1f else 0.5f),
     ) {
-        StatusIndicator(
-            active = summary.active,
-            thinking = summary.thinking,
-            modifier = Modifier.padding(top = 5.dp),
-        )
-        Spacer(modifier = Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AgentFlavorIcon(row.flavor, modifier = Modifier.size(16.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AgentFlavorIcon(row.flavor, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            // One weighted element only: the title takes ALL leftover
+            // width (start-aligned, ellipsis on true overflow). Splitting
+            // the slack with a weighted trailing spacer truncated even
+            // short names at ~half the row (device-observed).
+            Text(
+                text = row.title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (row.unread) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (summary.active && summary.thinking) {
                 Spacer(modifier = Modifier.width(6.dp))
-                // One weighted element only: the title takes ALL leftover
-                // width (start-aligned, ellipsis on true overflow). Splitting
-                // the slack with a weighted trailing spacer truncated even
-                // short names at ~half the row (device-observed).
-                Text(
-                    text = row.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = if (row.unread) FontWeight.SemiBold else FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (row.unread) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    UnreadDot()
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = localizedRelativeAge(summary.updatedAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 1.5.dp,
+                    color = Color(0xFF34C759),
                 )
             }
-            MetaLine(row)
-            row.subtitle?.let { subtitle ->
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            if (row.unread) {
+                Spacer(modifier = Modifier.width(6.dp))
+                UnreadDot()
             }
-            BadgeLine(summary)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = localizedRelativeAge(summary.updatedAt),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
+        MetaLine(row)
+        row.subtitle?.let { subtitle ->
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        BadgeLine(summary)
     }
 }
 
@@ -441,35 +441,6 @@ private fun UnreadDot() {
         modifier = Modifier
             .size(8.dp)
             .background(MaterialTheme.colorScheme.primary, CircleShape),
-    )
-}
-
-/** Solid dot for active, pulsing while thinking, hollow-ish gray when idle. */
-@Composable
-private fun StatusIndicator(active: Boolean, thinking: Boolean, modifier: Modifier = Modifier) {
-    val color = when {
-        active -> Color(0xFF34C759)
-        else -> MaterialTheme.colorScheme.outlineVariant
-    }
-    val alpha = if (thinking) {
-        val transition = rememberInfiniteTransition(label = "thinking-pulse")
-        transition.animateFloat(
-            initialValue = 1f,
-            targetValue = 0.25f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 700, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse,
-            ),
-            label = "thinking-alpha",
-        ).value
-    } else {
-        1f
-    }
-    Box(
-        modifier = modifier
-            .size(10.dp)
-            .alpha(alpha)
-            .background(color, CircleShape),
     )
 }
 

@@ -10,9 +10,11 @@ import SwiftUI
 ///   pull-to-refresh, empty/loading states;
 /// - pinned section first (the sort already puts globalPinned/pinned rows on
 ///   top; a header makes the boundary visible);
-/// - per row: status dot (active / thinking pulse), flavor brand icon +
-///   title, machine + worktree meta line, summary/path line, relative
-///   `updatedAt`, pending-request badge, todo-progress chip, unread dot;
+/// - per row: flavor brand icon + title, spinner while a turn is in flight,
+///   machine + worktree meta line, summary/path line, relative `updatedAt`,
+///   pending-request badge, todo-progress chip, unread dot; disconnected
+///   rows are dimmed — connected is the resting state, so no presence dot
+///   (web parity);
 /// - long-press context menu → pin (none/project/global) + archive with
 ///   optimistic store updates; failures land in an alert.
 struct SessionListView: View {
@@ -203,22 +205,22 @@ struct SessionRowView: View {
     let now: Date
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            StatusDot(active: row.summary.active, thinking: row.summary.thinking)
-                .padding(.top, 5)
-            VStack(alignment: .leading, spacing: 2) {
-                titleLine
-                metaLine
-                if let subtitle = row.subtitle {
-                    Text(subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                badgeLine
+        VStack(alignment: .leading, spacing: 2) {
+            titleLine
+            metaLine
+            if let subtitle = row.subtitle {
+                Text(subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
+            badgeLine
         }
         .padding(.vertical, 2)
+        // Dimming expresses "disconnected" (web parity): connected is the
+        // resting state here, so only the exception gets marked — no
+        // per-row presence dot.
+        .opacity(row.summary.active ? 1 : 0.5)
         .accessibilityElement(children: .combine)
     }
 
@@ -229,6 +231,13 @@ struct SessionRowView: View {
                 .font(.body)
                 .fontWeight(row.unread ? .semibold : .regular)
                 .lineLimit(1)
+            if row.summary.active && row.summary.thinking {
+                ProgressView()
+                    .scaleEffect(0.7)
+                    .frame(width: 14, height: 14)
+                    .tint(.green)
+                    .accessibilityLabel("Thinking")
+            }
             if row.unread {
                 Circle()
                     .fill(.tint)
@@ -284,6 +293,8 @@ struct SessionRowView: View {
 }
 
 /// Solid green for active (pulsing while thinking), muted gray when idle.
+/// Chat-header use only — list rows express liveness by dimming instead
+/// (web parity: no per-row presence dot).
 struct StatusDot: View {
     let active: Bool
     let thinking: Bool
