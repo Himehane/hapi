@@ -156,7 +156,7 @@ private func terminalTitle(_ input: JSONValue?, description: String?) -> String 
 
 private func terminalSubtitle(_ input: JSONValue?, description: String?) -> String? {
     let command = chatTerminalCommand(input)
-    return command == terminalTitle(input, description) ? nil : command
+    return command == terminalTitle(input, description: description) ? nil : command
 }
 
 // MARK: - Questions
