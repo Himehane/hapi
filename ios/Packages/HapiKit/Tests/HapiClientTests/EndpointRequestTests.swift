@@ -136,4 +136,36 @@ struct EndpointRequestTests {
         let failed = try await harness.client.spawnSession(machineId: "m1", SpawnRequest(directory: "/x"))
         #expect(failed == .error(message: "no runner"))
     }
+
+    @Test func machineCodexModelsRequestAndRpcTargetMissing() async throws {
+        let harness = try makeHarness(jwt: freshJWT())
+        await harness.performer.enqueue(
+            json: "{\"success\":true,\"models\":[{\"id\":\"gpt-5.2-codex\","
+                + "\"displayName\":\"GPT-5.2 Codex\",\"isDefault\":true,"
+                + "\"supportedReasoningEfforts\":[\"low\",\"medium\"],"
+                + "\"serviceTiers\":[\"standard\",\"fast\"]}]}"
+        )
+        let response = try await harness.client.machineCodexModels(machineId: "m 1")
+        #expect(response.success)
+        #expect(response.models?.first?.id == "gpt-5.2-codex")
+        #expect(response.models?.first?.serviceTiers == ["standard", "fast"])
+        let request = await harness.performer.requests.first
+        #expect(
+            request?.url?.absoluteString
+                == "\(testHubURLString)/api/machines/m%201/codex-models"
+        )
+        #expect(request?.httpMethod == "GET")
+
+        // Old runner without the machine RPC: 503 with the stable code the
+        // new-session form keys off to hide the codex model picker.
+        await harness.performer.enqueue(
+            status: 503,
+            json: "{\"success\":false,\"code\":\"rpc_target_missing\"}"
+        )
+        let error = await capturedError {
+            try await harness.client.machineCodexModels(machineId: "m1")
+        }
+        #expect((error as? APIError)?.status == 503)
+        #expect((error as? APIError)?.code == "rpc_target_missing")
+    }
 }

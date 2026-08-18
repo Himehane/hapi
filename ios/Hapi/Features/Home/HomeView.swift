@@ -2,13 +2,16 @@ import HapiClient
 import SwiftUI
 
 /// Post-pairing home: the session list for the active hub, with the hub
-/// switcher (switch / add / sign out) and the live global-SSE connection dot
-/// in the toolbar. Tapping a row pushes the read-only chat (M2f).
+/// switcher (switch / add / sign out), the "+" new-session sheet (A-M3c),
+/// and the live global-SSE connection dot in the toolbar. Tapping a row
+/// pushes the chat (M2f); a successful spawn dismisses the sheet and pushes
+/// the new chat the same way.
 struct HomeView: View {
     let session: HubSession
 
     @Environment(AppModel.self) private var model
     @State private var confirmSignOut = false
+    @State private var showNewSession = false
     @State private var path: [String] = []
 
     var body: some View {
@@ -32,6 +35,13 @@ struct HomeView: View {
                     connectionIndicator
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showNewSession = true
+                    } label: {
+                        Label("New Session", systemImage: "plus")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     hubMenu
                 }
             }
@@ -50,6 +60,13 @@ struct HomeView: View {
         }
         .sheet(isPresented: $model.showAddHub) {
             PairingFlowView(context: .addHub)
+        }
+        .sheet(isPresented: $showNewSession) {
+            NewSessionView(session: session) { sessionId in
+                // Navigate-replace: drop the sheet, push the fresh chat.
+                showNewSession = false
+                path.append(sessionId)
+            }
         }
     }
 
