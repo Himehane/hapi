@@ -43,9 +43,9 @@ func formatFileSize(_ bytes: Int?) -> String? {
 
 /// `12/31/2026, 10:03 · 1.2 KB`-style joined metadata line
 /// (web `formatFileMetadata`); `modified` is epoch ms.
-func formatFileMetadata(size: Int?, modified: Int?) -> String? {
+func formatFileMetadata(size: Int?, modified: Double?) -> String? {
     let time = modified.map { epochMs in
-        Date(timeIntervalSince1970: Double(epochMs) / 1000)
+        Date(timeIntervalSince1970: epochMs / 1000)
             .formatted(date: .numeric, time: .shortened)
     }
     let parts = [time, formatFileSize(size)].compactMap { $0 }

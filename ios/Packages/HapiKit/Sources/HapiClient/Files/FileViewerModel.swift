@@ -107,7 +107,7 @@ public enum FileContentHeuristics {
     static func decode(
         _ response: FileReadResponse,
         path: String
-    ) -> (state: FileViewerContentState, size: Int?, modified: Int?) {
+    ) -> (state: FileViewerContentState, size: Int?, modified: Double?) {
         guard response.success else {
             return (.failed(response.error ?? "Failed to read file"), response.size, response.modified)
         }
@@ -173,7 +173,7 @@ public final class FileViewerModel {
     /// Markdown files: render preview instead of source (web default: preview).
     public private(set) var markdownPreview = true
     public private(set) var sizeBytes: Int?
-    public private(set) var modifiedAt: Int?
+    public private(set) var modifiedAt: Double?
     /// Requested line from a chat citation; shown as a hint chip (no
     /// per-line highlight — same trade-off as the Android screen).
     public let focusLine: Int?
@@ -274,7 +274,7 @@ public final class FileViewerModel {
 
     private func loadContent() {
         Task {
-            let decoded: (state: ContentState, size: Int?, modified: Int?)
+            let decoded: (state: ContentState, size: Int?, modified: Double?)
             do {
                 let response = try await self.requester.readSessionFile(
                     sessionId: self.sessionId,

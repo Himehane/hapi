@@ -42,14 +42,14 @@ public struct FileReadResponse: Codable, Equatable, Sendable {
     /// Bytes on disk.
     public var size: Int?
     /// Epoch ms.
-    public var modified: Int?
+    public var modified: Double?
     public var error: String?
 
     public init(
         success: Bool,
         content: String? = nil,
         size: Int? = nil,
-        modified: Int? = nil,
+        modified: Double? = nil,
         error: String? = nil
     ) {
         self.success = success
@@ -82,7 +82,7 @@ public struct FileSearchItem: Codable, Equatable, Sendable {
     public var fileType: String
     public var size: Int?
     /// Epoch ms.
-    public var modified: Int?
+    public var modified: Double?
 
     public init(
         fileName: String,
@@ -90,7 +90,7 @@ public struct FileSearchItem: Codable, Equatable, Sendable {
         fullPath: String,
         fileType: String,
         size: Int? = nil,
-        modified: Int? = nil
+        modified: Double? = nil
     ) {
         self.fileName = fileName
         self.filePath = filePath

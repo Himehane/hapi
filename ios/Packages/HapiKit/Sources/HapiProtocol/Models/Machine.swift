@@ -14,8 +14,8 @@ public struct MachineMetadata: Codable, Equatable, Sendable {
     public var workspaceRoots: [String]?
     /// Machine-scoped RPC capability ids this runner registers.
     public var capabilities: [String]?
-    public var startedCliMtimeMs: Int?
-    public var installedCliMtimeMs: Int?
+    public var startedCliMtimeMs: Double?
+    public var installedCliMtimeMs: Double?
     public var supervisedRestart: Bool?
 
     public init(
@@ -28,8 +28,8 @@ public struct MachineMetadata: Codable, Equatable, Sendable {
         happyLibDir: String? = nil,
         workspaceRoots: [String]? = nil,
         capabilities: [String]? = nil,
-        startedCliMtimeMs: Int? = nil,
-        installedCliMtimeMs: Int? = nil,
+        startedCliMtimeMs: Double? = nil,
+        installedCliMtimeMs: Double? = nil,
         supervisedRestart: Bool? = nil
     ) {
         self.host = host

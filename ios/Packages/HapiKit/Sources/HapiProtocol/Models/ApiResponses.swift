@@ -331,9 +331,9 @@ public struct DirectoryEntry: Codable, Equatable, Sendable {
     /// Size in bytes (files only).
     public var size: Int?
     /// mtime, epoch ms.
-    public var modified: Int?
+    public var modified: Double?
 
-    public init(name: String, type: DirectoryEntryType, size: Int? = nil, modified: Int? = nil) {
+    public init(name: String, type: DirectoryEntryType, size: Int? = nil, modified: Double? = nil) {
         self.name = name
         self.type = type
         self.size = size
@@ -347,14 +347,14 @@ public struct MachineDirectoryEntry: Codable, Equatable, Sendable {
     public var name: String
     public var type: DirectoryEntryType
     public var size: Int?
-    public var modified: Int?
+    public var modified: Double?
     public var isGitRepo: Bool?
 
     public init(
         name: String,
         type: DirectoryEntryType,
         size: Int? = nil,
-        modified: Int? = nil,
+        modified: Double? = nil,
         isGitRepo: Bool? = nil
     ) {
         self.name = name

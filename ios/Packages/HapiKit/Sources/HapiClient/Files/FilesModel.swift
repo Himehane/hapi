@@ -26,7 +26,7 @@ public struct FilesChangesState: Equatable, Sendable {
 public enum FilesBrowseRow: Equatable, Sendable, Identifiable {
     /// `path` is session-root-relative (`src/app`).
     case directory(path: String, name: String, depth: Int, isExpanded: Bool)
-    case file(path: String, name: String, depth: Int, size: Int?, modified: Int?)
+    case file(path: String, name: String, depth: Int, size: Int?, modified: Double?)
     /// Placeholder while a directory listing is in flight.
     case loading(parentPath: String, depth: Int)
     /// Inline listing failure for one directory (web `DirectoryErrorRow`).
