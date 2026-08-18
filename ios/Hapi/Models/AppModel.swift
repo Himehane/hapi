@@ -51,6 +51,10 @@ final class AppModel {
     /// Transient informational message (alert), e.g. deep link for an
     /// already-paired hub.
     var infoNotice: String?
+    /// Session targeted by a notification tap (Android
+    /// `pendingOpenSessionId`): the home screen consumes it into its
+    /// navigation path against the active hub.
+    var pendingOpenSessionId: String?
 
     // `let` storage is inert under @Observable (no annotation needed).
     let registry: HubRegistry
@@ -73,6 +77,16 @@ final class AppModel {
             performer: performer
         )
         restore()
+        // Push wiring (P3): the coordinator is a process singleton (UIKit
+        // delegates outlive any model); it pulls navigation + suppression
+        // state through these seams instead of holding the model.
+        PushCoordinator.shared.configure(PushCoordinator.Environment(
+            registry: registry,
+            credentialStore: credentialStore,
+            performer: performer,
+            openChatSessionId: { [weak self] in self?.session?.openChatSessionId },
+            openSession: { [weak self] sessionId in self?.pendingOpenSessionId = sessionId }
+        ))
     }
 
     // MARK: - Cold-start restore
@@ -106,6 +120,9 @@ final class AppModel {
         pendingPairing = nil
         showAddHub = false
         activate(hub: paired.hubUrl)
+        // Android timing: the notification-permission prompt fires only once
+        // a hub is actually paired — then this hub registers for push.
+        PushCoordinator.shared.hubPaired(paired.hubUrl)
         return paired
     }
 
@@ -127,6 +144,10 @@ final class AppModel {
             session?.shutdown()
             session = nil
         }
+        // Best-effort push unregister, ordered before the credential wipe
+        // below (the coordinator snapshots the record synchronously, so the
+        // detached DELETE cannot lose the race).
+        PushCoordinator.shared.hubWillSignOut(hub)
         let nextActive = pairingService.unpair(hubUrl: hub)
         hubs = registry.hubs
         guard wasActive else { return }
@@ -178,6 +199,9 @@ final class AppModel {
         case .active:
             isForeground = true
             session?.enterForeground()
+            // Re-registers every hub when the APNs token arrives — the
+            // cheap-upsert healing pass (Android registrar `start()`).
+            PushCoordinator.shared.appDidBecomeActive(isPaired: state != .unpaired)
         case .background:
             isForeground = false
             session?.enterBackground()
@@ -222,6 +246,9 @@ final class AppModel {
     private func handleTerminalAuthFailure(for hub: String) {
         session = nil // the session shut itself down before calling back
         authFailureNotice = hub
+        // No JWT left to authenticate a push unregister; just drop the hub
+        // from the status row (the hub prunes dead tokens itself).
+        PushCoordinator.shared.hubRemoved(hub)
         let nextActive = pairingService.unpair(hubUrl: hub)
         hubs = registry.hubs
         if let nextActive {

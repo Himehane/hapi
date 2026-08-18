@@ -1,6 +1,8 @@
 import HapiClient
 import HapiProtocol
 import SwiftUI
+import UIKit
+import UserNotifications
 
 /// Settings-home state (A-M4e): the owner gate for the usage/storage entries
 /// and the About hub probe. Appearance/language live in their prefs stores;
@@ -67,6 +69,7 @@ struct SettingsView: View {
     @State private var languagePrefs: LanguagePrefs
     @Environment(ThemePrefs.self) private var themePrefs
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
 
     private let session: HubSession
 
@@ -81,6 +84,7 @@ struct SettingsView: View {
             List {
                 appearanceSection
                 languageSection
+                notificationsSection
                 if model.isOwner {
                     insightsSection
                 }
@@ -97,6 +101,7 @@ struct SettingsView: View {
             }
             .task {
                 model.start()
+                PushCoordinator.shared.refreshStatus()
             }
         }
         // The sheet is its own presentation; re-apply the explicit override
@@ -163,6 +168,54 @@ struct SettingsView: View {
                 }
             }
         )
+    }
+
+    /// Push status (P3): permission state, how many paired hubs currently
+    /// hold this install's device registration, and a manual re-register
+    /// escape hatch (iOS has no background retry queue — the next app start
+    /// or token rotation heals registrations too).
+    private var notificationsSection: some View {
+        let push = PushCoordinator.shared
+        return Section {
+            LabeledContent("Push notifications", value: permissionLabel(push.authorizationStatus))
+            if push.authorizationStatus == .denied {
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(url)
+                    }
+                } label: {
+                    Text("Enable in system settings…")
+                        .font(.callout)
+                }
+            } else {
+                LabeledContent(
+                    "Registered hubs",
+                    value: "\(push.registeredHubs.count) / \(push.pairedHubs.count)"
+                )
+                Button("Re-register push") {
+                    PushCoordinator.shared.reregisterAll()
+                }
+            }
+        } header: {
+            Text("Notifications")
+        } footer: {
+            if let problem = push.lastRegistrationProblem {
+                Text(problem)
+            } else {
+                Text("Pushes are end-to-end encrypted; only this device can read them.")
+            }
+        }
+    }
+
+    private func permissionLabel(_ status: UNAuthorizationStatus) -> String {
+        switch status {
+        case .authorized, .provisional, .ephemeral:
+            String(localized: "Enabled")
+        case .denied:
+            String(localized: "Denied")
+        default:
+            String(localized: "Not requested")
+        }
     }
 
     /// Owner-only dashboards — hidden unless the JWT namespace is `default`

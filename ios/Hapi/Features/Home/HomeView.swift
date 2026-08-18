@@ -68,6 +68,16 @@ struct HomeView: View {
                 Text("Removes the stored access token for this hub. Pair again to reconnect.")
             }
         }
+        // Notification tap (P3): consume the pending target into this hub's
+        // navigation path. `initial: true` covers a tap that cold-started
+        // the app before this view existed.
+        .onChange(of: model.pendingOpenSessionId, initial: true) { _, sessionId in
+            guard let sessionId else { return }
+            model.pendingOpenSessionId = nil
+            if path.last != sessionId {
+                path.append(sessionId)
+            }
+        }
         .sheet(isPresented: $model.showAddHub) {
             PairingFlowView(context: .addHub)
         }

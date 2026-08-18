@@ -44,6 +44,10 @@ final class HubSession {
     private(set) var lastResumeVerdict: ResumeVerdict?
     /// From the latest handshake; needed for `POST /api/visibility` (M3b).
     private(set) var subscriptionId: String?
+    /// Session id of the chat currently on screen, or nil. Feeds the push
+    /// foreground-suppression rule (Android `openChatSessionId`): a push for
+    /// the chat the user is looking at is pure noise.
+    private(set) var openChatSessionId: String?
 
     /// Fired once when the hub terminally rejects the stored credentials
     /// (access token rotated/revoked). `AppModel` reacts by dropping the hub
@@ -128,6 +132,14 @@ final class HubSession {
             initialCursor: chatCursors[sessionId],
             registerActive: { [weak self] chat in
                 self?.activeChat = chat
+                self?.openChatSessionId = chat.sessionId
+            },
+            unregisterActive: { [weak self] chat in
+                // Guarded by identity: a superseding chat may register before
+                // the replaced screen's teardown lands (SwiftUI ordering).
+                guard let self, self.activeChat === chat else { return }
+                self.activeChat = nil
+                self.openChatSessionId = nil
             },
             saveCursor: { [weak self] cursor in
                 if let cursor {

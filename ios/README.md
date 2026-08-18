@@ -214,6 +214,12 @@ ios/
                                       percents, path, refresh; About — app/
                                       protocol versions + hub health probe
                                       with retry).
+  HapiNotificationService/
+                         Notification Service Extension target (P3):
+                         decrypts the E2E push envelope on device with the
+                         shared-Keychain push key and rewrites the generic
+                         alert — dependency-free, see "Push notifications"
+                         below. Also an Xcode 16 synchronized folder.
   Packages/HapiKit/      Local SPM package with the real logic:
     HapiProtocol         Pure-Foundation protocol layer. As of M2a:
                            Models/   wire types mirroring shared/src/schemas.ts
@@ -613,6 +619,74 @@ resumes) → pair a second hub and switch between them → sign out of both →
 scan both `--relay` QR forms → open a `hapicompanion://bind` link from Notes
 (unpaired: confirm; paired: "already paired" notice) → rotate
 `CLI_API_TOKEN` on the hub and watch the auto sign-out banner.
+
+## Push notifications (P3)
+
+End-to-end encrypted APNs push, mirroring the Android FCM stack
+(`docs/api/native-companion-contract.md` + the iOS extension below).
+
+**How it works**
+
+- **Registration.** After the first successful pairing the app asks for
+  notification permission (standard alert/sound/badge prompt — the Android
+  timing: never on a pristine unpaired install), registers with APNs, and
+  sends `POST /api/devices/register`
+  `{token: <hex APNs token>, platform: "ios", deviceId: <stable UUID>,
+  pushKey: <base64 32-byte key>}` to **every** paired hub — each hub pushes
+  independently for its own namespace. Registration re-runs on every app
+  start and token rotation (cheap upsert; heals reinstalls and hub-side
+  pruning), and Settings → Notifications has a manual *Re-register push*.
+  Sign-out sends a best-effort `DELETE /api/devices/register {token}` from a
+  credentials snapshot taken before the Keychain wipe. There is no
+  background retry queue (the Android WorkManager part has no iOS
+  equivalent) — the next trigger heals transient failures.
+- **E2E envelope.** The hub never sends plaintext through APNs. The wire
+  notification is `{aps: {mutable-content: 1, alert: <generic>},
+  hapi: {v: 1, e: <envelope>}}` where `e` is
+  `base64(nonce[12] || AES-256-GCM ciphertext || tag[16])` over the FCM
+  data-contract JSON, keyed by this install's `pushKey` with AAD
+  `hapi-push-v1`. Whether the hub delivers via direct APNs or a relay is
+  entirely hub-side — the app only ever registers and decrypts.
+- **Notification Service Extension.** The `HapiNotificationService` appex
+  decrypts on device: reads the push key from the shared Keychain access
+  group (`$(AppIdentifierPrefix)run.hapi.companion.push`,
+  after-first-unlock so lock-screen pushes decrypt), swaps in the real
+  title/body, stamps the action category, and stores the decrypted fields in
+  `userInfo` for the tap/action handlers. Undecryptable payloads deliver
+  the generic alert unchanged. The appex links nothing beyond the SDK — it
+  carries a ~60-line copy of the HapiKit `PushEnvelope` decrypt, kept honest
+  by the shared test vector.
+- **Actions.** `permission-request` → Allow / Deny; `ready` and
+  `task-notification` → inline Reply. Handlers run in the notification
+  delegate's async completion and resolve the owning hub Android-style
+  (active hub first, then the roster; 404 "Session not found" / 403 = try
+  the next hub) — approve/deny post `{}`, reply posts `{text, localId}`.
+  Failures surface as a local notice instead of vanishing. A tap deep-links
+  to the session chat; a push for the chat currently on screen is suppressed
+  (the in-app SSE stream is already showing it).
+
+**Layer map**: `HapiClient/Push/` (envelope + payload + key, Linux-tested),
+`Endpoints/DeviceEndpoints.swift` (register/unregister),
+`Hapi/Models/PushCoordinator.swift` (registrar + delegate + action runner),
+`HapiNotificationService/` (the appex). The AES-GCM decrypt and the contract
+test vector are verified by `HapiClientTests/Push/*` — structural checks run
+in the Linux container, the CryptoKit vector/tamper tests on Darwin CI.
+
+**First build with push (Xcode-side, once):** the project now has two
+targets. Signing is `Automatic`, but a personal/team identity is required
+for push entitlements:
+
+1. Select your team under *Signing & Capabilities* for **both** the `Hapi`
+   app target and the `HapiNotificationService` extension target.
+2. The app target ships `Hapi/Hapi.entitlements` (`aps-environment:
+   development` — Xcode/App Store flips it to `production` at distribution)
+   plus the shared keychain group; the extension ships the keychain group
+   only. If Xcode prompts to register the capability, accept — free personal
+   teams cannot sign push entitlements, a paid/organization team is needed.
+3. Simulators cannot receive APNs: expect `didFailToRegister…` there (the
+   Settings row shows the error). Everything else — decrypt, categories,
+   actions — can be exercised with `xcrun simctl push` using a payload whose
+   `hapi.e` was produced with the device's registered key.
 
 ## Milestones (track A of the native-clients plan)
 
