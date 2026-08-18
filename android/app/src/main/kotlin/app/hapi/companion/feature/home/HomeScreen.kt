@@ -51,6 +51,8 @@ fun HomeScreen(
     onOpenSession: (sessionId: String) -> Unit,
     /** "+" FAB on the session list → new-session form (B-M3d). */
     onNewSession: (() -> Unit)? = null,
+    /** Overflow menu → settings scaffold (B-M4e). */
+    onOpenSettings: (() -> Unit)? = null,
 ) {
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var showSwitcher by rememberSaveable { mutableStateOf(false) }
@@ -79,6 +81,15 @@ fun HomeScreen(
                         Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.home_menu))
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        if (onOpenSettings != null) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.home_settings)) },
+                                onClick = {
+                                    menuOpen = false
+                                    onOpenSettings()
+                                },
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.home_switch_hub)) },
                             onClick = {

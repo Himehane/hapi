@@ -284,6 +284,48 @@ class HapiApiTest {
     // --------------------------------------------------- health & binaries --
 
     @Test
+    fun `usage summary sends range and timeZone and decodes with auth`() {
+        server.enqueue(
+            ok(
+                """
+                {"range":{"from":null,"to":1755600000000},
+                 "totals":{"inputTokens":10,"outputTokens":2,"cacheReadTokens":4,"cacheCreationTokens":1,
+                           "totalTokens":12,"uncachedTokens":6,"requests":3,"sessions":2},
+                 "daily":[],"byAgent":[],"byModel":[],"updatedAt":1755600000000}
+                """.trimIndent()
+            )
+        )
+
+        val summary = runBlocking { session.api.getUsageSummary(range = "all", timeZone = "Asia/Shanghai") }
+
+        val request = server.takeRequest()
+        val url = requireNotNull(request.requestUrl)
+        assertEquals("/api/usage/summary", url.encodedPath)
+        assertEquals("all", url.queryParameter("range"))
+        assertEquals("Asia/Shanghai", url.queryParameter("timeZone"))
+        assertEquals("Bearer $jwt", request.getHeader("Authorization"))
+        assertNull(summary.range.from)
+        assertEquals(12L, summary.totals.totalTokens)
+    }
+
+    @Test
+    fun `sqlite storage usage decodes and a 403 surfaces as coded ApiError`() {
+        server.enqueue(
+            ok("""{"path":"/x/hapi.db","databaseBytes":100,"walBytes":20,"shmBytes":4,"totalBytes":124}""")
+        )
+        val storage = runBlocking { session.api.getSqliteStorageUsage() }
+        assertEquals("/api/storage/sqlite", server.takeRequest().path)
+        assertEquals(124L, storage.totalBytes)
+
+        server.enqueue(
+            MockResponse().setResponseCode(403)
+                .setBody("""{"error":"Storage usage is only available to the hub owner"}""")
+        )
+        val error = assertFailsWith<ApiError> { runBlocking { session.api.getSqliteStorageUsage() } }
+        assertEquals(403, error.status)
+    }
+
+    @Test
     fun `health is fetched without an authorization header`() {
         server.enqueue(ok("""{"status":"ok","protocolVersion":1,"capabilities":{"titleSuggestion":true,"brandNew":true}}"""))
 

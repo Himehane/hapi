@@ -22,6 +22,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import app.hapi.companion.di.AppGraph
 import app.hapi.companion.di.HubGraph
 import app.hapi.companion.di.LocalAppGraph
 import app.hapi.companion.di.viewModelFactory
@@ -48,6 +49,12 @@ import app.hapi.companion.feature.pairing.PairingUiState
 import app.hapi.companion.feature.pairing.PairingViewModel
 import app.hapi.companion.feature.pairing.QrScanScreen
 import app.hapi.companion.feature.sessions.SessionListViewModel
+import app.hapi.companion.feature.settings.SettingsScreen
+import app.hapi.companion.feature.settings.SettingsViewModel
+import app.hapi.companion.feature.settings.StorageScreen
+import app.hapi.companion.feature.settings.StorageViewModel
+import app.hapi.companion.feature.settings.UsageScreen
+import app.hapi.companion.feature.settings.UsageViewModel
 import app.hapi.data.auth.AuthTerminalReason
 import java.util.Base64
 import kotlinx.coroutines.CoroutineScope
@@ -110,6 +117,11 @@ object Routes {
     const val PAIRING_LANDING = "pairing/landing"
     const val PAIRING_SCAN = "pairing/scan"
     const val PAIRING_MANUAL = "pairing/manual"
+
+    /** Settings scaffold + owner-only dashboards (B-M4e). */
+    const val SETTINGS = "settings"
+    const val SETTINGS_USAGE = "settings/usage"
+    const val SETTINGS_STORAGE = "settings/storage"
 }
 
 /**
@@ -191,6 +203,45 @@ fun HapiNavigation() {
                 onSignOut = { scope.launch { graph.signOut(activeHubUrl) } },
                 onOpenSession = { sessionId -> navController.navigate(Routes.chat(sessionId)) },
                 onNewSession = { navController.navigate(Routes.newSession()) },
+                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+            )
+        }
+
+        composable(Routes.SETTINGS) {
+            val hubGraph = activeHubGraph ?: return@composable
+            val holder = viewModel<SettingsViewModelHolder>(
+                key = "settings:${hubGraph.hubUrl}",
+                factory = viewModelFactory { SettingsViewModelHolder(graph, hubGraph) },
+            )
+            SettingsScreen(
+                viewModel = holder.viewModel,
+                onOpenUsage = { navController.navigate(Routes.SETTINGS_USAGE) },
+                onOpenStorage = { navController.navigate(Routes.SETTINGS_STORAGE) },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.SETTINGS_USAGE) {
+            val hubGraph = activeHubGraph ?: return@composable
+            val holder = viewModel<UsageViewModelHolder>(
+                key = "settingsUsage:${hubGraph.hubUrl}",
+                factory = viewModelFactory { UsageViewModelHolder(hubGraph) },
+            )
+            UsageScreen(
+                viewModel = holder.viewModel,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.SETTINGS_STORAGE) {
+            val hubGraph = activeHubGraph ?: return@composable
+            val holder = viewModel<StorageViewModelHolder>(
+                key = "settingsStorage:${hubGraph.hubUrl}",
+                factory = viewModelFactory { StorageViewModelHolder(hubGraph) },
+            )
+            StorageScreen(
+                viewModel = holder.viewModel,
+                onBack = { navController.popBackStack() },
             )
         }
 
@@ -486,6 +537,59 @@ private class FileViewerViewModelHolder(
         initialMode = mode,
         focusLine = line,
         gateway = ApiFilesGateway(hubGraph.session.api),
+        scope = scope,
+    )
+
+    override fun onCleared() {
+        scope.cancel()
+    }
+}
+
+/**
+ * Shells for the settings graph (B-M4e). Settings/usage/storage are hub-scoped
+ * (keys include the hub origin): a hub switch swaps in fresh state.
+ */
+private class SettingsViewModelHolder(graph: AppGraph, hubGraph: HubGraph) : ViewModel() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val viewModel = SettingsViewModel(
+        themePrefs = graph.themePrefs,
+        languagePrefs = graph.languagePrefs,
+        hubUrl = hubGraph.hubUrl,
+        currentJwt = {
+            // Store reads may block (EncryptedSharedPreferences) and the
+            // fallback exchange is network I/O.
+            withContext(Dispatchers.IO) {
+                hubGraph.session.authenticator.currentJwt() ?: hubGraph.session.ensureFreshToken()
+            }
+        },
+        fetchHealth = { hubGraph.session.api.health() },
+        scope = scope,
+    )
+
+    override fun onCleared() {
+        scope.cancel()
+    }
+}
+
+private class UsageViewModelHolder(hubGraph: HubGraph) : ViewModel() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val viewModel = UsageViewModel(
+        gateway = hubGraph.session.api::getUsageSummary,
+        scope = scope,
+    )
+
+    override fun onCleared() {
+        scope.cancel()
+    }
+}
+
+private class StorageViewModelHolder(hubGraph: HubGraph) : ViewModel() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val viewModel = StorageViewModel(
+        gateway = hubGraph.session.api::getSqliteStorageUsage,
         scope = scope,
     )
 

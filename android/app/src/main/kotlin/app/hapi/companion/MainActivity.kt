@@ -5,15 +5,21 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import app.hapi.companion.di.AppGraph
 import app.hapi.companion.di.LocalAppGraph
+import app.hapi.companion.feature.settings.ThemeMode
+import app.hapi.companion.feature.settings.ThemeSettings
 import app.hapi.companion.ui.theme.HapiTheme
 import app.hapi.protocol.pairing.BindLink
 
 /**
  * Single-activity entry point (`launchMode="singleTask"`). Hosts the
- * Navigation Compose graph and feeds `hapicompanion://bind?hub=…&code=…`
+ * Navigation Compose graph under the persisted theme choice
+ * ([AppGraph.themePrefs], B-M4e) and feeds `hapicompanion://bind?hub=…&code=…`
  * deep links — cold start and [onNewIntent] — into
  * [AppGraph.pendingBindLink]; all parsing stays in [BindLink].
  */
@@ -31,7 +37,18 @@ class MainActivity : ComponentActivity() {
             handleBindIntent(intent)
         }
         setContent {
-            HapiTheme {
+            // Follow-system default renders for the first frames while the
+            // DataStore read completes; the persisted choice then applies.
+            val theme by appGraph.themePrefs.settings.collectAsState(initial = ThemeSettings())
+            HapiTheme(
+                darkTheme = when (theme.mode) {
+                    ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                    ThemeMode.LIGHT -> false
+                    ThemeMode.DARK, ThemeMode.OLED -> true
+                },
+                dynamicColor = theme.dynamicColor,
+                oled = theme.mode == ThemeMode.OLED,
+            ) {
                 CompositionLocalProvider(LocalAppGraph provides appGraph) {
                     HapiNavigation()
                 }

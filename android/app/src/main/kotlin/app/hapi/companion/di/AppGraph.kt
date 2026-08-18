@@ -6,6 +6,8 @@ import app.hapi.companion.feature.newsession.DataStoreNewSessionPrefs
 import app.hapi.companion.feature.newsession.NewSessionPrefs
 import app.hapi.companion.feature.pairing.PairingClient
 import app.hapi.companion.feature.pairing.PairingClientFactory
+import app.hapi.companion.feature.settings.LanguagePrefs
+import app.hapi.companion.feature.settings.ThemePrefs
 import app.hapi.data.api.HapiApi
 import app.hapi.data.auth.AuthEvents
 import app.hapi.data.auth.AuthTerminalReason
@@ -76,6 +78,12 @@ class AppGraph(context: Context) {
      * hub scoping is unnecessary.
      */
     val newSessionPrefs: NewSessionPrefs = DataStoreNewSessionPrefs(appContext.hapiDataStore)
+
+    /** Appearance choice (B-M4e); MainActivity reads it at setContent. */
+    val themePrefs: ThemePrefs = ThemePrefs(appContext.hapiDataStore)
+
+    /** Language choice (persist-only until the M5 i18n pass). */
+    val languagePrefs: LanguagePrefs = LanguagePrefs(appContext.hapiDataStore)
 
     private val mutableAuthTerminals = MutableSharedFlow<AuthTerminal>(extraBufferCapacity = 16)
 
