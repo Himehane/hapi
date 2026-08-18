@@ -2,12 +2,15 @@ package app.hapi.companion.di
 
 import android.content.Context
 import androidx.datastore.preferences.preferencesDataStore
+import app.hapi.companion.fcm.RegisterDeviceWorker
 import app.hapi.companion.feature.newsession.DataStoreNewSessionPrefs
 import app.hapi.companion.feature.newsession.NewSessionPrefs
 import app.hapi.companion.feature.pairing.PairingClient
 import app.hapi.companion.feature.pairing.PairingClientFactory
 import app.hapi.companion.feature.settings.LanguagePrefs
 import app.hapi.companion.feature.settings.ThemePrefs
+import app.hapi.companion.push.DataStorePushDeviceIds
+import app.hapi.companion.push.PushBinding
 import app.hapi.data.api.HapiApi
 import app.hapi.data.auth.AuthEvents
 import app.hapi.data.auth.AuthTerminalReason
@@ -15,6 +18,10 @@ import app.hapi.data.auth.CredentialStore
 import app.hapi.data.auth.EncryptedPrefsCredentialStore
 import app.hapi.data.auth.HubRegistry
 import app.hapi.data.auth.HubRegistryStorage
+import app.hapi.data.push.ApiPushDeviceGateway
+import app.hapi.data.push.DeviceRegistrar
+import app.hapi.data.push.PushActionRunner
+import app.hapi.data.push.PushHubAccess
 import app.hapi.protocol.pairing.BindLink
 import app.hapi.protocol.wire.AuthResponse
 import app.hapi.protocol.wire.HapiJson
@@ -30,9 +37,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 
@@ -106,6 +115,21 @@ class AppGraph(context: Context) {
      */
     val pendingBindLink = MutableStateFlow<BindLink?>(null)
 
+    /**
+     * Session id from a tapped push notification, waiting for navigation
+     * (the internal intent route — no public URI). MainActivity posts;
+     * `HapiNavigation` consumes, clears, and opens the chat.
+     */
+    val pendingOpenSessionId = MutableStateFlow<String?>(null)
+
+    /**
+     * The session id of the currently composed chat screen, or null. Feeds
+     * the FCM suppress-when-open rule (`shouldSuppressPush`): while that
+     * exact session is on screen in the foreground, the in-app SSE stream
+     * already shows the event, so no OS notification is posted for it.
+     */
+    val openChatSessionId = MutableStateFlow<String?>(null)
+
     /** One-line banner for the pairing screen ("signed out because …"). */
     val pairingNotice = MutableStateFlow<String?>(null)
 
@@ -128,6 +152,44 @@ class AppGraph(context: Context) {
         }
     }
 
+    // ------------------------------------------------------------ push (B-M4a) --
+
+    /** Authed per-hub API access for background push work (no HubGraph needed). */
+    val pushHubAccess: PushHubAccess = PushHubAccess(hubRegistry, credentialStore, authEvents)
+
+    /** Executes notification actions with active-hub-first resolution. */
+    val pushActionRunner: PushActionRunner = PushActionRunner(pushHubAccess)
+
+    /**
+     * FCM device registration fan-out: every paired hub gets this install's
+     * token (`POST /api/devices/register`), keyed by a DataStore-persisted
+     * UUID. All entry points no-op when Firebase isn't configured
+     * ([PushBinding.currentToken] returns null).
+     */
+    val deviceRegistrar: DeviceRegistrar = DeviceRegistrar(
+        registry = hubRegistry,
+        gateway = ApiPushDeviceGateway(pushHubAccess),
+        tokenSource = { PushBinding.currentToken(appContext) },
+        deviceIds = DataStorePushDeviceIds(appContext.hapiDataStore),
+        retryScheduler = { hubUrl -> RegisterDeviceWorker.enqueueRetry(appContext, hubUrl) },
+        scope = scope,
+    )
+
+    /** `onNewToken` hook: waits for the roster load, then re-registers everywhere. */
+    fun onPushTokenRotated(token: String) {
+        scope.launch {
+            awaitReady()
+            deviceRegistrar.onNewToken(token)
+        }
+    }
+
+    /** Suspends until the persisted hub roster is loaded (workers, FCM paths). */
+    suspend fun awaitReady() {
+        ready.first { it }
+    }
+
+    // --------------------------------------------------------------------------
+
     private val mutableActiveHubGraph = MutableStateFlow<HubGraph?>(null)
 
     /** Per-active-hub graph; null while unpaired. Recreated on hub switch. */
@@ -143,6 +205,9 @@ class AppGraph(context: Context) {
         scope.launch {
             hubRegistry.load()
             mutableReady.value = true
+            // Roster is loaded: the registrar's first emission re-registers
+            // every persisted hub (cheap upsert), then fresh pairings as added.
+            deviceRegistrar.start()
             hubRegistry.state
                 .map { it.activeHubUrl }
                 .distinctUntilChanged()
@@ -151,12 +216,14 @@ class AppGraph(context: Context) {
     }
 
     /**
-     * Removes [hubUrl]'s pairing: credentials wiped, roster entry dropped
-     * (the registry auto-activates the next hub, or none). The active
-     * [HubGraph] swap follows via the registry observer.
+     * Removes [hubUrl]'s pairing: FCM registration deleted best-effort (must
+     * happen first, while this hub's JWT still works — afterwards nothing
+     * could ever authenticate the DELETE), then credentials wiped and the
+     * roster entry dropped (the registry auto-activates the next hub, or
+     * none). The active [HubGraph] swap follows via the registry observer.
      */
     suspend fun signOut(hubUrl: String) {
-        // TODO(M4a): DELETE /api/devices/register first, while the JWT works.
+        withTimeoutOrNull(UNREGISTER_TIMEOUT_MS) { deviceRegistrar.unregisterHub(hubUrl) }
         withContext(Dispatchers.IO) { credentialStore.delete(hubUrl) }
         hubRegistry.removeHub(hubUrl)
     }
@@ -179,6 +246,9 @@ class AppGraph(context: Context) {
 
     @Volatile private var isForeground = true
 
+    /** Current process foreground state (FCM suppress-when-open check). */
+    val foreground: Boolean get() = isForeground
+
     /**
      * Process lifecycle input (`ProcessLifecycleOwner` via `HapiApp`):
      * forwarded to the active hub's SSE engine (retry deferral / stale-socket
@@ -187,5 +257,14 @@ class AppGraph(context: Context) {
     fun setForeground(foreground: Boolean) {
         isForeground = foreground
         mutableActiveHubGraph.value?.setLifecycleForeground(foreground)
+    }
+
+    private companion object {
+        /**
+         * Sign-out unregister is best-effort: bounded so a dead hub cannot
+         * hang the sign-out UX. A leaked registration self-heals hub-side
+         * (FCM reports the token dead after uninstall / token rotation).
+         */
+        const val UNREGISTER_TIMEOUT_MS = 5_000L
     }
 }

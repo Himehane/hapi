@@ -1,8 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Everything the app does rides HTTP(S) to the paired hub. -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- FCM push (B-M4a): OS notifications for permission requests / ready /
+         task events. Requested at runtime (API 33+) once a hub is paired;
+         denial just silences the OS surface — in-app SSE is unaffected. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Expedited WorkManager notification actions fall back to a short
+         foreground service on API < 31 (dataSync type, targetSdk 34+ rule). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- QR pairing only; the app is fully usable without a camera
          (manual hub URL + token entry), hence required="false". -->
@@ -74,6 +85,43 @@
             android:stateNotNeeded="true"
             android:theme="@style/zxing_CaptureTheme"
             android:windowSoftInputMode="stateAlwaysHidden" />
+
+        <!-- FCM entry point (B-M4a). Data-only messages per the companion
+             contract; inert when no Firebase config is present. -->
+        <service
+            android:name=".fcm.HapiFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Notification action taps (Allow / Deny / Reply / Dismiss). -->
+        <receiver
+            android:name=".fcm.NotificationActionReceiver"
+            android:exported="false" />
+
+        <!-- WorkManager on-demand initialization: the default initializer is
+             removed so HapiApp's Configuration.Provider (custom WorkerFactory
+             feeding AppGraph into the push workers) is authoritative even when
+             WorkManager cold-starts the process. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
+        <!-- Expedited-work foreground fallback (API < 31) needs a service
+             type on targetSdk 34+; dataSync matches the REST-call workers. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
     </application>
 
 </manifest>

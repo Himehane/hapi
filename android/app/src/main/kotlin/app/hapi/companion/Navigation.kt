@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -178,6 +179,24 @@ fun HapiNavigation() {
         }
     }
 
+    // A push notification was tapped (B-M4a): open that session's chat over
+    // home. Multi-hub caveat: the payload names no hub, so the chat opens
+    // against the ACTIVE hub — for a session living on another paired hub the
+    // screen shows its not-found state (the workers, by contrast, do resolve
+    // across hubs; see PushActionRunner). Unpaired app: ignore.
+    val pendingOpenSession by graph.pendingOpenSessionId.collectAsState()
+    LaunchedEffect(pendingOpenSession) {
+        val sessionId = pendingOpenSession ?: return@LaunchedEffect
+        graph.pendingOpenSessionId.value = null
+        if (graph.hubRegistry.activeHubUrl != null) {
+            navController.navigate(Routes.chat(sessionId)) {
+                // Keep the stack shallow: back always lands on the list.
+                popUpTo(Routes.HOME)
+                launchSingleTop = true
+            }
+        }
+    }
+
     // Last hub signed out (or roster wiped): nothing to show but pairing.
     // Any other active-hub change invalidates an open chat (old hub's session).
     LaunchedEffect(registryState.activeHubUrl) {
@@ -263,6 +282,19 @@ fun HapiNavigation() {
             val sessionId = entry.arguments?.getString("sessionId") ?: return@composable
             val hubGraph = activeHubGraph ?: return@composable
             val appContext = LocalContext.current.applicationContext
+
+            // Feed the FCM suppress-when-open rule: while this chat is on
+            // screen, its session's pushes stay silent (SSE already shows
+            // them). The guard on dispose handles enter-before-exit ordering
+            // during supersede navigation (chat B composes before A leaves).
+            DisposableEffect(sessionId) {
+                graph.openChatSessionId.value = sessionId
+                onDispose {
+                    if (graph.openChatSessionId.value == sessionId) {
+                        graph.openChatSessionId.value = null
+                    }
+                }
+            }
             val holder = viewModel<ChatViewModelHolder>(
                 key = "chat:${hubGraph.hubUrl}:$sessionId",
                 factory = viewModelFactory { ChatViewModelHolder(hubGraph, sessionId, appContext) },
