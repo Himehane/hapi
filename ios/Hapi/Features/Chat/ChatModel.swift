@@ -53,6 +53,12 @@ final class ChatModel {
     /// Bumps when an older page was prepended (drives scroll re-anchoring).
     private(set) var historyVersion = 0
 
+    /// Transient toast text (interaction failures/notices); auto-dismissed.
+    private(set) var notice: String?
+    /// Resume handed back a different session id — the view replaces its
+    /// navigation entry with this one.
+    private(set) var supersededSessionId: String?
+
     /// Session-pipe connection state (observed through the chat session).
     var connectionState: SSEConnectionState { chat.connectionState }
 
@@ -64,8 +70,13 @@ final class ChatModel {
     /// cursor makes the rebuild cheap. This absorbs SwiftUI's
     /// appear/disappear cycles around full-screen presentations.
     private var chat: ChatSession
+    /// Interaction engine (A-M3ab): composer, queued bar, permissions,
+    /// config. Long-lived alongside this model; `start()`/`stop()` map to its
+    /// `activate()`/`deactivate()`.
+    let interactor: ChatInteractor
     @ObservationIgnored private let pipeline = ChatPipeline()
     @ObservationIgnored let imageLoader: GeneratedImageLoader
+    @ObservationIgnored private var noticeTask: Task<Void, Never>?
 
     @ObservationIgnored private var windowState: MessageWindowState?
     @ObservationIgnored private var detailLoadFailed = false
@@ -80,6 +91,7 @@ final class ChatModel {
         self.hub = session
         self.sessionId = sessionId
         self.chat = session.makeChatSession(sessionId: sessionId)
+        self.interactor = session.makeChatInteractor(sessionId: sessionId)
         self.imageLoader = GeneratedImageLoader(api: session.api, sessionId: sessionId)
         self.header = ChatHeaderUI(
             title: String(sessionId.prefix(8)),
@@ -100,6 +112,16 @@ final class ChatModel {
             chat = hub.makeChatSession(sessionId: sessionId)
         }
         everStarted = true
+        interactor.onEvent = { [weak self] event in
+            guard let self else { return }
+            switch event {
+            case .sessionSuperseded(let sessionId):
+                self.supersededSessionId = sessionId
+            case .notice(let message):
+                self.showNotice(message)
+            }
+        }
+        interactor.activate()
         let chat = chat
         chat.onStoreActivity = { [weak self] in
             self?.scheduleRecompute()
@@ -129,7 +151,20 @@ final class ChatModel {
         pipelineTask = nil
         olderTask?.cancel()
         olderTask = nil
+        noticeTask?.cancel()
+        noticeTask = nil
+        interactor.deactivate()
         chat.stop()
+    }
+
+    private func showNotice(_ message: String) {
+        notice = message
+        noticeTask?.cancel()
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
+        }
     }
 
     // MARK: - Actions

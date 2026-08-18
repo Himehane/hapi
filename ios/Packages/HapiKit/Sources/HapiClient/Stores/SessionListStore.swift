@@ -115,6 +115,17 @@ public final class SessionListStore: SessionListStoring {
         return session
     }
 
+    /// Local optimistic mutation of a cached detail (A-M3ab composer/config
+    /// flows — the Android `updateDetailLocal` twin). A missing detail is a
+    /// no-op: optimistic writes only ever layer on loaded server truth, and
+    /// error paths roll forward by refetching (`loadSessionDetail`) rather
+    /// than restoring a possibly stale snapshot.
+    public func updateDetailLocal(_ sessionId: String, _ transform: (inout Session) -> Void) {
+        guard var session = details[sessionId] else { return }
+        transform(&session)
+        details[sessionId] = session
+    }
+
     /// Drops a detail nobody observes anymore (chat closed).
     public func releaseDetail(_ sessionId: String) {
         details.removeValue(forKey: sessionId)

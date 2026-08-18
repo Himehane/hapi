@@ -34,6 +34,9 @@ final class ChatSession {
 
     /// Session-pipe connection state, for the chat header/banner.
     private(set) var connectionState: SSEConnectionState = .idle
+    /// From this pipe's latest handshake; needed for `POST /api/visibility`
+    /// (M3b) — new on every reconnect.
+    private(set) var subscriptionId: String?
     /// Set once `start()` opened the window; the chat model observes its
     /// state stream and calls its `fetchOlder`/`syncTail`.
     private(set) var windowController: MessageWindowController?
@@ -50,6 +53,9 @@ final class ChatSession {
     @ObservationIgnored private let initialCursor: String?
     @ObservationIgnored private let registerActive: @MainActor (ChatSession) -> Void
     @ObservationIgnored private let saveCursor: @MainActor (String?) -> Void
+    /// Fired on every handshake with the fresh subscription id (visibility
+    /// reporting).
+    @ObservationIgnored private let onHandshake: @MainActor (String?) -> Void
 
     @ObservationIgnored private var sse: SSEClient?
     @ObservationIgnored private var consumeTask: Task<Void, Never>?
@@ -65,7 +71,8 @@ final class ChatSession {
         machineStore: MachineStore,
         initialCursor: String?,
         registerActive: @escaping @MainActor (ChatSession) -> Void,
-        saveCursor: @escaping @MainActor (String?) -> Void
+        saveCursor: @escaping @MainActor (String?) -> Void,
+        onHandshake: @escaping @MainActor (String?) -> Void = { _ in }
     ) {
         self.sessionId = sessionId
         self.baseURL = baseURL
@@ -76,6 +83,7 @@ final class ChatSession {
         self.initialCursor = initialCursor
         self.registerActive = registerActive
         self.saveCursor = saveCursor
+        self.onHandshake = onHandshake
     }
 
     // MARK: - Lifecycle
@@ -169,7 +177,9 @@ final class ChatSession {
         switch event {
         case .stateChanged(let state):
             connectionState = state
-        case .handshake(let resume, _):
+        case .handshake(let resume, let subscriptionId):
+            self.subscriptionId = subscriptionId
+            onHandshake(subscriptionId)
             // `.ok` = the replay that follows covers the gap. Anything else
             // (including the verdict-less first connect) cannot prove
             // continuity for this filter set.
@@ -207,7 +217,10 @@ final class ChatSession {
     /// `resume: gap` on the session pipe (Android `requestFullResync` with a
     /// session key): list + cached details + machines over REST, make sure
     /// THIS detail exists even if it was never cached, and catch the window
-    /// up past any in-flight sync (web `resyncMessages`).
+    /// up past any in-flight sync (web `resyncMessages`). Since M3a the
+    /// catch-up runs through `reconcileQueuedState()` — it begins with the
+    /// same draining tail sync and then verifies optimistic queued rows
+    /// against the hub (web queued-state reconciliation after a gap).
     private func recoverFromGap() {
         router.requestFullResync()
         if sessionStore.detail(for: sessionId) == nil {
@@ -216,7 +229,14 @@ final class ChatSession {
             Task { try? await store.loadSessionDetail(id) }
         }
         if let controller = windowController {
-            Task { await controller.syncTail(ensureAfterCurrent: true) }
+            Task {
+                do {
+                    try await controller.reconcileQueuedState()
+                } catch {
+                    // The reconcile's REST round trip failed — the tail sync
+                    // inside it already ran/flagged; nothing more to do.
+                }
+            }
         }
     }
 }

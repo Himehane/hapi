@@ -387,6 +387,56 @@ public struct MachinePathsExistsResponse: Codable, Equatable, Sendable {
     }
 }
 
+// MARK: - Codex model catalog (RPC-wrapped)
+
+/// One codex model row of the catalog (`CodexModelSummary`,
+/// `shared/src/apiTypes.ts`).
+public struct CodexModelSummary: Codable, Equatable, Sendable {
+    public var id: String
+    public var displayName: String
+    public var isDefault: Bool
+    public var defaultReasoningEffort: String?
+    public var defaultServiceTier: String?
+    public var supportedReasoningEfforts: [String]?
+    /// Service tier ids advertised for this model in the current auth/plan
+    /// context (e.g. `fast`).
+    public var serviceTiers: [String]?
+
+    public init(
+        id: String,
+        displayName: String,
+        isDefault: Bool,
+        defaultReasoningEffort: String? = nil,
+        defaultServiceTier: String? = nil,
+        supportedReasoningEfforts: [String]? = nil,
+        serviceTiers: [String]? = nil
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.isDefault = isDefault
+        self.defaultReasoningEffort = defaultReasoningEffort
+        self.defaultServiceTier = defaultServiceTier
+        self.supportedReasoningEfforts = supportedReasoningEfforts
+        self.serviceTiers = serviceTiers
+    }
+}
+
+/// Body of `GET /api/sessions/:id/codex-models` (and the machine-level twin)
+/// — RPC envelope, check `success`. A runner without the machine RPC answers
+/// 503 `{success:false, code:'rpc_target_missing'}` (that surfaces as an
+/// `APIError`, not this body).
+public struct CodexModelsResponse: Codable, Equatable, Sendable {
+    public var success: Bool
+    public var models: [CodexModelSummary]?
+    public var error: String?
+
+    public init(success: Bool, models: [CodexModelSummary]? = nil, error: String? = nil) {
+        self.success = success
+        self.models = models
+        self.error = error
+    }
+}
+
 // MARK: - Uploads
 
 /// Body of `POST /api/sessions/:id/upload` (RPC envelope). `path` feeds the

@@ -3,8 +3,11 @@ import HapiProtocol
 import HapiUI
 import SwiftUI
 
-/// Read-only chat screen (M2f): `ScrollView + LazyVStack` over the reduced
-/// `VisibleChatBlock`s, newest at the bottom.
+/// The chat screen: `ScrollView + LazyVStack` over the reduced
+/// `VisibleChatBlock`s, newest at the bottom (M2f), plus the A-M3ab
+/// interaction chrome — composer + queued bar (bottom inset), permission
+/// action footers (via `\.chatInteractions`), the session config sheet
+/// (toolbar gear), supersede renavigation, and toast notices.
 ///
 /// Scrolling model (iOS 17 APIs, kept deliberately simple):
 /// - `defaultScrollAnchor(.bottom)` opens the thread at the newest message
@@ -31,11 +34,22 @@ struct ChatView: View {
     @State private var newestSeenID: String?
     /// Top-visible block captured when an older page was requested.
     @State private var pendingAnchorID: String?
+    /// Session config sheet (toolbar gear).
+    @State private var configSheetOpen = false
+
+    /// Resume/reopen handed back a superseding session id — the host swaps
+    /// its navigation entry (HomeView replaces the path element).
+    private let onNavigateToSession: ((String) -> Void)?
 
     private static let bottomSentinelID = "chat-bottom-sentinel"
 
-    init(session: HubSession, sessionId: String) {
+    init(
+        session: HubSession,
+        sessionId: String,
+        onNavigateToSession: ((String) -> Void)? = nil
+    ) {
         _model = State(initialValue: ChatModel(session: session, sessionId: sessionId))
+        self.onNavigateToSession = onNavigateToSession
     }
 
     var body: some View {
@@ -53,19 +67,64 @@ struct ChatView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             banners
         }
+        // Toast overlays the thread; applying it before the bottom inset
+        // anchors it just above the composer instead of on top of it.
+        .overlay(alignment: .bottom) {
+            noticeToast
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                QueuedMessagesBarView(interactor: model.interactor)
+                ChatComposerView(interactor: model.interactor)
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 headerTitle
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    configSheetOpen = true
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("Session settings")
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $configSheetOpen) {
+            SessionConfigView(interactor: model.interactor)
+        }
         .environment(\.chatMedia, model.imageLoader)
+        .environment(\.chatInteractions, model.interactor)
+        .onChange(of: model.supersededSessionId) {
+            if let superseding = model.supersededSessionId {
+                onNavigateToSession?(superseding)
+            }
+        }
         .onAppear {
             model.start()
         }
         .onDisappear {
             // Pop-only navigation below this screen, so disappear == closed.
             model.stop()
+        }
+    }
+
+    /// Transient interaction notice (Android snackbar analogue).
+    @ViewBuilder
+    private var noticeToast: some View {
+        if let notice = model.notice {
+            Text(notice)
+                .font(.footnote)
+                .lineLimit(3)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .shadow(radius: 4, y: 2)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 

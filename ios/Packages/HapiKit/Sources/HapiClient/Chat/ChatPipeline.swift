@@ -62,7 +62,16 @@ public actor ChatPipeline {
                 }
                 continue
             }
-            let next = normalizeDecryptedMessage(row.asDecryptedMessage)
+            var next = normalizeDecryptedMessage(row.asDecryptedMessage)
+            // The wire model carries no client send-state; re-attach the
+            // window row's status so failed optimistic rows render their
+            // retry affordance (the web normalizes `DecryptedMessage &
+            // {status}` directly — `normalize.ts` copies `message.status`).
+            // Cache correctness holds: a status change allocates a new row
+            // instance, which invalidates the memo entry above.
+            if let status = row.status {
+                next?.status = status.rawValue
+            }
             normalizeCache[row.id] = NormalizeCacheEntry(source: row, normalized: next)
             if let next {
                 normalized.append(next)

@@ -31,6 +31,9 @@ final class HubSession {
     let lastSeenStore: LastSeenStore
     /// Per-session message window registry (M2f), snapshot-backed per hub.
     let windows: MessageWindowControllers
+    /// `POST /api/visibility` reporter (M3b): fed every pipe's handshake
+    /// subscription id, flipped with the scene phase.
+    let visibility: VisibilityReporter
 
     /// Global SSE connection state, for the UI's connection dot.
     private(set) var connectionState: SSEConnectionState = .idle
@@ -90,6 +93,9 @@ final class HubSession {
                 directory: snapshotDirectory.appendingPathComponent("windows", isDirectory: true)
             )
         )
+        self.visibility = VisibilityReporter(setVisibility: { subscriptionId, visibility in
+            try await api.setVisibility(subscriptionId: subscriptionId, visibility: visibility)
+        })
         self.router = SyncEventRouter(sessions: sessionStore, machines: machineStore)
     }
 
@@ -116,7 +122,27 @@ final class HubSession {
                 if let cursor {
                     self?.chatCursors[sessionId] = cursor
                 }
+            },
+            onHandshake: { [weak self] subscriptionId in
+                self?.visibility.onHandshake(
+                    key: "session:\(sessionId)",
+                    subscriptionId: subscriptionId
+                )
             }
+        )
+    }
+
+    /// Builds the interaction engine for an opened chat (A-M3ab): composer
+    /// sends, queued-bar operations, permission decisions, and the config
+    /// sheet — all against this hub's client, stores, and window registry.
+    /// Drafts persist per hub + session in `UserDefaults`.
+    func makeChatInteractor(sessionId: String) -> ChatInteractor {
+        ChatInteractor(
+            sessionId: sessionId,
+            api: api,
+            sessionStore: sessionStore,
+            windows: windows,
+            drafts: UserDefaultsChatDrafts(scope: hubUrl)
         )
     }
 
@@ -132,6 +158,7 @@ final class HubSession {
             startGlobalSSE()
         }
         activeChat?.enterForeground()
+        visibility.setForeground(true)
     }
 
     /// Parks the SSE retry loop; a live connection is left to the OS. Also
@@ -142,6 +169,7 @@ final class HubSession {
             Task { await sse.suspend() }
         }
         activeChat?.enterBackground()
+        visibility.setForeground(false)
         let sessionStore = sessionStore
         let machineStore = machineStore
         let lastSeenStore = lastSeenStore
@@ -212,6 +240,7 @@ final class HubSession {
         case .handshake(let resume, let subscriptionId):
             lastResumeVerdict = resume
             self.subscriptionId = subscriptionId
+            visibility.onHandshake(key: "global", subscriptionId: subscriptionId)
             // `.ok` = the replay that follows covers every missed event, so
             // the REST resync is skipped; `.gap` triggers the full refetch
             // (session list + cached details + machines).
