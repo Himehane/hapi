@@ -99,7 +99,24 @@ ios/
                                       Links/ (app-wide \.hapiOpenURL handler:
                                       https/http → SFSafariViewController,
                                       confirm-first schemes → alert,
-                                      hapi-file:// → M4 placeholder),
+                                      hapi-file:// → the session file viewer
+                                      when a chat installed its opener, else
+                                      an explanatory alert),
+                                      Files/ (A-M4a session files browser off
+                                      the chat toolbar folder icon:
+                                      Changes/Browse/Search segmented tabs —
+                                      branch header incl. detached, staged/
+                                      unstaged sections with status letters +
+                                      ±counts and degraded-numstat banner;
+                                      lazy directory outline with hidden
+                                      toggle and dirs-first sort; debounced
+                                      ripgrep search — and the single-file
+                                      viewer: diff ⇄ full toggle with
+                                      staged/unstaged sides and web-parity
+                                      auto-fallback, markdown Source/Preview,
+                                      images, copy path/contents, citation
+                                      "Line N" hint chip; chat hapi-file://
+                                      citations push it in full mode),
                                       NewSession/ (A-M3c create form, a sheet
                                       off the session list "+": machine picker
                                       with last-used preselect + health line,
@@ -144,6 +161,16 @@ ios/
                                      (hapicompanion://bind?hub=&code= and the
                                      web /?hub=&token= URL), form-decoding in
                                      lockstep with the Android port
+                           Git/      A-M4a raw-git-stdout parsers ported from
+                                     web/src/lib/gitParsers.ts via the tested
+                                     Android twins: GitStatusParser
+                                     (porcelain-v2 records + branch headers,
+                                     buildGitStatusFiles merge, quirks
+                                     preserved — rename tab order, UU on both
+                                     sides, untracked dirs dropped) and
+                                     NumstatParser (binary -\t- markers,
+                                     brace + plain rename normalization,
+                                     multi-spelling stats map)
                            Chat/     the chat normalization/reduction pipeline
                                      ported file-for-file from web/src/chat/**
                                      (M2b+M2c): Normalize/NormalizeUser/
@@ -296,7 +323,28 @@ ios/
                                             POST /api/visibility per tracked
                                             handshake subscriptionId on
                                             scene-phase flips, 404 pruning.
-                         Feature endpoints (git/files, scratchlist, voice,
+                           Files/           A-M4a testable core of the files
+                                            feature behind the FilesRequesting
+                                            seam (Endpoints/FileEndpoints.swift
+                                            adds the six git/files REST calls;
+                                            wire types in HapiProtocol
+                                            Models/FilesApi.swift): FilesModel
+                                            (Changes = status + parallel
+                                            numstat sides merged through
+                                            GitStatusParser with per-side
+                                            degraded banners; Browse = cached
+                                            lazy tree flattening with hidden
+                                            toggle + dirs-first sort; Search =
+                                            300 ms debounce, limit 200) and
+                                            FileViewerModel (parallel diff +
+                                            base64 file loads, staged toggle
+                                            reload, image/markdown/binary
+                                            classification, web-parity
+                                            auto-fallback to full mode; the
+                                            unified-diff emptiness probe is
+                                            injected since the parser lives in
+                                            HapiUI).
+                         Remaining feature endpoints (scratchlist, voice,
                          usage) join Endpoints/ with their feature packages
                          in M3/M4.
     HapiUI               Rendering foundation (M2e). SwiftUI, no app coupling:
@@ -354,6 +402,13 @@ scripted): canonical approve/deny/send/config wire bodies asserted
 byte-for-byte, optimistic send happy/fail/retry, 409 → resume → retry (same
 and superseding id), queued cancel invoked-race, steer reconcile, edit
 prefill, permission override lifecycle, and config optimistic + rollback.
+Since A-M4a, `HapiProtocolTests/Git/*` transcribes the Android git-parser
+suites (expectations produced by running the exact inputs through
+`web/src/lib/gitParsers.ts`), and `HapiClientTests/Files/*` transcribes the
+files/viewer model suites against a fake gateway (numstat merge + degraded
+banners, lazy tree cache, search debounce, staged-toggle reload, the
+auto-fallback rules, base64/image/binary classification) plus asserts the
+six git/files endpoint URLs against the recording performer.
 
 ## Pairing (M1d)
 
