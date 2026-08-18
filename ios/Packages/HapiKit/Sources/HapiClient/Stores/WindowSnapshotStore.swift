@@ -1,4 +1,6 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import Foundation
 import HapiProtocol
 
@@ -88,8 +90,34 @@ public struct WindowSnapshotStore: Sendable {
     /// Session ids are arbitrary strings — file names come from a digest
     /// (same scheme as the Android port: first 32 hex chars of SHA-256).
     private func fileURL(for sessionId: String) -> URL {
-        let digest = SHA256.hash(data: Data(sessionId.utf8))
-        let name = String(digest.map { String(format: "%02x", $0) }.joined().prefix(32))
-        return directory.appendingPathComponent(name + Self.suffix)
+        directory.appendingPathComponent(Self.digestName(for: sessionId) + Self.suffix)
     }
+
+    #if canImport(CryptoKit)
+    static func digestName(for sessionId: String) -> String {
+        let digest = SHA256.hash(data: Data(sessionId.utf8))
+        return String(digest.map { String(format: "%02x", $0) }.joined().prefix(32))
+    }
+    #else
+    /// Linux fallback (no CryptoKit, and no new deps allowed): FNV-1a 64-bit
+    /// over the UTF-8 bytes, hex-encoded. The digest is only a filename — it
+    /// never crosses devices or the wire, so the two platforms hashing
+    /// differently is harmless; collisions are the only concern and FNV-1a
+    /// is adequate for tens of session ids.
+    static func digestName(for sessionId: String) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in sessionId.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01B3
+        }
+        // A second pass seeded differently widens the name to 32 hex chars so
+        // both platforms produce equal-length filenames.
+        var hash2: UInt64 = 0x84222325_cbf29ce4
+        for byte in sessionId.utf8.reversed() {
+            hash2 ^= UInt64(byte)
+            hash2 = hash2 &* 0x0000_0100_0000_01B3
+        }
+        return String(format: "%016lx%016lx", hash, hash2)
+    }
+    #endif
 }

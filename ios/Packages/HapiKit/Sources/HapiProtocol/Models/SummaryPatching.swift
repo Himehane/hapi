@@ -128,15 +128,20 @@ public enum SummaryPatching {
             let trimmed = flavorSessionId?.trimmingCharacters(in: .whitespacesAndNewlines)
             return (trimmed?.isEmpty == false) ? trimmed : nil
         }
-        return metadata.codexSessionId
-            ?? metadata.claudeSessionId
-            ?? metadata.geminiSessionId
-            ?? metadata.opencodeSessionId
-            ?? metadata.grokSessionId
-            ?? metadata.agySessionId
-            ?? metadata.cursorSessionId
-            ?? metadata.kimiSessionId
-            ?? metadata.copilotSessionId
+        // First non-nil, raw/untrimmed — written as a loop because the
+        // 9-deep `??` chain exceeded the Swift 6 type-checker budget.
+        let legacyFallbacks: [String?] = [
+            metadata.codexSessionId,
+            metadata.claudeSessionId,
+            metadata.geminiSessionId,
+            metadata.opencodeSessionId,
+            metadata.grokSessionId,
+            metadata.agySessionId,
+            metadata.cursorSessionId,
+            metadata.kimiSessionId,
+            metadata.copilotSessionId,
+        ]
+        return legacyFallbacks.compactMap { $0 }.first
     }
 
     /// `toSessionSummaryMetadata` — list-sized projection of full metadata.

@@ -170,8 +170,9 @@ public final class SessionListStore: SessionListStoring {
         try await refresh()
         for sessionId in Array(details.keys) {
             // Keep a stale cached detail on failure; the session pipe
-            // re-syncs it.
-            try? await loadSessionDetail(sessionId)
+            // re-syncs it. (`_ =`: the refreshed detail is read from
+            // `details`, not from this return value.)
+            _ = try? await loadSessionDetail(sessionId)
         }
     }
 

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking  // URLSession types live here on Linux
+#endif
 import HapiProtocol
 
 /// Which events this subscription receives (sse.md "Dual-subscription
@@ -337,7 +340,7 @@ public actor SSEClient {
     private func backoffSleep(ms: Int) async {
         guard ms > 0, !suspended, !stopped else { return }
         let clock = self.clock
-        let task = Task { try? await clock.sleep(ms: ms) }
+        let task = Task { _ = try? await clock.sleep(ms: ms) }
         sleepTask = task
         await task.value
         sleepTask = nil

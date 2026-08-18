@@ -549,23 +549,27 @@ public struct CodexReview: Equatable, Sendable {
         self.overallConfidenceScore = overallConfidenceScore
     }
 
+    // Built stepwise (not as one literal) — the nested dictionary/`??`
+    // expression exceeded the Swift 6 type-checker budget on Linux.
     public var wireValue: JSONValue {
-        .object([
-            "findings": .array(findings.map { finding in
-                .object([
-                    "title": .string(finding.title),
-                    "body": .string(finding.body),
-                    "priority": finding.priority.map { JSONValue.number($0) } ?? .null,
-                    "confidenceScore": finding.confidenceScore.map { JSONValue.number($0) } ?? .null,
-                    "filePath": finding.filePath.map { JSONValue.string($0) } ?? .null,
-                    "lineStart": finding.lineStart.map { JSONValue.number($0) } ?? .null,
-                    "lineEnd": finding.lineEnd.map { JSONValue.number($0) } ?? .null,
-                ])
-            }),
-            "overallCorrectness": overallCorrectness.map { JSONValue.string($0) } ?? .null,
-            "overallExplanation": overallExplanation.map { JSONValue.string($0) } ?? .null,
-            "overallConfidenceScore": overallConfidenceScore.map { JSONValue.number($0) } ?? .null,
-        ])
+        var object: [String: JSONValue] = [:]
+        object["findings"] = .array(findings.map(Self.findingWireValue(_:)))
+        object["overallCorrectness"] = overallCorrectness.map { JSONValue.string($0) } ?? .null
+        object["overallExplanation"] = overallExplanation.map { JSONValue.string($0) } ?? .null
+        object["overallConfidenceScore"] = overallConfidenceScore.map { JSONValue.number($0) } ?? .null
+        return .object(object)
+    }
+
+    private static func findingWireValue(_ finding: CodexReviewFinding) -> JSONValue {
+        var object: [String: JSONValue] = [:]
+        object["title"] = .string(finding.title)
+        object["body"] = .string(finding.body)
+        object["priority"] = finding.priority.map { JSONValue.number($0) } ?? .null
+        object["confidenceScore"] = finding.confidenceScore.map { JSONValue.number($0) } ?? .null
+        object["filePath"] = finding.filePath.map { JSONValue.string($0) } ?? .null
+        object["lineStart"] = finding.lineStart.map { JSONValue.number($0) } ?? .null
+        object["lineEnd"] = finding.lineEnd.map { JSONValue.number($0) } ?? .null
+        return .object(object)
     }
 }
 

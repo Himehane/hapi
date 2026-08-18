@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking  // URLSession types live here on Linux
+#endif
 
 /// What a transport reports while a single SSE connection attempt is alive:
 /// exactly one `.connected` first (the HTTP response headers), then raw body
@@ -48,13 +51,78 @@ public struct URLSessionSSETransport: SSETransport {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 300
         configuration.timeoutIntervalForResource = 7 * 24 * 60 * 60
+        #if !canImport(FoundationNetworking)
+        // corelibs-foundation declares this get-only (unsupported there); the
+        // Linux build is harness/CI-only so the default is acceptable.
         configuration.waitsForConnectivity = false
+        #endif
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.urlCache = nil
         configuration.httpCookieStorage = nil
         return URLSession(configuration: configuration)
     }
 
+    #if canImport(FoundationNetworking)
+    // corelibs-foundation has no `URLSession.bytes(for:)`; stream through the
+    // classic data-task delegate instead. Linux is harness/CI-only — chunks
+    // arrive as delivered by the network stack rather than line-coalesced,
+    // which `SSELineParser` handles by contract (arbitrary chunking).
+    public func connect(_ request: URLRequest) -> AsyncThrowingStream<SSETransportEvent, Error> {
+        let configuration = session.configuration
+        return AsyncThrowingStream { continuation in
+            let delegate = StreamingDelegate(continuation: continuation)
+            let streamingSession = URLSession(
+                configuration: configuration,
+                delegate: delegate,
+                delegateQueue: nil
+            )
+            let task = streamingSession.dataTask(with: request)
+            continuation.onTermination = { _ in
+                task.cancel()
+                streamingSession.finishTasksAndInvalidate()
+            }
+            task.resume()
+        }
+    }
+
+    /// Bridges delegate callbacks into the stream continuation. URLSession
+    /// serializes its delegate callbacks, and the continuation is Sendable,
+    /// so the unchecked conformance is safe.
+    private final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+        private let continuation: AsyncThrowingStream<SSETransportEvent, Error>.Continuation
+
+        init(continuation: AsyncThrowingStream<SSETransportEvent, Error>.Continuation) {
+            self.continuation = continuation
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive response: URLResponse,
+            completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+        ) {
+            guard let http = response as? HTTPURLResponse else {
+                continuation.finish(throwing: SSETransportError.notHTTP)
+                completionHandler(.cancel)
+                return
+            }
+            continuation.yield(.connected(http))
+            completionHandler(.allow)
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            continuation.yield(.bytes(data))
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            if let error {
+                continuation.finish(throwing: error)
+            } else {
+                continuation.finish()
+            }
+        }
+    }
+    #else
     public func connect(_ request: URLRequest) -> AsyncThrowingStream<SSETransportEvent, Error> {
         let session = self.session
         return AsyncThrowingStream { continuation in
@@ -90,4 +158,5 @@ public struct URLSessionSSETransport: SSETransport {
             }
         }
     }
+    #endif
 }

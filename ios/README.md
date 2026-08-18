@@ -31,6 +31,34 @@ swift test --package-path ios/Packages/HapiKit
 CI runs both on `macos-15` via `.github/workflows/ios.yml` (triggered by
 changes under `ios/**` and `shared/fixtures/**`).
 
+### Linux verification (no Mac needed)
+
+`ios/scripts/linux-test.sh` compiles and tests the non-UI targets
+(HapiProtocol + HapiClient and their test suites, including the
+`shared/fixtures` golden suites) in a Swift Linux container:
+
+```sh
+ios/scripts/linux-test.sh                # full swift test in docker
+ios/scripts/linux-test.sh --filter Chat  # extra args pass through to swift test
+```
+
+Requires docker; defaults to the `swift:6.1-noble` image
+(`HAPI_SWIFT_IMAGE` overrides). The script rsyncs the package and the
+fixtures into a repo-depth staging dir (`HAPI_LINUX_STAGE` overrides;
+kept between runs so builds are incremental) and mounts it at `/work`,
+so the tests' `#filePath`-relative fixture resolution works unchanged.
+Always edit the real worktree files — every run re-stages them.
+
+HapiUI (SwiftUI + swift-markdown + Highlightr) cannot build on Linux;
+`Package.swift` drops the UI product/targets and their dependencies
+under `#if os(Linux)`, and the script leaves those sources out of the
+staging copy. The few Darwin-only APIs in HapiClient are conditionally
+compiled (`#if canImport(Security)` for the Keychain store — Linux tests
+use `InMemoryCredentialStore` through the `CredentialStoring` seam;
+`#if canImport(CryptoKit)` for snapshot-file digests with an FNV-1a
+fallback; `#if canImport(FoundationNetworking)` for URLSession types and
+a delegate-based SSE transport where `URLSession.bytes` is unavailable).
+
 ## Layout
 
 ```
