@@ -9,8 +9,12 @@ import app.hapi.protocol.wire.CodexModelsResponse
 import app.hapi.protocol.wire.DeleteUploadRequest
 import app.hapi.protocol.wire.DeleteUploadResponse
 import app.hapi.protocol.wire.DenyPermissionRequest
+import app.hapi.protocol.wire.FileReadResponse
+import app.hapi.protocol.wire.FileSearchResponse
+import app.hapi.protocol.wire.GitCommandResponse
 import app.hapi.protocol.wire.HapiJson
 import app.hapi.protocol.wire.HubHealthResponse
+import app.hapi.protocol.wire.ListDirectoryResponse
 import app.hapi.protocol.wire.MachineListDirectoryRequest
 import app.hapi.protocol.wire.MachineListDirectoryResponse
 import app.hapi.protocol.wire.MachinePathsExistsRequest
@@ -476,6 +480,55 @@ class HapiApi(
      */
     suspend fun getMachineCodexModels(machineId: String): CodexModelsResponse =
         request("GET", url("api", "machines", machineId, "codex-models").build())
+
+    // --------------------------------------------------------- git & files --
+    // RAW-stdout contract (`docs/api/client-contract/rest.md` "Git & files"):
+    // the hub relays git output verbatim inside `GitCommandResponse.stdout`;
+    // parsing happens client-side in `app.hapi.protocol.git`. All six are
+    // RPC-wrapped — check `success` (HTTP 200 + `{success:false}` is normal).
+
+    /** `GET /api/sessions/:id/git-status` — raw `git status --porcelain=v2 --branch` stdout. */
+    suspend fun getGitStatus(sessionId: String): GitCommandResponse =
+        request("GET", url("api", "sessions", sessionId, "git-status").build())
+
+    /** `GET /api/sessions/:id/git-diff-numstat?staged=` — raw `git diff --numstat` stdout. */
+    suspend fun getGitDiffNumstat(sessionId: String, staged: Boolean): GitCommandResponse {
+        val target = url("api", "sessions", sessionId, "git-diff-numstat")
+            .addQueryParameter("staged", staged.toString())
+        return request("GET", target.build())
+    }
+
+    /** `GET /api/sessions/:id/git-diff-file?path=&staged=` — raw unified diff for one file. */
+    suspend fun getGitDiffFile(sessionId: String, path: String, staged: Boolean? = null): GitCommandResponse {
+        val target = url("api", "sessions", sessionId, "git-diff-file")
+            .addQueryParameter("path", path)
+            .apply { staged?.let { addQueryParameter("staged", it.toString()) } }
+        return request("GET", target.build())
+    }
+
+    /** `GET /api/sessions/:id/file?path=` — `content` is base64; decode before display. */
+    suspend fun readSessionFile(sessionId: String, path: String): FileReadResponse {
+        val target = url("api", "sessions", sessionId, "file")
+            .addQueryParameter("path", path)
+        return request("GET", target.build())
+    }
+
+    /** `GET /api/sessions/:id/files?query=&limit=` — ripgrep-backed search (limit 1–500, default 200). */
+    suspend fun searchSessionFiles(sessionId: String, query: String, limit: Int? = null): FileSearchResponse {
+        val target = url("api", "sessions", sessionId, "files").apply {
+            if (query.isNotEmpty()) addQueryParameter("query", query)
+            limit?.let { addQueryParameter("limit", it.toString()) }
+        }
+        return request("GET", target.build())
+    }
+
+    /** `GET /api/sessions/:id/directory?path=` — omitted path lists the session root. */
+    suspend fun listSessionDirectory(sessionId: String, path: String? = null): ListDirectoryResponse {
+        val target = url("api", "sessions", sessionId, "directory").apply {
+            if (!path.isNullOrEmpty()) addQueryParameter("path", path)
+        }
+        return request("GET", target.build())
+    }
 
     // ---------------------------------------------------------- visibility --
 

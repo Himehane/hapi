@@ -63,6 +63,7 @@ import app.hapi.companion.feature.chat.composer.DictationController
 import app.hapi.companion.feature.chat.composer.DictationEvent
 import app.hapi.companion.feature.chat.composer.DictationState
 import app.hapi.companion.feature.chat.composer.QueuedMessagesBar
+import app.hapi.companion.feature.files.FolderGlyph
 import app.hapi.companion.feature.sessions.DeleteSessionDialog
 import app.hapi.companion.feature.sessions.RenameSessionDialog
 import app.hapi.companion.ui.markdown.LocalMarkdownLinkHandler
@@ -100,6 +101,10 @@ fun ChatScreen(
     onNavigateToSession: (String) -> Unit = {},
     /** null ⇒ mic button hidden (tests / previews without a controller). */
     dictation: DictationController? = null,
+    /** Top-bar folder icon → session files browser (B-M4c). */
+    onOpenFiles: () -> Unit = {},
+    /** Markdown file citations → file viewer (full mode; optional line hint). */
+    onOpenFile: (path: String, line: Int?) -> Unit = { _, _ -> },
 ) {
     val state by viewModel.uiState.collectAsState()
     val composerState by viewModel.composer.collectAsState()
@@ -186,6 +191,9 @@ fun ChatScreen(
                 },
                 title = { ChatTitle(state.header) },
                 actions = {
+                    IconButton(onClick = onOpenFiles) {
+                        Icon(FolderGlyph, contentDescription = "Session files")
+                    }
                     IconButton(onClick = { configSheetOpen = true }) {
                         Icon(Icons.Filled.Settings, contentDescription = "Session settings")
                     }
@@ -227,7 +235,7 @@ fun ChatScreen(
     ) { padding ->
         CompositionLocalProvider(
             LocalChatMedia provides media,
-            LocalMarkdownLinkHandler provides rememberChatLinkHandler(),
+            LocalMarkdownLinkHandler provides rememberChatLinkHandler(onOpenFile = onOpenFile),
             LocalChatInteractions provides interactions,
         ) {
             Column(
