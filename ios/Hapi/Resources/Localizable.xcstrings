@@ -531,6 +531,16 @@
         }
       }
     },
+    "Already handled elsewhere.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在其他设备上处理。"
+          }
+        }
+      }
+    },
     "Already paired with %@ — switched to it.": {
       "localizations": {
         "zh-Hans": {
@@ -971,6 +981,16 @@
         }
       }
     },
+    "Could not reach your hub. Open HAPI to respond.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接 Hub。请打开 HAPI 进行回应。"
+          }
+        }
+      }
+    },
     "Could not save": {
       "localizations": {
         "zh-Hans": {
@@ -987,6 +1007,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法开始录音"
+          }
+        }
+      }
+    },
+    "Could not store the push key.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存推送密钥。"
           }
         }
       }
@@ -1191,6 +1221,16 @@
         }
       }
     },
+    "Denied": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拒绝"
+          }
+        }
+      }
+    },
     "Deny": {
       "localizations": {
         "zh-Hans": {
@@ -1347,6 +1387,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "思考强度"
+          }
+        }
+      }
+    },
+    "Enable in system settings…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在系统设置中开启…"
+          }
+        }
+      }
+    },
+    "Enabled": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已开启"
           }
         }
       }
@@ -1951,6 +2011,16 @@
         }
       }
     },
+    "Message": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息"
+          }
+        }
+      }
+    },
     "Message agent": {
       "localizations": {
         "zh-Hans": {
@@ -2221,12 +2291,32 @@
         }
       }
     },
+    "Not requested": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未请求"
+          }
+        }
+      }
+    },
     "Note, draft, parking-lot idea…": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "笔记、草稿或想法…"
+          }
+        }
+      }
+    },
+    "Notifications": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
           }
         }
       }
@@ -2601,6 +2691,26 @@
         }
       }
     },
+    "Push notifications": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推送通知"
+          }
+        }
+      }
+    },
+    "Pushes are end-to-end encrypted; only this device can read them.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推送经过端到端加密，只有本机可以读取。"
+          }
+        }
+      }
+    },
     "Query": {
       "localizations": {
         "zh-Hans": {
@@ -2627,6 +2737,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "范围"
+          }
+        }
+      }
+    },
+    "Re-register push": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新注册推送"
           }
         }
       }
@@ -2711,6 +2831,16 @@
         }
       }
     },
+    "Registered hubs": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已注册的 Hub"
+          }
+        }
+      }
+    },
     "Remove %@": {
       "localizations": {
         "zh-Hans": {
@@ -2727,6 +2857,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "将移除此 Hub 已保存的访问令牌。重新配对即可再次连接。"
+          }
+        }
+      }
+    },
+    "Reply": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回复"
           }
         }
       }
@@ -3047,6 +3187,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "会话已离线 — 更改将在恢复后生效，也可能被拒绝。"
+          }
+        }
+      }
+    },
+    "Session not found on any paired hub.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任何已配对的 Hub 上都找不到该会话。"
           }
         }
       }
@@ -3447,6 +3597,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hub 使用协议 v%lld，本应用支持 v%lld。请升级较旧的一方后重试。"
+          }
+        }
+      }
+    },
+    "The session is no longer active.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该会话已不再活跃。"
           }
         }
       }

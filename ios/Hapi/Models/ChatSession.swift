@@ -52,6 +52,7 @@ final class ChatSession {
     @ObservationIgnored private let router: SyncEventRouter
     @ObservationIgnored private let initialCursor: String?
     @ObservationIgnored private let registerActive: @MainActor (ChatSession) -> Void
+    @ObservationIgnored private let unregisterActive: @MainActor (ChatSession) -> Void
     @ObservationIgnored private let saveCursor: @MainActor (String?) -> Void
     /// Fired on every handshake with the fresh subscription id (visibility
     /// reporting).
@@ -71,6 +72,7 @@ final class ChatSession {
         machineStore: MachineStore,
         initialCursor: String?,
         registerActive: @escaping @MainActor (ChatSession) -> Void,
+        unregisterActive: @escaping @MainActor (ChatSession) -> Void = { _ in },
         saveCursor: @escaping @MainActor (String?) -> Void,
         onHandshake: @escaping @MainActor (String?) -> Void = { _ in }
     ) {
@@ -82,6 +84,7 @@ final class ChatSession {
         self.router = SyncEventRouter(sessions: sessionStore, machines: machineStore)
         self.initialCursor = initialCursor
         self.registerActive = registerActive
+        self.unregisterActive = unregisterActive
         self.saveCursor = saveCursor
         self.onHandshake = onHandshake
     }
@@ -112,6 +115,9 @@ final class ChatSession {
     func stop() {
         guard !stopped else { return }
         stopped = true
+        // Clears the hub session's open-chat marker (push suppression) —
+        // identity-guarded on the other side against register/stop races.
+        unregisterActive(self)
         onStoreActivity = nil
         consumeTask?.cancel()
         consumeTask = nil

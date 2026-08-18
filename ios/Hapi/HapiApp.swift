@@ -4,6 +4,9 @@ import SwiftUI
 
 @main
 struct HapiApp: App {
+    /// APNs registration callbacks + notification-center delegate install
+    /// (P3) — SwiftUI lifecycle apps get them only through the adaptor.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()
     @Environment(\.scenePhase) private var scenePhase
 
