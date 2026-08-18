@@ -298,7 +298,10 @@ private fun SessionRow(
                 onClick = { onOpen(row.id) },
                 onLongClick = { onLongPress(row) },
             )
-            .padding(horizontal = 16.dp, vertical = 10.dp)
+            // 8dp keeps the old content-to-gap rhythm: rows shrank from three
+            // text lines to two, and the unchanged 10dp read as oversized
+            // gaps between the now-shorter items (device feedback).
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             // Dimming expresses "disconnected" (web parity): connected is the
             // resting state here, so only the exception gets marked — no
             // per-row presence dot.
