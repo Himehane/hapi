@@ -82,6 +82,8 @@ fun ChatComposer(
     dictation: DictationState? = null,
     onDictationToggle: () -> Unit = {},
     onDictationCancel: () -> Unit = {},
+    /** null ⇒ composer overflow hidden; set = "Park draft to scratchlist" (B-M4d). */
+    onParkDraft: (() -> Unit)? = null,
 ) {
     Surface(color = MaterialTheme.colorScheme.surface, modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
@@ -119,6 +121,12 @@ fun ChatComposer(
             Row(verticalAlignment = Alignment.Bottom) {
                 if (onAddAttachment != null) {
                     AddAttachmentButton(onClick = onAddAttachment)
+                }
+                if (onParkDraft != null) {
+                    ComposerOverflowButton(
+                        hasText = state.text.isNotBlank(),
+                        onParkDraft = onParkDraft,
+                    )
                 }
                 OutlinedTextField(
                     value = state.text,
@@ -399,6 +407,42 @@ private fun MicButton(state: DictationState, onToggle: () -> Unit) {
 
 // ---------------------------------------------------------------- actions --
 
+/**
+ * Composer overflow (B-M4d): draft-level actions that are not sends. Only
+ * "Park draft to scratchlist" for now — it moves the current text into the
+ * session's scratchlist and clears the composer.
+ */
+@Composable
+private fun ComposerOverflowButton(
+    hasText: Boolean,
+    onParkDraft: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = CircleShape,
+        onClick = { open = true },
+        modifier = Modifier
+            .padding(end = 6.dp, bottom = 4.dp)
+            .size(44.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(text = "⋯", fontSize = 18.sp)
+        }
+    }
+    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        DropdownMenuItem(
+            text = { Text("Park draft to scratchlist") },
+            enabled = hasText,
+            onClick = {
+                open = false
+                onParkDraft()
+            },
+        )
+    }
+}
+
 @Composable
 private fun AbortButton(onAbort: () -> Unit) {
     Surface(
@@ -507,6 +551,7 @@ private fun ChatComposerPreview() {
                     ),
                     onTextChange = {}, onSend = {}, onSendSteer = {}, onAbort = {},
                     dictation = DictationState.Idle,
+                    onParkDraft = {},
                 )
                 ChatComposer(
                     state = ComposerUiState(text = "Sending…", isSending = true, canSteer = false),

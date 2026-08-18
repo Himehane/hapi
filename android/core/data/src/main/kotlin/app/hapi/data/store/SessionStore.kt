@@ -18,8 +18,11 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -142,6 +145,17 @@ class SessionStore(
 
     /** All cached details; per-id observation via [sessionDetail]. */
     val details: StateFlow<Map<String, Session>> = _details.asStateFlow()
+
+    private val _scratchlistInvalidations = MutableSharedFlow<String>(extraBufferCapacity = 64)
+
+    /**
+     * Session ids whose SSE patch carried `scratchlistUpdatedAt` — a bare
+     * refetch trigger for that session's scratchlist query (the timestamp is
+     * the signal, not data; `sse.md`). `ScratchlistStore` collects this and
+     * refetches observed sessions (the web twin invalidates the React-Query
+     * key in `useSSE.ts`).
+     */
+    val scratchlistInvalidations: SharedFlow<String> = _scratchlistInvalidations.asSharedFlow()
 
     private val refreshMutex = Mutex()
     private val refreshQueued = AtomicBoolean(false)
@@ -360,8 +374,11 @@ class SessionStore(
                 // Row not in the list yet (fresh spawn raced the refetch).
                 scheduleRefresh()
             }
-            // patch.scratchlistUpdatedAt is a bare refetch trigger for the
-            // scratchlist query — owned by M4d, nothing to do here.
+            // Bare refetch trigger for the scratchlist query (never applied
+            // to session state — matching the reference client).
+            if (patch.scratchlistUpdatedAt != null) {
+                _scratchlistInvalidations.tryEmit(sessionId)
+            }
             return
         }
         // Absent or unparseable payload → REST fallback.

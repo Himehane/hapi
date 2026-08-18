@@ -13,7 +13,12 @@ import app.hapi.data.sse.TransportEvent
 import app.hapi.data.store.LastSeenStore
 import app.hapi.data.store.MachineListStore
 import app.hapi.data.store.MessageWindowStores
+import app.hapi.data.store.ScratchlistAttachmentDeleteResult
+import app.hapi.data.store.ScratchlistCreateResult
+import app.hapi.data.store.ScratchlistSessionState
+import app.hapi.data.store.ScratchlistUploadResult
 import app.hapi.data.store.SessionDetailStore
+import app.hapi.data.store.SessionScratchlist
 import app.hapi.data.store.StoreSyncTargets
 import app.hapi.protocol.catalog.PermissionMode
 import app.hapi.protocol.window.MessageStatus
@@ -50,6 +55,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -337,9 +343,53 @@ private fun bashRequest(command: String = "rm -rf build") = AgentStateRequest(
     arguments = buildJsonObject { put("command", command) },
 )
 
+/** Recording [SessionScratchlist] fake for the park/badge seam (B-M4d). */
+private class FakeScratchlist : SessionScratchlist {
+    val created = mutableListOf<Pair<String, String>>()
+    var createResult: (String) -> ScratchlistCreateResult = { text ->
+        ScratchlistCreateResult.Created(
+            app.hapi.protocol.wire.ScratchlistEntry(entryId = "hub-1", text = text, createdAt = 1, updatedAt = 2)
+        )
+    }
+    val sessionState = MutableStateFlow(ScratchlistSessionState())
+
+    override fun state(sessionId: String): Flow<ScratchlistSessionState> = sessionState
+    override fun currentState(sessionId: String): ScratchlistSessionState = sessionState.value
+    override fun open(sessionId: String) = Unit
+    override fun release(sessionId: String) = Unit
+    override suspend fun refresh(sessionId: String) = Unit
+    override suspend fun createEntry(
+        sessionId: String,
+        text: String,
+        attachments: List<app.hapi.protocol.wire.ScratchlistAttachment>,
+    ): ScratchlistCreateResult {
+        created += sessionId to text.trim()
+        return createResult(text)
+    }
+    override suspend fun updateEntry(
+        sessionId: String,
+        entryId: String,
+        text: String?,
+        attachments: List<app.hapi.protocol.wire.ScratchlistAttachment>?,
+    ): Boolean = true
+    override suspend fun deleteEntry(sessionId: String, entryId: String): Boolean = true
+    override suspend fun uploadAttachment(
+        sessionId: String,
+        filename: String,
+        bytes: ByteArray,
+        mimeType: String,
+    ): ScratchlistUploadResult = ScratchlistUploadResult.Failed("unused")
+    override suspend fun deleteAttachment(
+        sessionId: String,
+        attachmentId: String,
+    ): ScratchlistAttachmentDeleteResult = ScratchlistAttachmentDeleteResult.Removed
+    override suspend fun limits(sessionId: String) = app.hapi.protocol.wire.ScratchlistAttachmentLimits.DEFAULT
+}
+
 private class InteractionHarness(
     testScope: TestScope,
     detail: Session = detail(),
+    val scratchlist: FakeScratchlist? = null,
 ) {
     val api = RecordingChatApi()
     val scope = testScope.backgroundScope
@@ -367,6 +417,7 @@ private class InteractionHarness(
         syncTargets = StoreSyncTargets(sessionStore, InteractionMachineStore(), scope, messageWindows),
         scope = scope,
         drafts = drafts,
+        scratchlist = scratchlist,
         pipelineDispatcher = StandardTestDispatcher(testScope.testScheduler),
         draftSaveDebounceMs = 10,
         now = { 1_000L },
@@ -1122,5 +1173,63 @@ class ChatViewModelInteractionTest {
         harness.viewModel.appendDictatedText(" and add tests ")
 
         harness.viewModel.composer.first { it.text == "fix the bug and add tests" }
+    }
+
+    // ---------------------------------------------------------- scratchlist --
+
+    @Test
+    fun `park moves the draft to the scratchlist and clears the composer`() = runTest {
+        val scratch = FakeScratchlist()
+        val harness = InteractionHarness(this, scratchlist = scratch)
+
+        harness.viewModel.setComposerText("try the cursor approach instead")
+        harness.viewModel.composer.first { it.text.isNotEmpty() }
+        harness.viewModel.parkComposerDraft()
+
+        harness.viewModel.composer.first { it.text.isEmpty() }
+        assertEquals(listOf(IX_SESSION to "try the cursor approach instead"), scratch.created)
+    }
+
+    @Test
+    fun `park at the cap keeps the draft and notifies`() = runTest {
+        val scratch = FakeScratchlist().apply { createResult = { ScratchlistCreateResult.AtCap } }
+        val harness = InteractionHarness(this, scratchlist = scratch)
+        val notice = backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+            harness.viewModel.events.filterIsInstance<ChatEvent.Notice>().first()
+        }
+
+        harness.viewModel.setComposerText("do not lose me")
+        harness.viewModel.composer.first { it.text.isNotEmpty() }
+        harness.viewModel.parkComposerDraft()
+
+        assertTrue(notice.await().message.contains("full"))
+        assertEquals("do not lose me", harness.viewModel.composer.value.text)
+    }
+
+    @Test
+    fun `insertComposerText sets an empty composer and appends on a new line otherwise`() = runTest {
+        val harness = InteractionHarness(this, scratchlist = FakeScratchlist())
+
+        harness.viewModel.insertComposerText("first note")
+        harness.viewModel.composer.first { it.text == "first note" }
+
+        harness.viewModel.insertComposerText("second note")
+        harness.viewModel.composer.first { it.text == "first note\nsecond note" }
+    }
+
+    @Test
+    fun `scratchlist entry count feeds the top-bar badge`() = runTest {
+        val scratch = FakeScratchlist()
+        val harness = InteractionHarness(this, scratchlist = scratch)
+
+        scratch.sessionState.value = ScratchlistSessionState(
+            entries = listOf(
+                app.hapi.protocol.wire.ScratchlistEntry("e1", "one", 1, 1),
+                app.hapi.protocol.wire.ScratchlistEntry("e2", "two", 2, 2),
+            ),
+            loaded = true,
+        )
+
+        harness.viewModel.scratchlistCount.first { it == 2 }
     }
 }

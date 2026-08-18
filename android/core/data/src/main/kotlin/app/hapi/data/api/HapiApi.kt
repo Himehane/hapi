@@ -29,6 +29,12 @@ import app.hapi.protocol.wire.RenameSessionRequest
 import app.hapi.protocol.wire.ReopenSessionResponse
 import app.hapi.protocol.wire.ResumeSessionRequest
 import app.hapi.protocol.wire.ResumeSessionResponse
+import app.hapi.protocol.wire.ScratchlistEntriesResponse
+import app.hapi.protocol.wire.ScratchlistEntryCreateRequest
+import app.hapi.protocol.wire.ScratchlistEntryResponse
+import app.hapi.protocol.wire.ScratchlistEntryUpdateRequest
+import app.hapi.protocol.wire.ScratchlistLimitsResponse
+import app.hapi.protocol.wire.ScratchlistUploadResponse
 import app.hapi.protocol.wire.SendMessageRequest
 import app.hapi.protocol.wire.SessionResponse
 import app.hapi.protocol.wire.SessionsResponse
@@ -73,6 +79,13 @@ import okhttp3.Response
 class GeneratedImage(
     val bytes: ByteArray,
     /** `Content-Type` response header, e.g. `image/png`. */
+    val mimeType: String?,
+)
+
+/** Raw scratchlist-attachment payload (`GET /api/sessions/:id/scratchlist/attachments/:attachmentId`). */
+class ScratchlistAttachmentFile(
+    val bytes: ByteArray,
+    /** `Content-Type` response header (stored attachment metadata). */
     val mimeType: String?,
 )
 
@@ -614,6 +627,90 @@ class HapiApi(
     /** `GET /api/storage/sqlite` — hub db/wal/shm file sizes. */
     suspend fun getSqliteStorageUsage(): SqliteStorageUsageResponse =
         request("GET", url("api", "storage", "sqlite").build())
+
+    // --------------------------------------------------------- scratchlist --
+    // Per-session operator notes (tiann/hapi#893, B-M4d). Mutations bump
+    // `scratchlistUpdatedAt` in the session's SSE patch — a bare refetch
+    // trigger for [getScratchlist]. Error codes:
+    // `app.hapi.protocol.wire.ScratchlistErrorCodes`.
+
+    /** `GET /api/sessions/:id/scratchlist` — all entries, `createdAt DESC`. */
+    suspend fun getScratchlist(sessionId: String): ScratchlistEntriesResponse =
+        request("GET", url("api", "sessions", sessionId, "scratchlist").build())
+
+    /**
+     * `POST /api/sessions/:id/scratchlist` — 201 with the canonical row; 200
+     * when [ScratchlistEntryCreateRequest.entryId] already exists (idempotent
+     * retry); 409 `scratchlist_at_cap` at 200 entries.
+     */
+    suspend fun createScratchlistEntry(
+        sessionId: String,
+        body: ScratchlistEntryCreateRequest,
+    ): ScratchlistEntryResponse =
+        request("POST", url("api", "sessions", sessionId, "scratchlist").build(), body.toJsonBody())
+
+    /** `PUT /api/sessions/:id/scratchlist/:entryId` — 404 when the entry is gone. */
+    suspend fun updateScratchlistEntry(
+        sessionId: String,
+        entryId: String,
+        body: ScratchlistEntryUpdateRequest,
+    ): ScratchlistEntryResponse =
+        request("PUT", url("api", "sessions", sessionId, "scratchlist", entryId).build(), body.toJsonBody())
+
+    /** `DELETE /api/sessions/:id/scratchlist/:entryId` — 404 when already gone. */
+    suspend fun deleteScratchlistEntry(sessionId: String, entryId: String) {
+        request<Unit>("DELETE", url("api", "sessions", sessionId, "scratchlist", entryId).build())
+    }
+
+    /** `GET /api/sessions/:id/scratchlist/limits` — attachment size/count/byte budgets. */
+    suspend fun getScratchlistLimits(sessionId: String): ScratchlistLimitsResponse =
+        request("GET", url("api", "sessions", sessionId, "scratchlist", "limits").build())
+
+    /**
+     * `POST /api/sessions/:id/scratchlist/upload` — JSON + base64 (NOT
+     * multipart), same body shape as the CLI upload. Over
+     * `limits.maxBytesPerFile` → 413 `scratchlist_attachment_too_large`.
+     */
+    suspend fun uploadScratchlistAttachment(
+        sessionId: String,
+        filename: String,
+        contentBase64: String,
+        mimeType: String,
+    ): ScratchlistUploadResponse =
+        request(
+            "POST",
+            url("api", "sessions", sessionId, "scratchlist", "upload").build(),
+            UploadFileRequest(filename, contentBase64, mimeType).toJsonBody(),
+        )
+
+    /**
+     * `GET /api/sessions/:id/scratchlist/attachments/:attachmentId` — raw
+     * bytes. Rides [imageClient] (auth + disk cache) like generated images;
+     * attachment content is immutable per id, so any cache hit is safe.
+     */
+    suspend fun getScratchlistAttachment(sessionId: String, attachmentId: String): ScratchlistAttachmentFile {
+        val target = url("api", "sessions", sessionId, "scratchlist", "attachments", attachmentId).build()
+        return imageClient.newCall(Request.Builder().url(target).build()).await().use { response ->
+            if (!response.isSuccessful) {
+                throw ApiError.from(response.code, response.body?.string().orEmpty())
+            }
+            ScratchlistAttachmentFile(
+                bytes = response.body?.bytes() ?: ByteArray(0),
+                mimeType = response.header("Content-Type"),
+            )
+        }
+    }
+
+    /**
+     * `DELETE /api/sessions/:id/scratchlist/attachments/:attachmentId` — 409
+     * `scratchlist_attachment_in_use` while an entry still references it.
+     */
+    suspend fun deleteScratchlistAttachment(sessionId: String, attachmentId: String) {
+        request<Unit>(
+            "DELETE",
+            url("api", "sessions", sessionId, "scratchlist", "attachments", attachmentId).build(),
+        )
+    }
 
     // ------------------------------------------------------------- devices --
 

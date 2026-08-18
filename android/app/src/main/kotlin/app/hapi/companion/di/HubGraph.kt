@@ -15,6 +15,7 @@ import app.hapi.data.sse.VisibilityReporter
 import app.hapi.data.store.LastSeenStore
 import app.hapi.data.store.MachineStore
 import app.hapi.data.store.MessageWindowStores
+import app.hapi.data.store.ScratchlistStore
 import app.hapi.data.store.SessionStore
 import app.hapi.data.store.StoreSyncTargets
 import app.hapi.data.store.WindowSnapshots
@@ -76,6 +77,16 @@ class HubGraph(
 
     val sessionStore: SessionStore = SessionStore(session.api, scope, snapshotDir)
 
+    /**
+     * Per-session scratchlist cache (B-M4d), refetched when a session patch
+     * carries the `scratchlistUpdatedAt` trigger.
+     */
+    val scratchlistStore: ScratchlistStore = ScratchlistStore(
+        api = session.api,
+        scope = scope,
+        invalidations = sessionStore.scratchlistInvalidations,
+    )
+
     val machineStore: MachineStore = MachineStore(session.api, scope, snapshotDir)
 
     val lastSeenStore: LastSeenStore = LastSeenStore(scope, snapshotDir)
@@ -135,6 +146,10 @@ class HubGraph(
     /** Absolute URL of a generated image, for [imageLoader]. */
     fun generatedImageUrl(sessionId: String, imageId: String): String =
         "${session.hubUrl}/api/sessions/$sessionId/generated-images/$imageId"
+
+    /** Absolute URL of a scratchlist attachment's raw bytes, for [imageLoader]. */
+    fun scratchlistAttachmentUrl(sessionId: String, attachmentId: String): String =
+        "${session.hubUrl}/api/sessions/$sessionId/scratchlist/attachments/$attachmentId"
 
     /** Per-session composer drafts, keyed under this hub (process-wide DataStore). */
     val chatDrafts: ChatDrafts = DataStoreChatDrafts(context.chatDraftsDataStore, hubKey = session.hubUrl)

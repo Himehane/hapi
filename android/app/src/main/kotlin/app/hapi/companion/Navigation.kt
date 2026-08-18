@@ -48,6 +48,10 @@ import app.hapi.companion.feature.pairing.PairingScreen
 import app.hapi.companion.feature.pairing.PairingUiState
 import app.hapi.companion.feature.pairing.PairingViewModel
 import app.hapi.companion.feature.pairing.QrScanScreen
+import app.hapi.companion.feature.scratchlist.ContentResolverAttachmentImporter
+import app.hapi.companion.feature.scratchlist.ScratchlistMedia
+import app.hapi.companion.feature.scratchlist.ScratchlistScreen
+import app.hapi.companion.feature.scratchlist.ScratchlistViewModel
 import app.hapi.companion.feature.sessions.SessionListViewModel
 import app.hapi.companion.feature.settings.SettingsScreen
 import app.hapi.companion.feature.settings.SettingsViewModel
@@ -106,6 +110,11 @@ object Routes {
     } catch (_: IllegalArgumentException) {
         null
     }
+
+    /** Per-session scratchlist workbench (B-M4d), pushed above its chat. */
+    const val SCRATCHLIST = "chat/{sessionId}/scratchlist"
+
+    fun scratchlist(sessionId: String) = "chat/$sessionId/scratchlist"
 
     /** New-session form (B-M3d); optional machine preselect. */
     const val NEW_SESSION = "newSession?machineId={machineId}"
@@ -180,7 +189,8 @@ fun HapiNavigation() {
                 navController.navigateClearingBackStack(Routes.PAIRING)
             }
         } else if (
-            navController.currentDestination?.route in setOf(Routes.CHAT, Routes.FILES, Routes.FILE_VIEWER)
+            navController.currentDestination?.route in
+                setOf(Routes.CHAT, Routes.FILES, Routes.FILE_VIEWER, Routes.SCRATCHLIST)
         ) {
             navController.popBackStack(Routes.HOME, inclusive = false)
         }
@@ -279,6 +289,7 @@ fun HapiNavigation() {
                     // a hint chip (no per-line highlight — B-M4c trade-off).
                     navController.navigate(Routes.fileViewer(sessionId, path, mode = "file", line = line))
                 },
+                onOpenScratchlist = { navController.navigate(Routes.scratchlist(sessionId)) },
             )
         }
 
@@ -347,6 +358,48 @@ fun HapiNavigation() {
             FileViewerScreen(
                 viewModel = holder.viewModel,
                 onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = Routes.SCRATCHLIST,
+            arguments = listOf(navArgument("sessionId") { type = NavType.StringType }),
+        ) { entry ->
+            val sessionId = entry.arguments?.getString("sessionId") ?: return@composable
+            val hubGraph = activeHubGraph ?: return@composable
+            val appContext = LocalContext.current.applicationContext
+            val holder = viewModel<ScratchlistViewModelHolder>(
+                key = "scratchlist:${hubGraph.hubUrl}:$sessionId",
+                factory = viewModelFactory { ScratchlistViewModelHolder(hubGraph, sessionId, appContext) },
+            )
+            // "Send to composer" reuses the chat ViewModel of the entry below
+            // this route (same holder key + the chat entry as owner), so the
+            // inserted text lands in the live composer state, not a stale
+            // draft. Guarded: without a chat below, the affordance hides.
+            val chatEntry = remember(entry) {
+                runCatching { navController.getBackStackEntry(Routes.CHAT) }.getOrNull()
+            }
+            val chatHolder = chatEntry?.let { owner ->
+                viewModel<ChatViewModelHolder>(
+                    viewModelStoreOwner = owner,
+                    key = "chat:${hubGraph.hubUrl}:$sessionId",
+                    factory = viewModelFactory { ChatViewModelHolder(hubGraph, sessionId, appContext) },
+                )
+            }
+            ScratchlistScreen(
+                viewModel = holder.viewModel,
+                media = remember(hubGraph, sessionId) {
+                    ScratchlistMedia(hubGraph.imageLoader) { attachmentId ->
+                        hubGraph.scratchlistAttachmentUrl(sessionId, attachmentId)
+                    }
+                },
+                onBack = { navController.popBackStack() },
+                onSendToComposer = chatHolder?.let { chat ->
+                    { scratchEntry ->
+                        chat.viewModel.insertComposerText(scratchEntry.text)
+                        navController.popBackStack()
+                    }
+                },
             )
         }
 
@@ -486,6 +539,7 @@ private class ChatViewModelHolder(
         syncTargets = hubGraph.syncTargets,
         scope = scope,
         drafts = hubGraph.chatDrafts,
+        scratchlist = hubGraph.scratchlistStore,
     )
 
     /**
@@ -599,6 +653,27 @@ private class StorageViewModelHolder(hubGraph: HubGraph) : ViewModel() {
     )
 
     override fun onCleared() {
+        scope.cancel()
+    }
+}
+
+/** Shell for the per-session scratchlist workbench (B-M4d). */
+private class ScratchlistViewModelHolder(
+    hubGraph: HubGraph,
+    sessionId: String,
+    appContext: Context,
+) : ViewModel() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val viewModel = ScratchlistViewModel(
+        sessionId = sessionId,
+        store = hubGraph.scratchlistStore,
+        scope = scope,
+        importer = ContentResolverAttachmentImporter(appContext),
+    )
+
+    override fun onCleared() {
+        viewModel.stop()
         scope.cancel()
     }
 }
