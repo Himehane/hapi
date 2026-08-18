@@ -117,7 +117,28 @@ ios/
                                       managed note — session type simple/
                                       worktree + name, UserDefaults draft +
                                       prefs per hub; success dismisses the
-                                      sheet and pushes the chat).
+                                      sheet and pushes the chat),
+                                      Settings/ (A-M4de sheet off the home
+                                      hub menu: Appearance — theme mode
+                                      system/light/dark/OLED persisted via
+                                      HapiClient ThemePrefs and applied in
+                                      RootView (HapiUI palette +
+                                      preferredColorScheme; system follows
+                                      the OS, explicit modes override, OLED
+                                      = dark on pure black); Language —
+                                      persist-only until the M5 i18n pass;
+                                      owner-gated (JWT ns == "default",
+                                      fail closed) Usage dashboard — range
+                                      7d/30d/all, stat tiles, Swift Charts
+                                      daily BarMark chart with calendar-
+                                      filled days + tap/drag day selection,
+                                      byAgent/byModel top-8 bar rows — and
+                                      Storage dashboard — SectorMark donut
+                                      of db/wal/shm with the total in the
+                                      center, legend rows with bytes +
+                                      percents, path, refresh; About — app/
+                                      protocol versions + hub health probe
+                                      with retry).
   Packages/HapiKit/      Local SPM package with the real logic:
     HapiProtocol         Pure-Foundation protocol layer. As of M2a:
                            Models/   wire types mirroring shared/src/schemas.ts
@@ -296,9 +317,26 @@ ios/
                                             POST /api/visibility per tracked
                                             handshake subscriptionId on
                                             scene-phase flips, 404 pruning.
-                         Feature endpoints (git/files, scratchlist, voice,
-                         usage) join Endpoints/ with their feature packages
-                         in M3/M4.
+                           Settings/        A-M4de pure settings logic,
+                                            transcribed (with tests) from
+                                            the Android reference: UsageMath
+                                            (formatTokens/formatBytes web
+                                            thresholds, cache hit rate,
+                                            calendar-filled daily bars via
+                                            pure Gregorian day math),
+                                            StorageMath (donut slices +
+                                            half-up percents, web-geometry
+                                            test-locked), OwnerGate (JWT
+                                            ns == "default", fail closed),
+                                            ThemePrefs/LanguagePrefs
+                                            (@Observable UserDefaults
+                                            persistence). Endpoints/ adds
+                                            the owner-only GET
+                                            /api/usage/summary and GET
+                                            /api/storage/sqlite.
+                         Feature endpoints (git/files, scratchlist, voice)
+                         join Endpoints/ with their feature packages in
+                         M3/M4.
     HapiUI               Rendering foundation (M2e). SwiftUI, no app coupling:
                            Markdown/  MarkdownTransforms (string-level ports of
                                       the web remark plugins: table repair,

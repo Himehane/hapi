@@ -4,11 +4,14 @@ import SwiftUI
 
 /// Switches the app root on pairing state and hosts the presentation that
 /// must survive that switch: the deep-link pairing confirm sheet, the
-/// "already paired" notice, the HapiUI palette matching the system
-/// appearance, and the app-wide markdown link handler.
+/// "already paired" notice, the HapiUI palette resolved from the persisted
+/// theme choice (A-M4e: system follows the OS scheme, explicit modes
+/// override it, OLED = dark palette on pure black), and the app-wide
+/// markdown link handler.
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
+    @State private var themePrefs = ThemePrefs()
 
     var body: some View {
         @Bindable var model = model
@@ -58,7 +61,13 @@ struct RootView: View {
         } message: {
             Text(model.infoNotice ?? "")
         }
-        .hapiTheme(HapiTheme.resolve(for: colorScheme))
+        .hapiTheme(themePrefs.mode.hapiTheme(systemColorScheme: colorScheme))
+        // Explicit modes force the presentation's chrome to match their
+        // palette; `.system` passes nil so the OS scheme flows through.
+        // (Under an explicit mode `colorScheme` reflects the override, but
+        // the palette resolution only consults it in `.system` mode.)
+        .preferredColorScheme(themePrefs.mode.preferredColorScheme)
+        .environment(themePrefs)
         .handlesHapiLinks()
     }
 }
