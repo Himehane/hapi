@@ -37,7 +37,9 @@ data class MachineMetadata(
     val workspaceRoots: List<String>? = null,
     /** Machine-scoped RPC capability ids this runner registers. */
     val capabilities: List<String>? = null,
+    @Serializable(with = LenientEpochMs::class)
     val startedCliMtimeMs: Long? = null,
+    @Serializable(with = LenientEpochMs::class)
     val installedCliMtimeMs: Long? = null,
     val supervisedRestart: Boolean? = null,
 )

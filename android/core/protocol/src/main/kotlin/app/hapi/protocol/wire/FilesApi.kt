@@ -29,7 +29,8 @@ data class FileReadResponse(
     val content: String? = null,
     /** Bytes on disk. */
     val size: Long? = null,
-    /** Epoch ms. */
+    /** Epoch ms (fs mtime — may arrive fractional; see [LenientEpochMs]). */
+    @Serializable(with = LenientEpochMs::class)
     val modified: Long? = null,
     val error: String? = null,
 )
@@ -51,7 +52,8 @@ data class FileSearchItem(
     /** `'file' | 'folder'` (search results are files in practice). */
     val fileType: String,
     val size: Long? = null,
-    /** Epoch ms. */
+    /** Epoch ms (fs mtime — may arrive fractional; see [LenientEpochMs]). */
+    @Serializable(with = LenientEpochMs::class)
     val modified: Long? = null,
 )
 
@@ -73,6 +75,7 @@ data class DirectoryEntry(
     /** `'file' | 'directory' | 'other'`. */
     val type: String,
     val size: Long? = null,
-    /** Epoch ms. */
+    /** Epoch ms (fs mtime — may arrive fractional; see [LenientEpochMs]). */
+    @Serializable(with = LenientEpochMs::class)
     val modified: Long? = null,
 )

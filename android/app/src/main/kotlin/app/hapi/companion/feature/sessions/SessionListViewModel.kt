@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -97,6 +98,24 @@ class SessionListViewModel(
 
     private var refreshJob: Job? = null
 
+    init {
+        // Live SSE data is proof of connectivity: any list emission after a
+        // failed refresh clears the stale offline banner (a device-observed
+        // contradiction — active sessions updating under an "offline" banner).
+        scope.launch {
+            sessionStore.sessions.drop(1).collect { sessions ->
+                if (isOffline.value) isOffline.value = false
+                // Seed the unread baseline from SSE data too — when REST
+                // refresh fails but the stream works, unseeded watermarks
+                // would light every row's unread dot (once-per-scope inside
+                // the store, so repeated calls are no-ops).
+                if (sessions.isNotEmpty()) {
+                    runCatching { lastSeenStore.initializeBaseline(hubKey, sessions) }
+                }
+            }
+        }
+    }
+
     val uiState: StateFlow<SessionListUiState> = combine(
         sessionStore.sessions,
         machineStore.machines,
@@ -149,13 +168,24 @@ class SessionListViewModel(
         refreshJob = scope.launch {
             isRefreshing.value = true
             try {
+                // Only a failed *sessions* fetch means "offline". Machines and
+                // the unread baseline are secondary: their failures must not
+                // pin the offline banner over a perfectly live list (this
+                // exact cascade shipped once — a machines decode error kept
+                // the banner up while SSE streamed active sessions).
                 sessionStore.refresh()
-                machineStore.refresh()
                 isOffline.value = false
                 hasRefreshedOnce.value = true
                 // First successful list for this hub seeds the unread baseline
                 // so historical sessions do not all light up as unread.
-                lastSeenStore.initializeBaseline(hubKey, sessionStore.sessions.value)
+                runCatching { lastSeenStore.initializeBaseline(hubKey, sessionStore.sessions.value) }
+                try {
+                    machineStore.refresh()
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (error: Exception) {
+                    _errors.tryEmit(SessionListError.MachinesRefreshFailed(error.message))
+                }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: Exception) {
@@ -360,4 +390,9 @@ sealed interface SessionListError {
         val stillActive: Boolean = false,
     ) : SessionListError
     data class ReopenFailed(override val sessionId: String, override val message: String?) : SessionListError
+
+    /** Machines list refresh failed — advisory only, never the offline banner. */
+    data class MachinesRefreshFailed(override val message: String?) : SessionListError {
+        override val sessionId: String get() = ""
+    }
 }

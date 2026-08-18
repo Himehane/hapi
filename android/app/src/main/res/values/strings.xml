@@ -214,6 +214,7 @@
     <string name="sessions_error_rename">Rename failed</string>
     <string name="sessions_error_delete">Delete failed</string>
     <string name="sessions_error_reopen">Reopen failed</string>
+    <string name="sessions_error_machines">Could not load machines</string>
     <string name="sessions_error_delete_active">Session is still active — archive it first</string>
     <string name="sessions_reopen_failed_fallback">Failed to reopen session</string>
     <string name="sessions_rename_title">Rename session</string>
@@ -270,6 +271,11 @@
     <string name="chat_recording">● Recording…  %1$s</string>
     <string name="chat_cancel">Cancel</string>
     <string name="chat_park_draft">Park draft to scratchlist</string>
+    <string name="chat_composer_add_attachment">Add attachment</string>
+    <string name="chat_composer_mic">Start dictation</string>
+    <string name="chat_composer_stop_recording">Stop recording</string>
+    <string name="chat_composer_send">Send</string>
+    <string name="chat_composer_abort">Stop the current turn</string>
     <string name="chat_send_steer">Send &amp; steer into current turn</string>
     <string name="chat_queued_one">1 queued message</string>
     <string name="chat_queued_many">%1$d queued messages</string>

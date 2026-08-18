@@ -121,6 +121,7 @@ fun SessionListScreen(
                     is SessionListError.RenameFailed -> R.string.sessions_error_rename
                     is SessionListError.DeleteFailed -> R.string.sessions_error_delete
                     is SessionListError.ReopenFailed -> R.string.sessions_error_reopen
+                    is SessionListError.MachinesRefreshFailed -> R.string.sessions_error_machines
                 },
             )
             // The 409-on-delete conflict gets explicit wording; other messages
@@ -311,19 +312,23 @@ private fun SessionRow(
         Spacer(modifier = Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // One weighted element only: the title takes ALL leftover
+                // width (start-aligned, ellipsis on true overflow). Splitting
+                // the slack with a weighted trailing spacer truncated even
+                // short names at ~half the row (device-observed).
                 Text(
                     text = row.title,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = if (row.unread) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f),
                 )
                 if (row.unread) {
                     Spacer(modifier = Modifier.width(6.dp))
                     UnreadDot()
                 }
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = localizedRelativeAge(summary.updatedAt),
                     style = MaterialTheme.typography.labelSmall,

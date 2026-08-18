@@ -330,6 +330,13 @@ fun ChatScreen(
                         onRename = { renameDialogOpen = true },
                         onReopen = viewModel::reopenSession,
                         onDelete = { deleteDialogOpen = true },
+                        // Draft-level action, relocated from the composer's
+                        // own overflow (one less button in the input bar).
+                        onParkDraft = if (viewModel.scratchlistEnabled && composerState.text.isNotBlank()) {
+                            viewModel::parkComposerDraft
+                        } else {
+                            null
+                        },
                     )
                 },
             )
@@ -361,7 +368,6 @@ fun ChatScreen(
                     dictation = if (dictation != null) dictationState else null,
                     onDictationToggle = onDictationToggle,
                     onDictationCancel = { dictation?.cancel() },
-                    onParkDraft = if (viewModel.scratchlistEnabled) viewModel::parkComposerDraft else null,
                 )
             }
         },
@@ -462,6 +468,8 @@ private fun SessionOverflowMenu(
     onRename: () -> Unit,
     onReopen: () -> Unit,
     onDelete: () -> Unit,
+    /** null ⇒ hidden (scratchlist off or empty composer). */
+    onParkDraft: (() -> Unit)? = null,
 ) {
     var open by remember { mutableStateOf(false) }
     IconButton(onClick = { open = true }) {
@@ -475,6 +483,15 @@ private fun SessionOverflowMenu(
                 onRename()
             },
         )
+        if (onParkDraft != null) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.chat_park_draft)) },
+                onClick = {
+                    open = false
+                    onParkDraft()
+                },
+            )
+        }
         if (!active) {
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.sessions_action_reopen)) },

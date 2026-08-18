@@ -207,7 +207,8 @@ data class MachineDirectoryEntry(
     /** `'file' | 'directory' | 'other'`. */
     val type: String,
     val size: Long? = null,
-    /** Epoch ms. */
+    /** Epoch ms (fs mtime — may arrive fractional; see [LenientEpochMs]). */
+    @Serializable(with = LenientEpochMs::class)
     val modified: Long? = null,
     val isGitRepo: Boolean? = null,
 )
