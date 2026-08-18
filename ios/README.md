@@ -111,6 +111,21 @@ ios/
                                       attachments); SessionConfigView —
                                       the toolbar-gear sheet for permission
                                       mode / model / effort per flavor),
+                                      Scratchlist/ (A-M4b per-session parked
+                                      notes, a sheet off the chat toolbar's
+                                      note icon with entry-count badge: entry
+                                      cards — 4-line preview, relative age,
+                                      authed attachment thumbnails/filename
+                                      chips — edit sheet with PhotosPicker →
+                                      guard → JPEG downscale → upload spinner
+                                      tile, full-screen attachment viewer,
+                                      per-entry "To composer" insertion, and
+                                      "Park current draft" in the screen
+                                      header — a deliberate placement
+                                      divergence from Android's composer
+                                      button, since the composer UI is owned
+                                      by the attachments package; the store +
+                                      guard live in HapiKit),
                                       Links/ (app-wide \.hapiOpenURL handler:
                                       https/http → SFSafariViewController,
                                       confirm-first schemes → alert,
@@ -359,6 +374,7 @@ ios/
                                             POST /api/visibility per tracked
                                             handshake subscriptionId on
                                             scene-phase flips, 404 pruning.
+<<<<<<< HEAD
                            Settings/        A-M4de pure settings logic,
                                             transcribed (with tests) from
                                             the Android reference: UsageMath
@@ -424,8 +440,31 @@ ios/
                                             unified-diff emptiness probe is
                                             injected since the parser lives in
                                             HapiUI).
-                         Remaining feature endpoints (scratchlist) join
-                         Endpoints/ with their feature packages in M4.
+                                            Since A-M4b: ScratchlistStore —
+                                            the per-session scratchlist cache
+                                            (open/release observation,
+                                            16 ms-coalesced refetch on the
+                                            scratchlistUpdatedAt SSE signal
+                                            via SessionListStore.
+                                            onScratchlistInvalidation,
+                                            optimistic create/update/delete
+                                            with surgical entryId reconcile +
+                                            rollback, idempotent create via
+                                            client entryId, 200-entry cap
+                                            pre-check + hub 409 verdict,
+                                            base64 attachment upload with
+                                            in-flight names, cached limits
+                                            with offline defaults) and the
+                                            pure ScratchlistAttachmentGuard
+                                            (Fits/Downscale/Reject budget
+                                            verdicts) + Endpoints/
+                                            ScratchlistEndpoints and the
+                                            HapiProtocol wire models
+                                            (ScratchlistApi.swift); the
+                                            ChatInteractor grows the
+                                            scratchlist badge count and the
+                                            insertComposerText /
+                                            parkComposerDraft seams.
     HapiUI               Rendering foundation (M2e). SwiftUI, no app coupling:
                            Markdown/  MarkdownTransforms (string-level ports of
                                       the web remark plugins: table repair,
@@ -481,6 +520,7 @@ scripted): canonical approve/deny/send/config wire bodies asserted
 byte-for-byte, optimistic send happy/fail/retry, 409 → resume → retry (same
 and superseding id), queued cancel invoked-race, steer reconcile, edit
 prefill, permission override lifecycle, and config optimistic + rollback.
+<<<<<<< HEAD
 Since A-M3f, `Attachments/AttachmentPolicyTests` ports the Android policy
 matrix, `Attachments/ComposerAttachmentsTests` drives the upload tray over
 the real client (exact base64 upload bodies, consume/retry/remove,
@@ -498,6 +538,15 @@ files/viewer model suites against a fake gateway (numstat merge + degraded
 banners, lazy tree cache, search debounce, staged-toggle reload, the
 auto-fallback rules, base64/image/binary classification) plus asserts the
 six git/files endpoint URLs against the recording performer.
+Since A-M4b, `Stores/ScratchlistStoreTests` transcribes the Android
+scratchlist store suite (optimistic CRUD reconcile/rollback, at-cap 409 +
+local short-circuit, SSE-invalidation refetch for observed sessions, upload
+in-flight progress + typed 413, attachment delete 409/ok mapping, limits
+cache/offline defaults — canonical wire bodies asserted) plus the
+`SessionListStore` invalidation-seam test; `ScratchlistAttachmentGuardTests`
+ports the nine budget-verdict cases; and
+`Chat/ChatInteractorScratchlistTests` covers the park/insert/badge seams
+against a fake store.
 
 ## Pairing (M1d)
 

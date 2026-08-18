@@ -31,6 +31,9 @@ final class HubSession {
     let lastSeenStore: LastSeenStore
     /// Per-session message window registry (M2f), snapshot-backed per hub.
     let windows: MessageWindowControllers
+    /// Per-session scratchlist cache (A-M4b), fed the `scratchlistUpdatedAt`
+    /// invalidation signal from the session-patch application below.
+    let scratchlist: ScratchlistStore
     /// `POST /api/visibility` reporter (M3b): fed every pipe's handshake
     /// subscription id, flipped with the scene phase.
     let visibility: VisibilityReporter
@@ -93,6 +96,14 @@ final class HubSession {
                 directory: snapshotDirectory.appendingPathComponent("windows", isDirectory: true)
             )
         )
+        let scratchlist = ScratchlistStore(api: api)
+        self.scratchlist = scratchlist
+        // `scratchlistUpdatedAt` on a session patch (either SSE pipe — both
+        // route through this store) is a bare refetch trigger for that
+        // session's scratchlist (A-M4b).
+        sessionStore.onScratchlistInvalidation = { sessionId in
+            scratchlist.handleInvalidation(sessionId: sessionId)
+        }
         self.visibility = VisibilityReporter(setVisibility: { subscriptionId, visibility in
             try await api.setVisibility(subscriptionId: subscriptionId, visibility: visibility)
         })
@@ -137,13 +148,16 @@ final class HubSession {
     /// sheet — all against this hub's client, stores, and window registry.
     /// Drafts persist per hub + session in `UserDefaults`.
     func makeChatInteractor(sessionId: String) -> ChatInteractor {
-        ChatInteractor(
+        let interactor = ChatInteractor(
             sessionId: sessionId,
             api: api,
             sessionStore: sessionStore,
             windows: windows,
             drafts: UserDefaultsChatDrafts(scope: hubUrl)
         )
+        // Scratchlist seams (A-M4b): toolbar badge count + park/insert.
+        interactor.scratchlist = scratchlist
+        return interactor
     }
 
     // MARK: - Lifecycle (driven by AppModel from scenePhase)

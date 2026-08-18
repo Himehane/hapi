@@ -780,4 +780,67 @@ public final class ChatInteractor {
     private static func errorMessage(_ error: any Error, fallback: String) -> String {
         (error as? LocalizedError)?.errorDescription ?? fallback
     }
+
+    // MARK: - Scratchlist (A-M4b)
+
+    /// Per-session scratchlist store; nil ⇒ the scratchlist UI is hidden
+    /// (badge 0, park no-op). Injected by `HubSession` after construction —
+    /// a settable property rather than an init parameter keeps this addition
+    /// purely additive. Tests substitute fakes.
+    @ObservationIgnored public var scratchlist: (any SessionScratchlistStoring)?
+
+    /// Entry count for the chat toolbar's scratchlist badge — observable
+    /// through the store's own state (the Android `scratchlistCount` twin).
+    public var scratchlistCount: Int {
+        scratchlist?.state(sessionId).entries.count ?? 0
+    }
+
+    /// Scratchlist "To composer": insert `text` into the composer — an empty
+    /// composer takes it verbatim, an existing draft keeps its words and the
+    /// entry lands on a new line (the entry itself stays on the scratchlist,
+    /// like the web's promote-to-composer).
+    public func insertComposerText(_ text: String) {
+        guard !Self.isBlank(text) else { return }
+        let current = composerText
+        if Self.isBlank(current) {
+            setComposerText(text)
+        } else {
+            setComposerText(Self.trimmingTrailingWhitespace(current) + "\n" + text)
+        }
+    }
+
+    /// Scratchlist "Park current draft": the composer draft becomes a
+    /// scratchlist entry and the composer clears (store-optimistic; the
+    /// composer clears only after the hub accepts, so a failed park cannot
+    /// lose the draft).
+    public func parkComposerDraft() {
+        guard let scratchlist else { return }
+        let text = composerText
+        guard !Self.isBlank(text) else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            switch await scratchlist.createEntry(sessionId: self.sessionId, text: text) {
+            case .created:
+                // Clear only when the draft is still what we parked (the
+                // operator may have kept typing while the POST ran).
+                if self.composerText == text {
+                    self.setComposerText("")
+                }
+                self.emit(.notice("Draft parked to scratchlist"))
+            case .atCap:
+                self.emit(.notice("Scratchlist is full (200 entries)"))
+            case .failed:
+                self.emit(.notice("Couldn't park the draft — check the hub connection"))
+            }
+        }
+    }
+
+    private static func isBlank(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func trimmingTrailingWhitespace(_ text: String) -> String {
+        guard let last = text.lastIndex(where: { !$0.isWhitespace }) else { return "" }
+        return String(text[...last])
+    }
 }

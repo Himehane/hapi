@@ -40,6 +40,8 @@ struct ChatView: View {
     @State private var filesOpen = false
     /// File viewer push for `hapi-file://` chat citations (A-M4a).
     @State private var viewerRoute: FileViewerRoute?
+    /// Scratchlist sheet (toolbar note icon, A-M4b).
+    @State private var scratchlistOpen = false
 
     /// Resume/reopen handed back a superseding session id — the host swaps
     /// its navigation entry (HomeView replaces the path element).
@@ -94,6 +96,17 @@ struct ChatView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
+                    scratchlistOpen = true
+                } label: {
+                    Image(systemName: "note.text")
+                        .overlay(alignment: .topTrailing) {
+                            scratchlistBadge
+                        }
+                }
+                .accessibilityLabel("Scratchlist")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
                     filesOpen = true
                 } label: {
                     Image(systemName: "folder")
@@ -131,6 +144,14 @@ struct ChatView: View {
                 path: link.path,
                 mode: .file,
                 line: link.line
+            )
+        }
+        .sheet(isPresented: $scratchlistOpen) {
+            ScratchlistView(
+                store: model.scratchlist,
+                sessionId: model.sessionId,
+                attachments: model.scratchlistAttachments,
+                interactor: model.interactor
             )
         }
         .environment(\.chatMedia, model.imageLoader)
@@ -277,6 +298,21 @@ struct ChatView: View {
     }
 
     // MARK: - Chrome
+
+    /// Entry-count badge on the toolbar note icon (hidden at 0).
+    @ViewBuilder
+    private var scratchlistBadge: some View {
+        let count = model.interactor.scratchlistCount
+        if count > 0 {
+            Text(count > 99 ? "99+" : "\(count)")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 3)
+                .padding(.vertical, 1)
+                .background(.tint, in: Capsule())
+                .offset(x: 8, y: -6)
+        }
+    }
 
     private var headerTitle: some View {
         HStack(spacing: 8) {

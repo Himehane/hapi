@@ -77,6 +77,13 @@ public final class SessionListStore: SessionListStoring {
     /// UI) can use it where the reference asserts object identity.
     public private(set) var listRevision = 0
 
+    /// Fired with the session id when a `session-updated` patch carries
+    /// `scratchlistUpdatedAt` — a bare refetch trigger for that session's
+    /// scratchlist (A-M4b); the timestamp is the signal, never data. Wired by
+    /// `HubSession` to `ScratchlistStore.handleInvalidation` (the iOS seam
+    /// for the Android `SessionStore.scratchlistInvalidations` flow).
+    @ObservationIgnored public var onScratchlistInvalidation: (@MainActor (String) -> Void)?
+
     @ObservationIgnored private let api: APIClient
     @ObservationIgnored private let snapshot: DiskCache<[SessionSummary]>?
     @ObservationIgnored private let refreshBatch: Duration
@@ -245,8 +252,11 @@ public final class SessionListStore: SessionListStoring {
                 // Row not in the list yet (fresh spawn raced the refetch).
                 scheduleRefresh()
             }
-            // patch.scratchlistUpdatedAt is a bare refetch trigger for the
-            // scratchlist query — owned by M4b, nothing to do here.
+            // Bare refetch trigger for the scratchlist query (never applied
+            // onto the session — it carries no such field).
+            if patch.scratchlistUpdatedAt != nil {
+                onScratchlistInvalidation?(sessionId)
+            }
         case .session, .patch, .unrecognized, nil:
             // Mismatched-id full session, empty `{}` patch, unrecognized, or
             // absent payload → REST fallback.
