@@ -38,26 +38,29 @@ public enum ResolvedAppearance: Equatable, Sendable {
     case oled
 }
 
-/// App language choice (web `Locale` twin: `'en' | 'zh-Hans'`).
+/// App language choice (web `Locale` twin plus a follow-system default).
 ///
-/// A-M4e persists the selection only — the zh-CN string catalog and locale
-/// application land with the M5 i18n pass, so changing this has no visible
-/// effect yet.
+/// A-M5 wires the selection to an `AppleLanguages` override at the app layer
+/// (explicit picks pin the app locale, ``system`` removes the override);
+/// this type only persists the choice.
 public enum AppLanguage: String, CaseIterable, Sendable {
+    case system = "system"
     case english = "en"
     case simplifiedChinese = "zh-Hans"
 
-    /// Unknown/corrupt stored values degrade to ``english``.
+    /// Unknown/corrupt/absent stored values degrade to ``system``.
     public init(storageKey: String?) {
-        self = storageKey.flatMap(AppLanguage.init(rawValue:)) ?? .english
+        self = storageKey.flatMap(AppLanguage.init(rawValue:)) ?? .system
     }
 
     public var storageKey: String { rawValue }
 
-    /// Language names are shown in their own language (standard picker
-    /// convention) — nothing to translate in M5 either.
+    /// Explicit language names are shown in their own language (standard
+    /// picker convention). ``system``'s label is UI copy — the app layer
+    /// localizes it at the display point (this package stays language-free).
     public var displayName: String {
         switch self {
+        case .system: return "Follow system"
         case .english: return "English"
         case .simplifiedChinese: return "简体中文"
         }

@@ -13,7 +13,9 @@ struct QueuedMessagesBarView: View {
         let rows = interactor.queuedRows
         if !rows.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                Text(rows.count == 1 ? "1 queued message" : "\(rows.count) queued messages")
+                Text(rows.count == 1
+                    ? String(localized: "1 queued message")
+                    : String(format: String(localized: "%lld queued messages"), Int64(rows.count)))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 10)

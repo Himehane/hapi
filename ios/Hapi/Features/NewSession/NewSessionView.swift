@@ -50,7 +50,9 @@ struct NewSessionView: View {
     private var machineSection: some View {
         Section("Machine") {
             if model.machines.isEmpty {
-                Text(model.machinesLoading ? "Loading machines…" : "No machines online")
+                Text(model.machinesLoading
+                    ? String(localized: "Loading machines…")
+                    : String(localized: "No machines online"))
                     .foregroundStyle(.secondary)
             } else {
                 Picker("Machine", selection: machineBinding) {
@@ -162,12 +164,12 @@ struct NewSessionView: View {
             Text("Session Type")
         } footer: {
             if let error = model.worktreeNameError {
-                Text(error).foregroundStyle(.red)
+                Text(LocalizedNoticeMapper.map(error)).foregroundStyle(.red)
             } else {
                 Text(
                     model.form.sessionType == .worktree
-                        ? "Create a new git worktree next to the repo"
-                        : "Use selected directory as-is"
+                        ? String(localized: "Create a new git worktree next to the repo")
+                        : String(localized: "Use selected directory as-is")
                 )
             }
         }
@@ -296,15 +298,17 @@ struct NewSessionView: View {
                     isOn: Binding(get: { model.form.yolo }, set: { model.setYolo($0) })
                 )
                 Text(
-                    nativeModeLabel.map { "Uses dangerous agent flags when spawning. Applies native \($0) mode." }
-                        ?? "Uses dangerous agent flags when spawning."
+                    nativeModeLabel.map {
+                        String(format: String(localized: "Uses dangerous agent flags when spawning. Applies native %@ mode."), $0)
+                    }
+                        ?? String(localized: "Uses dangerous agent flags when spawning.")
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
         case .managed:
             VStack(alignment: .leading, spacing: 2) {
-                LabeledContent("Permission Mode", value: "Managed by agent")
+                LabeledContent("Permission Mode", value: String(localized: "Managed by agent"))
                 Text("This agent manages its own permissions. YOLO mode is not available.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -341,7 +345,7 @@ struct NewSessionView: View {
     }
 
     private func optionPicker(
-        _ title: String,
+        _ title: LocalizedStringKey,
         options: [NewSessionOption],
         selection: Binding<String>
     ) -> some View {
@@ -379,11 +383,11 @@ struct NewSessionView: View {
 
     private var createLabel: String {
         if model.isSpawning {
-            return "Creating…"
+            return String(localized: "Creating…")
         }
         if model.confirmCreateDirectory {
-            return "Create and Make Directory"
+            return String(localized: "Create and Make Directory")
         }
-        return "Create"
+        return String(localized: "Create")
     }
 }

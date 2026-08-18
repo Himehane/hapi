@@ -153,7 +153,10 @@ final class AppModel {
             // sign-out first; silently replacing stored credentials from any
             // scanned link would be an easy way to hijack a pairing.
             switchHub(to: normalized)
-            infoNotice = "Already paired with \(HubDisplay.host(normalized)) — switched to it."
+            infoNotice = String(
+                format: String(localized: "Already paired with %@ — switched to it."),
+                HubDisplay.host(normalized)
+            )
             return true
         }
         // The confirm sheet is presented from the root; make room for it.

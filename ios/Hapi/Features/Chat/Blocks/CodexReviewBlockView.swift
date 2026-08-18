@@ -46,7 +46,9 @@ struct CodexReviewBlockView: View {
                     }
                 } label: {
                     Label(
-                        "\(review.findings.count) finding\(review.findings.count == 1 ? "" : "s")",
+                        review.findings.count == 1
+                            ? String(localized: "1 finding")
+                            : String(format: String(localized: "%lld findings"), Int64(review.findings.count)),
                         systemImage: findingsOpen ? "chevron.down" : "chevron.right"
                     )
                     .font(.footnote)

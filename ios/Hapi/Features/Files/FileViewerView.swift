@@ -105,19 +105,19 @@ struct FileViewerView: View {
         if hasDiff || isMarkdownText || model.focusLine != nil {
             HStack(spacing: 6) {
                 if hasDiff {
-                    ModeChip(label: "Diff", selected: model.mode == .diff) {
+                    ModeChip(label: String(localized: "Diff"), selected: model.mode == .diff) {
                         model.setMode(.diff)
                     }
-                    ModeChip(label: "File", selected: model.mode == .file) {
+                    ModeChip(label: String(localized: "File"), selected: model.mode == .file) {
                         model.setMode(.file)
                     }
                 }
                 if hasDiff && model.mode == .diff {
                     Text("·").foregroundStyle(.secondary)
-                    ModeChip(label: "Unstaged", selected: !model.staged) {
+                    ModeChip(label: String(localized: "Unstaged"), selected: !model.staged) {
                         model.setStaged(false)
                     }
-                    ModeChip(label: "Staged", selected: model.staged) {
+                    ModeChip(label: String(localized: "Staged"), selected: model.staged) {
                         model.setStaged(true)
                     }
                 }
@@ -125,10 +125,10 @@ struct FileViewerView: View {
                     if hasDiff {
                         Text("·").foregroundStyle(.secondary)
                     }
-                    ModeChip(label: "Source", selected: !model.markdownPreview) {
+                    ModeChip(label: String(localized: "Source"), selected: !model.markdownPreview) {
                         model.setMarkdownPreview(false)
                     }
-                    ModeChip(label: "Preview", selected: model.markdownPreview) {
+                    ModeChip(label: String(localized: "Preview"), selected: model.markdownPreview) {
                         model.setMarkdownPreview(true)
                     }
                 }
@@ -161,9 +161,9 @@ struct FileViewerView: View {
         case .loading:
             LoadingBlock()
         case .empty:
-            HintBlock(text: "No changes in this file")
+            HintBlock(text: String(localized: "No changes in this file"))
         case .failed(let message):
-            HintBlock(text: message)
+            HintBlock(text: LocalizedNoticeMapper.map(message))
         case .ready(let unifiedDiff):
             ParsedDiffView(unifiedDiff: unifiedDiff)
         }
@@ -175,11 +175,11 @@ struct FileViewerView: View {
         case .loading:
             LoadingBlock()
         case .failed(let message):
-            HintBlock(text: message)
+            HintBlock(text: LocalizedNoticeMapper.map(message))
         case .empty:
-            HintBlock(text: "This file is empty")
+            HintBlock(text: String(localized: "This file is empty"))
         case .binary:
-            HintBlock(text: "Binary file — no preview available")
+            HintBlock(text: String(localized: "Binary file — no preview available"))
         case .image(let data, _):
             if let image = UIImage(data: data) {
                 Image(uiImage: image)
@@ -189,7 +189,7 @@ struct FileViewerView: View {
                     .accessibilityLabel(model.fileName)
             } else {
                 // SVG and other formats UIImage can't decode.
-                HintBlock(text: "Preview not available for this image format")
+                HintBlock(text: String(localized: "Preview not available for this image format"))
             }
         case .text(let text, let language, let isMarkdown):
             if isMarkdown && model.markdownPreview {

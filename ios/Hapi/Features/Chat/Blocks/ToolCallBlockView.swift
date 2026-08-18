@@ -116,7 +116,9 @@ struct ToolCallBlockView: View {
                 }
             } label: {
                 Label(
-                    "\(block.children.count) agent step\(block.children.count == 1 ? "" : "s")",
+                    block.children.count == 1
+                        ? String(localized: "1 agent step")
+                        : String(format: String(localized: "%lld agent steps"), Int64(block.children.count)),
                     systemImage: childrenOpen ? "chevron.down" : "chevron.right"
                 )
                 .font(.caption)
@@ -156,9 +158,9 @@ struct ToolStatusIndicator: View {
             ProgressView()
                 .controlSize(.small)
         case .pending:
-            StatusChip(text: "pending", tint: .secondary)
+            StatusChip(text: String(localized: "pending"), tint: .secondary)
         case .error:
-            StatusChip(text: "error", tint: .red)
+            StatusChip(text: String(localized: "error"), tint: .red)
         case .completed:
             Image(systemName: "checkmark")
                 .font(.caption)
@@ -200,14 +202,14 @@ private struct PermissionStateRow: View {
                 .background(.orange.opacity(0.18))
                 .foregroundStyle(.orange)
         case .approved:
-            PermissionLine(text: "✓ Approved" + (permission.mode.map { " · \($0)" } ?? ""))
+            PermissionLine(text: String(localized: "✓ Approved") + (permission.mode.map { " · \($0)" } ?? ""))
         case .denied:
             PermissionLine(
-                text: "✕ Denied" + (permission.reason.map { " · \($0)" } ?? ""),
+                text: String(localized: "✕ Denied") + (permission.reason.map { " · \($0)" } ?? ""),
                 isError: true
             )
         case .canceled:
-            PermissionLine(text: "— Canceled")
+            PermissionLine(text: String(localized: "— Canceled"))
         }
     }
 }

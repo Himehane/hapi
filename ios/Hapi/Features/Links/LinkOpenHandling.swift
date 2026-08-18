@@ -79,7 +79,10 @@ struct LinkOpenHandling: ViewModifier {
                     fileNotice = nil
                 }
             } message: { link in
-                Text("\(link.path)\(link.line.map { ":\($0)" } ?? "")\n\nOpen a session chat to browse its files.")
+                Text(String(
+                    format: String(localized: "%@\n\nOpen a session chat to browse its files."),
+                    link.path + (link.line.map { ":\($0)" } ?? "")
+                ))
             }
     }
 

@@ -76,7 +76,7 @@ final class ScratchlistScreenModel {
     /// Card tap (existing) or the new-note button (`entry == nil`, new draft).
     func openEditor(_ entry: ScratchlistEntry?) {
         if entry == nil, state.atCap {
-            showNotice("Scratchlist is full (200 entries) — delete one first")
+            showNotice(String(localized: "Scratchlist is full (200 entries) — delete one first"))
             return
         }
         if let entry {
@@ -132,16 +132,16 @@ final class ScratchlistScreenModel {
                     attachments: nil
                 )
                 if !updated {
-                    showNotice("Couldn't save the note — check the hub connection")
+                    showNotice(String(localized: "Couldn't save the note — check the hub connection"))
                 }
             } else {
                 switch await store.createEntry(sessionId: sessionId, text: text, attachments: editor.attachments) {
                 case .created:
                     break
                 case .atCap:
-                    showNotice("Scratchlist is full (200 entries)")
+                    showNotice(String(localized: "Scratchlist is full (200 entries)"))
                 case .failed:
-                    showNotice("Couldn't save the note — check the hub connection")
+                    showNotice(String(localized: "Couldn't save the note — check the hub connection"))
                 }
             }
         }
@@ -155,7 +155,7 @@ final class ScratchlistScreenModel {
         Task { [self] in
             let deleted = await store.deleteEntry(sessionId: sessionId, entryId: entryId)
             if !deleted {
-                showNotice("Couldn't delete the note — check the hub connection")
+                showNotice(String(localized: "Couldn't delete the note — check the hub connection"))
             }
         }
     }
@@ -173,7 +173,7 @@ final class ScratchlistScreenModel {
             let limits = await self.store.limits(sessionId: self.sessionId)
             guard let existing = self.editor?.attachments else { return }
             guard let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty else {
-                self.showNotice("Couldn't read the selected photo")
+                self.showNotice(String(localized: "Couldn't read the selected photo"))
                 return
             }
             let contentType = item.supportedContentTypes.first
@@ -227,7 +227,7 @@ final class ScratchlistScreenModel {
             if !updated {
                 rollbackEditorAttachments(entryId: entryId, to: editor.attachments)
                 _ = await store.deleteAttachment(sessionId: sessionId, attachmentId: attachment.id)
-                showNotice("Couldn't attach the file — check the hub connection")
+                showNotice(String(localized: "Couldn't attach the file — check the hub connection"))
             }
         }
     }
@@ -254,7 +254,7 @@ final class ScratchlistScreenModel {
                 )
                 if !updated {
                     rollbackEditorAttachments(entryId: entryId, to: editor.attachments)
-                    showNotice("Couldn't remove the attachment — check the hub connection")
+                    showNotice(String(localized: "Couldn't remove the attachment — check the hub connection"))
                     return
                 }
             }
@@ -268,8 +268,8 @@ final class ScratchlistScreenModel {
 
     private static func uploadFailureMessage(code: String?) -> String {
         code == ScratchlistErrorCode.attachmentTooLarge
-            ? "That file is over the hub's per-file size limit"
-            : "Upload failed — check the hub connection"
+            ? String(localized: "That file is over the hub's per-file size limit")
+            : String(localized: "Upload failed — check the hub connection")
     }
 
     private static func pickedFilename(for contentType: UTType?) -> String {

@@ -176,7 +176,7 @@ struct ChatView: View {
     @ViewBuilder
     private var noticeToast: some View {
         if let notice = model.notice {
-            Text(notice)
+            Text(LocalizedNoticeMapper.map(notice))
                 .font(.footnote)
                 .lineLimit(3)
                 .padding(.horizontal, 14)
@@ -284,7 +284,9 @@ struct ChatView: View {
                 newestSeenID = newestBlockID
                 positionID = Self.bottomSentinelID
             } label: {
-                Text(count == 1 ? "1 new message ↓" : "\(count) new messages ↓")
+                Text(count == 1
+                    ? String(localized: "1 new message ↓")
+                    : String(format: String(localized: "%lld new messages ↓"), Int64(count)))
                     .font(.footnote.weight(.medium))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
@@ -336,7 +338,7 @@ struct ChatView: View {
         VStack(spacing: 0) {
             if let warning = model.warning {
                 HStack(spacing: 8) {
-                    Text(warning)
+                    Text(LocalizedNoticeMapper.map(warning))
                         .font(.footnote)
                         .lineLimit(2)
                     Spacer(minLength: 8)

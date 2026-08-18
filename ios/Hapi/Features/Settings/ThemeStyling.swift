@@ -30,10 +30,10 @@ extension ThemeMode {
 
     var label: String {
         switch self {
-        case .system: return "Follow system"
-        case .light: return "Light"
-        case .dark: return "Dark"
-        case .oled: return "OLED black"
+        case .system: return String(localized: "Follow system")
+        case .light: return String(localized: "Light")
+        case .dark: return String(localized: "Dark")
+        case .oled: return String(localized: "OLED black")
         }
     }
 }

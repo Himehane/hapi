@@ -127,20 +127,41 @@ struct SettingsView: View {
         Section {
             Picker("App language", selection: languageBinding) {
                 ForEach(AppLanguage.allCases, id: \.self) { language in
-                    Text(language.displayName).tag(language)
+                    Text(Self.pickerLabel(for: language)).tag(language)
                 }
             }
         } header: {
             Text("Language")
         } footer: {
-            Text("Saved now; the 简体中文 translation ships in an upcoming update.")
+            Text("Applies after the app is relaunched.")
         }
     }
 
+    /// Explicit languages show their native names (package data); the
+    /// follow-system row is UI copy localized here (the package stays
+    /// language-free).
+    private static func pickerLabel(for language: AppLanguage) -> String {
+        language == .system ? String(localized: "Follow system") : language.displayName
+    }
+
+    /// SwiftUI has no supported in-place locale swap without replumbing every
+    /// scene, so an explicit pick writes the standard `AppleLanguages`
+    /// override (applied by the OS on next launch) and "Follow system"
+    /// removes it — the footer says a relaunch is needed.
     private var languageBinding: Binding<AppLanguage> {
         Binding(
             get: { languagePrefs.language },
-            set: { languagePrefs.setLanguage($0) }
+            set: { language in
+                languagePrefs.setLanguage(language)
+                switch language {
+                case .system:
+                    UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+                case .english:
+                    UserDefaults.standard.set(["en"], forKey: "AppleLanguages")
+                case .simplifiedChinese:
+                    UserDefaults.standard.set(["zh-Hans"], forKey: "AppleLanguages")
+                }
+            }
         )
     }
 
@@ -199,7 +220,7 @@ struct SettingsView: View {
         }
     }
 
-    private func detailRow(title: String, detail: String) -> some View {
+    private func detailRow(title: LocalizedStringKey, detail: LocalizedStringKey) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
             Text(detail)
@@ -226,8 +247,8 @@ struct DashboardErrorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(isForbidden
-                ? "This dashboard is only available to the hub owner (default namespace)."
-                : "Could not load this dashboard.")
+                ? String(localized: "This dashboard is only available to the hub owner (default namespace).")
+                : String(localized: "Could not load this dashboard."))
                 .font(.subheadline)
             if !isForbidden, let message, !message.isEmpty {
                 Text(message)
@@ -247,10 +268,10 @@ struct DashboardErrorView: View {
 
 /// Rounded card container shared by the dashboard screens.
 struct DashboardCard<Content: View>: View {
-    let title: String?
+    let title: LocalizedStringKey?
     let content: Content
 
-    init(title: String? = nil, @ViewBuilder content: () -> Content) {
+    init(title: LocalizedStringKey? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
         self.content = content()
     }

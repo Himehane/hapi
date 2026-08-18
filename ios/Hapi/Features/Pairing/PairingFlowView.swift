@@ -35,15 +35,11 @@ struct PairingFlowView: View {
                             .font(.system(size: 56))
                             .foregroundStyle(.tint)
                             .padding(.top, context == .initial ? 48 : 24)
-                        Text(context == .initial ? "Pair with your hub" : "Add another hub")
+                        Text(context == .initial
+                            ? String(localized: "Pair with your hub")
+                            : String(localized: "Add another hub"))
                             .font(.title.bold())
-                        Text(
-                            "HAPI is self-hosted: your agent sessions run on your "
-                                + "own machine, served by a hub you operate. Start the "
-                                + "hub on your computer, then pair this app with the "
-                                + "QR code it prints — or enter the hub URL and access "
-                                + "token by hand."
-                        )
+                        Text("HAPI is self-hosted: your agent sessions run on your own machine, served by a hub you operate. Start the hub on your computer, then pair this app with the QR code it prints — or enter the hub URL and access token by hand.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -78,7 +74,7 @@ struct PairingFlowView: View {
                 .frame(maxWidth: 480)
                 .frame(maxWidth: .infinity)
             }
-            .navigationTitle(context == .addHub ? "Add Hub" : "")
+            .navigationTitle(context == .addHub ? String(localized: "Add Hub") : "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if context == .addHub {
@@ -105,8 +101,7 @@ struct PairingFlowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Signed out of \(HubDisplay.host(failedHub))")
                     .font(.subheadline.bold())
-                Text("The hub rejected the stored credentials — the access "
-                    + "token was probably rotated. Pair again to reconnect.")
+                Text("The hub rejected the stored credentials — the access token was probably rotated. Pair again to reconnect.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

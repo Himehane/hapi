@@ -75,7 +75,9 @@ struct ToolGroupBlockView: View {
             return activityTitle
         }
         let count = block.summary.totalTools
-        return "\(count) tool\(count == 1 ? "" : "s")"
+        return count == 1
+            ? String(localized: "1 tool")
+            : String(format: String(localized: "%lld tools"), Int64(count))
     }
 
     /// "file, other-file +2" digest from the group summary targets.

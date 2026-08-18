@@ -95,7 +95,7 @@ struct AgentReasoningBlockView: View {
                 }
             } label: {
                 Label(
-                    expanded ? "Reasoning" : "Reasoning…",
+                    expanded ? String(localized: "Reasoning") : String(localized: "Reasoning…"),
                     systemImage: expanded ? "chevron.down" : "chevron.right"
                 )
                 .font(.caption)

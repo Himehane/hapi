@@ -183,14 +183,14 @@ struct UsageView: View {
 
     private func statTiles(_ totals: UsageSummaryTotals) -> some View {
         let tiles: [StatTile] = [
-            StatTile(label: "Total tokens", value: UsageMath.formatTokens(totals.totalTokens)),
-            StatTile(label: "Uncached", value: UsageMath.formatTokens(totals.uncachedTokens)),
-            StatTile(label: "Input", value: UsageMath.formatTokens(totals.inputTokens)),
-            StatTile(label: "Output", value: UsageMath.formatTokens(totals.outputTokens)),
-            StatTile(label: "Cache read", value: UsageMath.formatTokens(totals.cacheReadTokens)),
-            StatTile(label: "Cache creation", value: UsageMath.formatTokens(totals.cacheCreationTokens)),
-            StatTile(label: "Cache hit rate", value: UsageMath.cacheHitRate(totals)),
-            StatTile(label: "Requests", value: UsageMath.formatTokens(totals.requests)),
+            StatTile(label: String(localized: "Total tokens"), value: UsageMath.formatTokens(totals.totalTokens)),
+            StatTile(label: String(localized: "Uncached"), value: UsageMath.formatTokens(totals.uncachedTokens)),
+            StatTile(label: String(localized: "Input"), value: UsageMath.formatTokens(totals.inputTokens)),
+            StatTile(label: String(localized: "Output"), value: UsageMath.formatTokens(totals.outputTokens)),
+            StatTile(label: String(localized: "Cache read"), value: UsageMath.formatTokens(totals.cacheReadTokens)),
+            StatTile(label: String(localized: "Cache creation"), value: UsageMath.formatTokens(totals.cacheCreationTokens)),
+            StatTile(label: String(localized: "Cache hit rate"), value: UsageMath.cacheHitRate(totals)),
+            StatTile(label: String(localized: "Requests"), value: UsageMath.formatTokens(totals.requests)),
         ]
         return LazyVGrid(
             columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
@@ -281,10 +281,14 @@ struct UsageView: View {
     }
 
     private func selectedDayDetail(_ bar: UsageMath.DailyBar) -> String {
-        guard let bucket = bar.bucket else { return "0 tokens" }
-        return "\(UsageMath.formatTokens(bucket.totalTokens)) tokens · \(bucket.requests) req"
-            + " · in \(UsageMath.formatTokens(bucket.inputTokens))"
-            + " / out \(UsageMath.formatTokens(bucket.outputTokens))"
+        guard let bucket = bar.bucket else { return String(localized: "0 tokens") }
+        return String(
+            format: String(localized: "%@ tokens · %lld req · in %@ / out %@"),
+            UsageMath.formatTokens(bucket.totalTokens),
+            Int64(bucket.requests),
+            UsageMath.formatTokens(bucket.inputTokens),
+            UsageMath.formatTokens(bucket.outputTokens)
+        )
     }
 }
 
@@ -319,9 +323,12 @@ private struct UsageBarList: View {
                                 .foregroundStyle(.secondary)
                         }
                         ShareTrack(fraction: Double(row.totalTokens) / Double(maxTokens))
-                        Text("\(row.requests) requests"
-                            + " · in \(UsageMath.formatTokens(row.inputTokens))"
-                            + " · out \(UsageMath.formatTokens(row.outputTokens))")
+                        Text(String(
+                            format: String(localized: "%lld requests · in %@ · out %@"),
+                            Int64(row.requests),
+                            UsageMath.formatTokens(row.inputTokens),
+                            UsageMath.formatTokens(row.outputTokens)
+                        ))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -352,9 +359,9 @@ private struct ShareTrack: View {
 extension UsageRange {
     var label: String {
         switch self {
-        case .sevenDays: return "7 days"
-        case .thirtyDays: return "30 days"
-        case .all: return "All time"
+        case .sevenDays: return String(localized: "7 days")
+        case .thirtyDays: return String(localized: "30 days")
+        case .all: return String(localized: "All time")
         }
     }
 }

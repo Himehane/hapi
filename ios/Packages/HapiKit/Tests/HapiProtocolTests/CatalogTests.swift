@@ -237,4 +237,34 @@ struct CatalogTests {
         #expect(CopilotAgentMode.normalize(nil) == .interactive)
         #expect(CopilotAgentMode.normalize("bogus") == .interactive)
     }
+
+    // MARK: - New-session catalogs (derived from the claude catalog data, #39)
+
+    @Test func newSessionCatalogsMatchTheWebOptionLists() {
+        #expect(NewSessionCatalogs.claudeModels == [
+            NewSessionOption(value: "auto", label: "Default"),
+            NewSessionOption(value: "sonnet", label: "Sonnet"),
+            NewSessionOption(value: "sonnet[1m]", label: "Sonnet 1M"),
+            NewSessionOption(value: "opus", label: "Opus"),
+            NewSessionOption(value: "opus[1m]", label: "Opus 1M"),
+            NewSessionOption(value: "fable", label: "Fable"),
+            NewSessionOption(value: "fable[1m]", label: "Fable 1M"),
+        ])
+        #expect(NewSessionCatalogs.claudeEfforts == [
+            NewSessionOption(value: "auto", label: "Auto"),
+            NewSessionOption(value: "low", label: "Low"),
+            NewSessionOption(value: "medium", label: "Medium"),
+            NewSessionOption(value: "high", label: "High"),
+            NewSessionOption(value: "xhigh", label: "XHigh"),
+            NewSessionOption(value: "max", label: "Max"),
+        ])
+        #expect(NewSessionCatalogs.codexReasoningEfforts == [
+            NewSessionOption(value: "default", label: "Default"),
+            NewSessionOption(value: "low", label: "Low"),
+            NewSessionOption(value: "medium", label: "Medium"),
+            NewSessionOption(value: "high", label: "High"),
+            NewSessionOption(value: "xhigh", label: "XHigh"),
+        ])
+        #expect(NewSessionCatalogs.effortLabel("xhigh") == "Xhigh")
+    }
 }

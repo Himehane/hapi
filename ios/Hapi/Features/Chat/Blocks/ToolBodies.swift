@@ -106,7 +106,11 @@ private struct ToolInputSection: View {
                        let new = chatInputString(edit, ["new_string"]) {
                         VStack(alignment: .leading, spacing: 6) {
                             if edits.count > 1 {
-                                SectionLabel(text: "Edit \(index + 1)/\(edits.count)")
+                                SectionLabel(text: String(
+                                    format: String(localized: "Edit %lld/%lld"),
+                                    Int64(index + 1),
+                                    Int64(edits.count)
+                                ))
                             }
                             BeforeAfterView(old: old, new: new, language: language)
                         }
@@ -126,10 +130,10 @@ private struct BeforeAfterView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SectionLabel(text: "Before")
-            CodeBlockView(language: language, code: old.isEmpty ? "(empty)" : old)
-            SectionLabel(text: "After")
-            CodeBlockView(language: language, code: new.isEmpty ? "(empty)" : new)
+            SectionLabel(text: String(localized: "Before"))
+            CodeBlockView(language: language, code: old.isEmpty ? String(localized: "(empty)") : old)
+            SectionLabel(text: String(localized: "After"))
+            CodeBlockView(language: language, code: new.isEmpty ? String(localized: "(empty)") : new)
         }
     }
 }
@@ -203,7 +207,9 @@ private struct ToolResultSection: View {
         if let result = tool.result, result != .null,
            let rendering = resultRendering(result) {
             VStack(alignment: .leading, spacing: 4) {
-                SectionLabel(text: tool.state == .error ? "Result · error" : "Result")
+                SectionLabel(text: tool.state == .error
+                    ? String(localized: "Result · error")
+                    : String(localized: "Result"))
                 switch rendering {
                 case .diffs(let files):
                     DiffTextView(files: files)
