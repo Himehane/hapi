@@ -1,5 +1,9 @@
 package app.hapi.companion.feature.chat
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,8 +24,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,10 +54,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import app.hapi.companion.feature.chat.composer.ChatComposer
+import app.hapi.companion.feature.chat.composer.DictationController
+import app.hapi.companion.feature.chat.composer.DictationEvent
+import app.hapi.companion.feature.chat.composer.DictationState
 import app.hapi.companion.feature.chat.composer.QueuedMessagesBar
+import app.hapi.companion.feature.sessions.DeleteSessionDialog
+import app.hapi.companion.feature.sessions.RenameSessionDialog
 import app.hapi.companion.ui.markdown.LocalMarkdownLinkHandler
 import app.hapi.companion.ui.theme.hapi
 import app.hapi.protocol.chat.VisibleChatBlock
@@ -70,6 +84,11 @@ private const val LOAD_OLDER_PREFETCH_ITEMS = 4
  * permission actions (via [LocalChatInteractions]), the session config sheet
  * (top-bar gear), and one-shot [ChatEvent] handling (supersede renavigation +
  * snackbar notices).
+ *
+ * B-M3ce adds voice dictation (mic button, RECORD_AUDIO request, transcript
+ * append), the slash-command dropdown, and session ops: a top-bar overflow
+ * menu (Rename / Reopen / Delete) plus an inactive-session affordance bar
+ * above the composer (send already auto-resumes; Reopen is the explicit path).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +98,8 @@ fun ChatScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onNavigateToSession: (String) -> Unit = {},
+    /** null ⇒ mic button hidden (tests / previews without a controller). */
+    dictation: DictationController? = null,
 ) {
     val state by viewModel.uiState.collectAsState()
     val composerState by viewModel.composer.collectAsState()
@@ -86,6 +107,8 @@ fun ChatScreen(
     val configState by viewModel.config.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var configSheetOpen by remember { mutableStateOf(false) }
+    var renameDialogOpen by remember { mutableStateOf(false) }
+    var deleteDialogOpen by remember { mutableStateOf(false) }
 
     DisposableEffect(viewModel) {
         viewModel.start()
@@ -96,10 +119,50 @@ fun ChatScreen(
         viewModel.events.collect { event ->
             when (event) {
                 is ChatEvent.SessionSuperseded -> onNavigateToSession(event.sessionId)
+                ChatEvent.SessionDeleted -> onBack()
                 is ChatEvent.Notice -> snackbarHostState.showSnackbar(event.message)
             }
         }
     }
+
+    // ------------------------------------------------------------ dictation --
+    val dictationState = dictation?.state?.collectAsState()?.value ?: DictationState.Idle
+    LaunchedEffect(dictation) {
+        dictation?.events?.collect { event ->
+            when (event) {
+                is DictationEvent.Transcribed -> viewModel.appendDictatedText(event.text)
+                DictationEvent.NoProvider -> snackbarHostState.showSnackbar(
+                    "No transcription provider configured on hub",
+                )
+                is DictationEvent.Error -> snackbarHostState.showSnackbar(event.message)
+            }
+        }
+    }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            dictation?.toggle()
+        } else {
+            scope.launch {
+                snackbarHostState.showSnackbar("Microphone permission is needed for dictation")
+            }
+        }
+    }
+    val onDictationToggle: () -> Unit = toggle@{
+        val controller = dictation ?: return@toggle
+        // Stopping never needs the permission; starting checks + requests it.
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        when {
+            dictationState !is DictationState.Idle -> controller.toggle()
+            granted -> controller.toggle()
+            else -> micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+    val slashSuggestions by viewModel.slashSuggestions.collectAsState()
 
     val interactions = remember(state.flavor, state.permissionOverrides, viewModel) {
         ChatInteractions(
@@ -126,12 +189,21 @@ fun ChatScreen(
                     IconButton(onClick = { configSheetOpen = true }) {
                         Icon(Icons.Filled.Settings, contentDescription = "Session settings")
                     }
+                    SessionOverflowMenu(
+                        active = state.header.active,
+                        onRename = { renameDialogOpen = true },
+                        onReopen = viewModel::reopenSession,
+                        onDelete = { deleteDialogOpen = true },
+                    )
                 },
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             Column(modifier = Modifier.fillMaxWidth()) {
+                if (!state.header.active && !state.isInitialLoading && !state.loadFailed) {
+                    InactiveSessionBar(onReopen = viewModel::reopenSession)
+                }
                 QueuedMessagesBar(
                     rows = queuedRows,
                     onSteer = viewModel::steerQueuedMessage,
@@ -144,6 +216,11 @@ fun ChatScreen(
                     onSend = { viewModel.sendMessage() },
                     onSendSteer = { viewModel.sendMessage(steer = true) },
                     onAbort = viewModel::abortSession,
+                    slashSuggestions = slashSuggestions,
+                    onSlashCommandSelected = viewModel::selectSlashCommand,
+                    dictation = if (dictation != null) dictationState else null,
+                    onDictationToggle = onDictationToggle,
+                    onDictationCancel = { dictation?.cancel() },
                 )
             }
         },
@@ -182,6 +259,91 @@ fun ChatScreen(
             onSetEffort = viewModel::setEffort,
             onLoadModelOptions = viewModel::loadModelOptions,
         )
+    }
+    if (renameDialogOpen) {
+        RenameSessionDialog(
+            initialName = state.header.name ?: state.header.title,
+            onConfirm = { name ->
+                renameDialogOpen = false
+                viewModel.renameSession(name)
+            },
+            onDismiss = { renameDialogOpen = false },
+        )
+    }
+    if (deleteDialogOpen) {
+        DeleteSessionDialog(
+            sessionTitle = state.header.title,
+            onConfirm = {
+                deleteDialogOpen = false
+                viewModel.deleteSession()
+            },
+            onDismiss = { deleteDialogOpen = false },
+        )
+    }
+}
+
+/** Top-bar ⋮ menu: Rename always; Reopen only for inactive sessions; Delete last. */
+@Composable
+private fun SessionOverflowMenu(
+    active: Boolean,
+    onRename: () -> Unit,
+    onReopen: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    IconButton(onClick = { open = true }) {
+        Icon(Icons.Filled.MoreVert, contentDescription = "Session actions")
+    }
+    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        DropdownMenuItem(
+            text = { Text("Rename") },
+            onClick = {
+                open = false
+                onRename()
+            },
+        )
+        if (!active) {
+            DropdownMenuItem(
+                text = { Text("Reopen") },
+                onClick = {
+                    open = false
+                    onReopen()
+                },
+            )
+        }
+        DropdownMenuItem(
+            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+            onClick = {
+                open = false
+                onDelete()
+            },
+        )
+    }
+}
+
+/**
+ * Inactive-session affordance above the composer: sending auto-resumes
+ * (B-M3ab), Reopen is the explicit restart without a message.
+ */
+@Composable
+private fun InactiveSessionBar(onReopen: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Session inactive — send to resume, or",
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
+            )
+            TextButton(onClick = onReopen) { Text("Reopen") }
+        }
     }
 }
 

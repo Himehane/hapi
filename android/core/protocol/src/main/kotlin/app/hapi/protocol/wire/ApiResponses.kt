@@ -268,3 +268,23 @@ data class TranscriptionResponse(
     val language: String? = null,
 )
 
+/**
+ * `GET /api/voice/transcription/providers` — only providers whose keys are
+ * configured on the hub (`listConfiguredTranscriptionProviders`,
+ * `shared/src/voice.ts`). Empty ⇒ dictation is unavailable. Added in B-M3ce.
+ */
+@Serializable
+data class TranscriptionProvidersResponse(
+    val providers: List<TranscriptionProviderInfo>,
+)
+
+/** `TranscriptionProviderInfo` (`shared/src/voice.ts`). */
+@Serializable
+data class TranscriptionProviderInfo(
+    /** `openai | elevenlabs | deepgram | groq | openai-compatible | browser-local`. */
+    val id: String,
+    val label: String,
+    /** Subset of `standard` / `realtime`; native dictation uses `standard`. */
+    val modes: List<String>,
+)
+

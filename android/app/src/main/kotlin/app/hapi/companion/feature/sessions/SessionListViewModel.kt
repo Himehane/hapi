@@ -1,5 +1,6 @@
 package app.hapi.companion.feature.sessions
 
+import app.hapi.data.api.ApiError
 import app.hapi.data.store.LastSeenStore
 import app.hapi.data.store.MachineListStore
 import app.hapi.data.store.SessionListStore
@@ -86,8 +87,13 @@ class SessionListViewModel(
 
     private val _errors = MutableSharedFlow<SessionListError>(extraBufferCapacity = 8)
 
-    /** Transient action failures (pin/archive) for a snackbar. */
+    /** Transient action failures (pin/archive/rename/delete/reopen) for a snackbar. */
     val errors: SharedFlow<SessionListError> = _errors.asSharedFlow()
+
+    private val _reopened = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
+    /** Reopen succeeded — navigate into this (possibly superseding) session id. */
+    val reopened: SharedFlow<String> = _reopened.asSharedFlow()
 
     private var refreshJob: Job? = null
 
@@ -196,6 +202,56 @@ class SessionListViewModel(
         }
     }
 
+    /** `PATCH /sessions/:id` rename with optimistic `metadata.name`; failures surface on [errors]. */
+    fun renameSession(sessionId: String, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        scope.launch {
+            try {
+                sessionStore.renameSession(sessionId, trimmed)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                _errors.tryEmit(SessionListError.RenameFailed(sessionId, error.message))
+            }
+        }
+    }
+
+    /** `DELETE /sessions/:id` with optimistic removal; 409 while active gets explicit wording. */
+    fun deleteSession(sessionId: String) {
+        scope.launch {
+            try {
+                sessionStore.deleteSession(sessionId)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                val message = if (error is ApiError && error.status == 409) {
+                    "session is still active — archive it first"
+                } else {
+                    error.message
+                }
+                _errors.tryEmit(SessionListError.DeleteFailed(sessionId, message))
+            }
+        }
+    }
+
+    /**
+     * `POST /sessions/:id/reopen` — success emits the (possibly superseding)
+     * id on [reopened] so the screen navigates into it; 422 missing-metadata
+     * and other failures surface on [errors] via [formatReopenError].
+     */
+    fun reopenSession(sessionId: String) {
+        scope.launch {
+            try {
+                _reopened.tryEmit(sessionStore.reopenSession(sessionId).sessionId)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                _errors.tryEmit(SessionListError.ReopenFailed(sessionId, formatReopenError(error)))
+            }
+        }
+    }
+
     // ------------------------------------------------------------ mapping --
 
     private fun buildUiState(
@@ -294,4 +350,7 @@ sealed interface SessionListError {
 
     data class PinFailed(override val sessionId: String, override val message: String?) : SessionListError
     data class ArchiveFailed(override val sessionId: String, override val message: String?) : SessionListError
+    data class RenameFailed(override val sessionId: String, override val message: String?) : SessionListError
+    data class DeleteFailed(override val sessionId: String, override val message: String?) : SessionListError
+    data class ReopenFailed(override val sessionId: String, override val message: String?) : SessionListError
 }

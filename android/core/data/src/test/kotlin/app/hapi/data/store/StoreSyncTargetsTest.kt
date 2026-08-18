@@ -47,6 +47,19 @@ class FakeSessionListStore : SessionListStore {
     override suspend fun archiveSession(sessionId: String) {
         calls += "archive:$sessionId"
     }
+
+    override suspend fun renameSession(sessionId: String, name: String) {
+        calls += "rename:$sessionId:$name"
+    }
+
+    override suspend fun deleteSession(sessionId: String) {
+        calls += "delete:$sessionId"
+    }
+
+    override suspend fun reopenSession(sessionId: String): app.hapi.protocol.wire.ReopenSessionResponse {
+        calls += "reopen:$sessionId"
+        return app.hapi.protocol.wire.ReopenSessionResponse(sessionId = sessionId, resumed = true)
+    }
 }
 
 class FakeMachineListStore : MachineListStore {

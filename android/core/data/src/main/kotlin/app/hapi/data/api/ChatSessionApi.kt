@@ -5,6 +5,7 @@ import app.hapi.protocol.wire.CancelMessageResponse
 import app.hapi.protocol.wire.CodexModelsResponse
 import app.hapi.protocol.wire.ResumeSessionResponse
 import app.hapi.protocol.wire.SendMessageRequest
+import app.hapi.protocol.wire.SlashCommandsResponse
 import app.hapi.protocol.wire.SteerQueuedMessageResponse
 
 /**
@@ -55,4 +56,11 @@ interface ChatSessionApi : MessagesApi {
 
     /** `GET /api/sessions/:id/codex-models` (RPC-wrapped: check `success`). */
     suspend fun getSessionCodexModels(sessionId: String): CodexModelsResponse
+
+    /**
+     * `GET /api/sessions/:id/slash-commands` (RPC-wrapped: check `success`) —
+     * the composer's `/` autocomplete source (B-M3ce), merged with the
+     * session's `metadata.slashCommands` names.
+     */
+    suspend fun getSlashCommands(sessionId: String): SlashCommandsResponse
 }

@@ -57,6 +57,27 @@ private class FakeSessionStore : SessionListStore {
     }
 
     override suspend fun archiveSession(sessionId: String) = record("archive:$sessionId")
+
+    var renameFailure: Exception? = null
+    override suspend fun renameSession(sessionId: String, name: String) {
+        record("rename:$sessionId:$name")
+        renameFailure?.let { throw it }
+    }
+
+    var deleteFailure: Exception? = null
+    override suspend fun deleteSession(sessionId: String) {
+        record("delete:$sessionId")
+        deleteFailure?.let { throw it }
+    }
+
+    var reopenResult: app.hapi.protocol.wire.ReopenSessionResponse? = null
+    var reopenFailure: Exception? = null
+    override suspend fun reopenSession(sessionId: String): app.hapi.protocol.wire.ReopenSessionResponse {
+        record("reopen:$sessionId")
+        reopenFailure?.let { throw it }
+        return reopenResult
+            ?: app.hapi.protocol.wire.ReopenSessionResponse(sessionId = sessionId, resumed = true)
+    }
 }
 
 private class FakeMachineStore : MachineListStore {
@@ -259,5 +280,78 @@ class SessionListViewModelTest {
 
         viewModel.onSessionOpened("s1")
         assertFalse(viewModel.uiState.first { !it.rows.single().unread }.rows.single().unread)
+    }
+
+    // -------------------------------------------- rename / delete / reopen --
+
+    @Test
+    fun `rename trims and routes to the store, surfacing failures`() = runTest {
+        val (viewModel, sessions, _) = buildViewModel()
+        sessions.set(summary("s1"))
+
+        viewModel.renameSession("s1", "  Fresh title ")
+        sessions.calls.first { "rename:s1:Fresh title" in it }
+
+        viewModel.renameSession("s1", "   ") // blank: never sent
+        assertEquals(1, sessions.calls.value.count { it.startsWith("rename:") })
+
+        var seen: SessionListError? = null
+        val collector = launch { seen = viewModel.errors.first() }
+        sessions.renameFailure = RuntimeException("boom")
+        viewModel.renameSession("s1", "Another")
+        collector.join()
+        assertTrue(seen is SessionListError.RenameFailed)
+    }
+
+    @Test
+    fun `delete failure with 409 gets the active-session wording`() = runTest {
+        val (viewModel, sessions, _) = buildViewModel()
+        sessions.set(summary("s1", active = true))
+
+        var seen: SessionListError? = null
+        val collector = launch { seen = viewModel.errors.first() }
+        sessions.deleteFailure = app.hapi.data.api.ApiError(409, code = "session_active")
+        viewModel.deleteSession("s1")
+        collector.join()
+
+        val error = seen
+        assertTrue(error is SessionListError.DeleteFailed)
+        assertTrue(error.message!!.contains("archive it first"))
+    }
+
+    @Test
+    fun `reopen emits the returned (possibly superseding) id`() = runTest {
+        val (viewModel, sessions, _) = buildViewModel()
+        sessions.set(summary("s1"))
+        sessions.reopenResult =
+            app.hapi.protocol.wire.ReopenSessionResponse(sessionId = "s2", resumed = false)
+
+        var target: String? = null
+        val collector = launch { target = viewModel.reopened.first() }
+        viewModel.reopenSession("s1")
+        collector.join()
+
+        assertEquals("s2", target)
+        assertTrue("reopen:s1" in sessions.calls.value)
+    }
+
+    @Test
+    fun `reopen 422 formats the missing-metadata error`() = runTest {
+        val (viewModel, sessions, _) = buildViewModel()
+        sessions.set(summary("s1"))
+        sessions.reopenFailure = app.hapi.data.api.ApiError(
+            422,
+            code = "reopen_missing_metadata",
+            body = """{"error":"Cannot reopen","missing":["cursorSessionId"]}""",
+        )
+
+        var seen: SessionListError? = null
+        val collector = launch { seen = viewModel.errors.first() }
+        viewModel.reopenSession("s1")
+        collector.join()
+
+        val error = seen
+        assertTrue(error is SessionListError.ReopenFailed)
+        assertEquals("Cannot reopen (missing: cursorSessionId)", error.message)
     }
 }

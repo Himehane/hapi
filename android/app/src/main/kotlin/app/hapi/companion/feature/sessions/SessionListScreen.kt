@@ -80,8 +80,10 @@ import app.hapi.protocol.wire.TodoProgress
  * - per row: status dot (active / thinking pulse), title, flavor + machine
  *   labels, summary/path line, relative `updatedAt`, pending-request badge,
  *   todo-progress chip, unread dot;
- * - long-press → pin (none/project/global) + archive sheet with optimistic
- *   store updates; failures land in a snackbar.
+ * - long-press → actions sheet: pin (none/project/global), rename (dialog),
+ *   reopen (inactive rows; navigates into the possibly-superseding id),
+ *   archive, delete (confirm; 409 while active) — optimistic store updates;
+ *   failures land in a snackbar (B-M2b + B-M3ce).
  *
  * The host (`HomeScreen` via Navigation) constructs the ViewModel from the
  * active `HubGraph` and routes [onOpenSession] to the chat screen. This
@@ -100,6 +102,8 @@ fun SessionListScreen(
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var sheetRow by remember { mutableStateOf<SessionRowUi?>(null) }
+    var renameRow by remember { mutableStateOf<SessionRowUi?>(null) }
+    var deleteRow by remember { mutableStateOf<SessionRowUi?>(null) }
 
     DisposableEffect(viewModel) {
         viewModel.start()
@@ -111,8 +115,19 @@ fun SessionListScreen(
             val label = when (error) {
                 is SessionListError.PinFailed -> "Pin failed"
                 is SessionListError.ArchiveFailed -> "Archive failed"
+                is SessionListError.RenameFailed -> "Rename failed"
+                is SessionListError.DeleteFailed -> "Delete failed"
+                is SessionListError.ReopenFailed -> "Reopen failed"
             }
             snackbarHostState.showSnackbar(error.message?.let { "$label: $it" } ?: label)
+        }
+    }
+
+    // Reopen may hand back a superseding id — open whatever the hub returned.
+    LaunchedEffect(viewModel) {
+        viewModel.reopened.collect { sessionId ->
+            viewModel.onSessionOpened(sessionId)
+            onOpenSession(sessionId)
         }
     }
 
@@ -180,6 +195,38 @@ fun SessionListScreen(
                 viewModel.archiveSession(row.id)
                 sheetRow = null
             },
+            onRename = {
+                renameRow = row
+                sheetRow = null
+            },
+            onReopen = {
+                viewModel.reopenSession(row.id)
+                sheetRow = null
+            },
+            onDelete = {
+                deleteRow = row
+                sheetRow = null
+            },
+        )
+    }
+    renameRow?.let { row ->
+        RenameSessionDialog(
+            initialName = row.summary.metadata?.name ?: row.title,
+            onConfirm = { name ->
+                viewModel.renameSession(row.id, name)
+                renameRow = null
+            },
+            onDismiss = { renameRow = null },
+        )
+    }
+    deleteRow?.let { row ->
+        DeleteSessionDialog(
+            sessionTitle = row.title,
+            onConfirm = {
+                viewModel.deleteSession(row.id)
+                deleteRow = null
+            },
+            onDismiss = { deleteRow = null },
         )
     }
 }
@@ -495,6 +542,9 @@ private fun SessionActionsSheet(
     onDismiss: () -> Unit,
     onSetPinMode: (PinMode) -> Unit,
     onArchive: () -> Unit,
+    onRename: () -> Unit,
+    onReopen: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val summary = row.summary
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -515,7 +565,12 @@ private fun SessionActionsSheet(
         if (summary.globalPinned != true) {
             SheetAction("Pin globally") { onSetPinMode(PinMode.Global) }
         }
+        SheetAction("Rename", onClick = onRename)
+        if (!summary.active) {
+            SheetAction("Reopen", onClick = onReopen)
+        }
         SheetAction("Archive", destructive = true, onClick = onArchive)
+        SheetAction("Delete", destructive = true, onClick = onDelete)
         Spacer(modifier = Modifier.size(16.dp))
     }
 }

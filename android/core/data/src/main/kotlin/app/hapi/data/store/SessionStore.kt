@@ -4,6 +4,7 @@ import app.hapi.data.api.HapiApi
 import app.hapi.data.sse.SseSubscriptionKey
 import app.hapi.protocol.patch.applySessionDetailPatch
 import app.hapi.protocol.wire.HapiJson
+import app.hapi.protocol.wire.ReopenSessionResponse
 import app.hapi.protocol.wire.Session
 import app.hapi.protocol.wire.SessionPatch
 import app.hapi.protocol.wire.SessionPatches
@@ -53,6 +54,19 @@ interface SessionListStore {
 
     /** `POST /sessions/:id/archive`, optimistic removal. */
     suspend fun archiveSession(sessionId: String)
+
+    /** `PATCH /sessions/:id` rename, optimistic `metadata.name`; rolls forward on failure. */
+    suspend fun renameSession(sessionId: String, name: String)
+
+    /** `DELETE /sessions/:id`, optimistic removal; 409 while active (restore + rethrow). */
+    suspend fun deleteSession(sessionId: String)
+
+    /**
+     * `POST /sessions/:id/reopen` — the returned id may differ (superseding
+     * spawn); 422 when required metadata is gone. On success the returned
+     * session is marked active locally (the `session-alive` SSE may lag).
+     */
+    suspend fun reopenSession(sessionId: String): ReopenSessionResponse
 }
 
 /**
@@ -249,6 +263,81 @@ class SessionStore(
             }
             throw error
         }
+    }
+
+    override suspend fun renameSession(sessionId: String, name: String) {
+        // Optimistic `metadata.name` on both caches. A summary without
+        // metadata is left alone (there is nothing renderable to update);
+        // server truth arrives via the session-updated patch.
+        updateSummaries { list ->
+            val index = list.indexOfFirst { it.id == sessionId }
+            if (index < 0) return@updateSummaries list
+            val current = list[index]
+            val metadata = current.metadata ?: return@updateSummaries list
+            list.toMutableList().also { it[index] = current.copy(metadata = metadata.copy(name = name)) }
+        }
+        updateDetailLocal(sessionId) { detail ->
+            detail.metadata?.let { detail.copy(metadata = it.copy(name = name)) } ?: detail
+        }
+        try {
+            api.renameSession(sessionId, name)
+        } catch (error: Exception) {
+            // Roll forward to server truth (an SSE patch may have moved other
+            // fields since the optimistic write) — same policy as setPinMode.
+            scheduleRefresh()
+            if (_details.value.containsKey(sessionId)) {
+                scope.launch { runCatching { loadSessionDetail(sessionId) } }
+            }
+            throw error
+        }
+    }
+
+    override suspend fun deleteSession(sessionId: String) {
+        val removed = _sessions.value.firstOrNull { it.id == sessionId }
+        val removedDetail = _details.value[sessionId]
+        updateSummaries { list -> list.filter { it.id != sessionId } }
+        _details.update { it - sessionId }
+        try {
+            api.deleteSession(sessionId)
+        } catch (error: Exception) {
+            // 409 while active (archive first) or plain failure: restore.
+            if (removed != null) {
+                updateSummaries { list ->
+                    if (list.any { it.id == sessionId }) list
+                    else sortSessionSummaries(list + removed)
+                }
+            }
+            if (removedDetail != null) {
+                _details.update { map ->
+                    if (map.containsKey(sessionId)) map else map + (sessionId to removedDetail)
+                }
+            }
+            throw error
+        }
+    }
+
+    override suspend fun reopenSession(sessionId: String): ReopenSessionResponse {
+        val response = api.reopenSession(sessionId)
+        // Mirror the web's markSessionActiveInCache: the session-alive SSE may
+        // arrive before or after — optimistically show the RETURNED id active
+        // so the UI does not sit on "inactive" until the next event.
+        val now = System.currentTimeMillis()
+        updateSummaries { list ->
+            val index = list.indexOfFirst { it.id == response.sessionId }
+            if (index < 0) return@updateSummaries list
+            val current = list[index]
+            sortSessionSummaries(
+                list.toMutableList().also {
+                    it[index] = current.copy(active = true, activeAt = maxOf(current.activeAt, now))
+                }
+            )
+        }
+        updateDetailLocal(response.sessionId) { detail ->
+            detail.copy(active = true, activeAt = maxOf(detail.activeAt, now))
+        }
+        // A superseding id will not be in the list yet — refetch covers both.
+        scheduleRefresh()
+        return response
     }
 
     // ------------------------------------------------------------ internal --

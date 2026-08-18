@@ -284,6 +284,87 @@ class SessionStoreTest {
         assertEquals(listOf("s1"), store.sessions.value.map { it.id }, "failed archive restores the row")
     }
 
+    // ------------------------------------------- rename / delete / reopen --
+
+    private fun namedSummary(id: String, name: String? = null, active: Boolean = false) = summary(
+        id = id,
+        active = active,
+        updatedAt = 100,
+        metadata = app.hapi.protocol.wire.SessionSummaryMetadata(name = name, path = "/repo/$id"),
+    )
+
+    @Test
+    fun `rename updates the summary and detail optimistically and PATCHes the hub`() = runStoreTest { store, server ->
+        server.enqueueJson(sessionsResponseJson(namedSummary("s1", name = "Old")))
+        store.refresh()
+        server.enqueueJson("""{"session":${fullSessionJson(session("s1"))}}""")
+        store.loadSessionDetail("s1")
+        server.enqueueJson("""{"ok":true}""") // PATCH rename
+
+        store.renameSession("s1", "New name")
+
+        assertEquals("New name", store.sessions.value.single().metadata?.name)
+        server.takeRequest() // GET /sessions
+        server.takeRequest() // GET /sessions/s1
+        val patch = server.takeRequest()
+        assertEquals("PATCH", patch.method)
+        assertEquals("/api/sessions/s1", patch.path)
+        assertEquals("""{"name":"New name"}""", patch.body.readUtf8())
+        // The fixture detail has no metadata; the store must not invent one.
+        assertNull(store.currentDetail("s1")!!.metadata)
+    }
+
+    @Test
+    fun `rename failure rolls forward to server truth`() = runStoreTest { store, server ->
+        server.enqueueJson(sessionsResponseJson(namedSummary("s1", name = "Old")))
+        store.refresh()
+        server.enqueueJson("""{"error":"boom"}""", code = 500) // PATCH fails
+        server.enqueueJson(sessionsResponseJson(namedSummary("s1", name = "Old"))) // scheduled refetch
+
+        assertFailsWith<Exception> { store.renameSession("s1", "New name") }
+        // Optimistic name applied first, then the refetch restores the truth.
+        store.sessions.first { list -> list.single().metadata?.name == "Old" }
+    }
+
+    @Test
+    fun `delete removes optimistically and restores on 409`() = runStoreTest { store, server ->
+        server.enqueueJson(sessionsResponseJson(namedSummary("s1"), namedSummary("s2")))
+        store.refresh()
+        server.enqueueJson("""{"session":${fullSessionJson(session("s1"))}}""")
+        store.loadSessionDetail("s1")
+
+        server.enqueueJson("""{"ok":true}""")
+        store.deleteSession("s2")
+        assertEquals(listOf("s1"), store.sessions.value.map { it.id })
+        server.takeRequest() // GET /sessions
+        server.takeRequest() // GET /sessions/s1
+        val delete = server.takeRequest()
+        assertEquals("DELETE", delete.method)
+        assertEquals("/api/sessions/s2", delete.path)
+
+        server.enqueueJson("""{"error":"session is active","code":"session_active"}""", code = 409)
+        assertFailsWith<Exception> { store.deleteSession("s1") }
+        assertEquals(listOf("s1"), store.sessions.value.map { it.id }, "failed delete restores the row")
+        assertEquals("s1", store.currentDetail("s1")?.id, "failed delete restores the cached detail")
+    }
+
+    @Test
+    fun `reopen marks the returned session active and refetches`() = runStoreTest { store, server ->
+        server.enqueueJson(sessionsResponseJson(namedSummary("s1"), namedSummary("s2")))
+        store.refresh()
+        server.enqueueJson("""{"ok":true,"sessionId":"s2","resumed":true}""") // POST reopen → superseding id
+        // The scheduled refetch fires after the reopen (16 ms batch).
+        server.enqueueJson(sessionsResponseJson(namedSummary("s1"), namedSummary("s2", active = true)))
+
+        val response = store.reopenSession("s1")
+
+        assertEquals("s2", response.sessionId)
+        assertTrue(response.resumed)
+        // Optimistic active flag on the RETURNED id, before the refetch lands.
+        assertTrue(store.sessions.value.first { it.id == "s2" }.active)
+        store.sessions.first { list -> list.first { it.id == "s2" }.active }
+    }
+
     // ------------------------------------------------------------ snapshot --
 
     @Test

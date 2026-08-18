@@ -314,6 +314,25 @@ class HapiApiTest {
     }
 
     @Test
+    fun `transcription providers decode from the discovery endpoint`() {
+        server.enqueue(
+            ok(
+                """{"providers":[
+                    {"id":"openai","label":"OpenAI","modes":["standard","realtime"]},
+                    {"id":"browser-local","label":"Browser on-device","modes":["realtime"]}
+                ]}"""
+            )
+        )
+
+        val result = runBlocking { session.api.getTranscriptionProviders() }
+
+        assertEquals("/api/voice/transcription/providers", server.takeRequest().path)
+        assertEquals(listOf("openai", "browser-local"), result.providers.map { it.id })
+        assertEquals(listOf("standard", "realtime"), result.providers.first().modes)
+        assertEquals("OpenAI", result.providers.first().label)
+    }
+
+    @Test
     fun `transcription helper posts multipart form data`() {
         server.enqueue(ok("""{"text":"hello world","language":"en"}"""))
 
