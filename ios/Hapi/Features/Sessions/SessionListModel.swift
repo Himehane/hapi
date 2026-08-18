@@ -11,10 +11,15 @@ struct SessionRowUI: Identifiable, Equatable {
     let summary: SessionSummary
     /// `getSessionTitle` port: name → summary text → path tail → id prefix.
     let title: String
-    /// Secondary line: summary text when it is not already the title, else
-    /// the path.
+    /// Secondary line: summary text, only when it is not already the title.
     let subtitle: String?
-    let machineLabel: String?
+    /// Single meta line, `project · worktree · machine`: project is the last
+    /// two segments of the worktree base path (session path fallback, the web
+    /// sidebar's group-name rule); the machine label is disambiguation only —
+    /// present only when several machines are known and no machine filter is
+    /// active. Full paths never render in the list (the session detail owns
+    /// them).
+    let meta: String?
     /// Raw flavor id (`claude`, `codex`, …); labels resolve via the catalog.
     let flavor: String?
     let unread: Bool
@@ -108,18 +113,30 @@ final class SessionListModel {
             guard let activeFilter else { return true }
             return (summary.metadata?.machineId ?? unknownMachineFilterId) == activeFilter
         }
+        // With one machine — or a machine filter active — every visible row
+        // shares the machine, so repeating it per row is noise.
+        let showMachine = machineFilters.count >= 2 && activeFilter == nil
         return visible.map { summary in
             let title = Self.sessionTitle(summary)
             let rawSummaryText = summary.metadata?.summary?.text
             let isBlank = rawSummaryText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
             let summaryText = isBlank ? nil : rawSummaryText
+            var metaParts: [String] = []
+            if let project = Self.projectLabel(summary) {
+                metaParts.append(project)
+            }
+            if let tree = summary.metadata?.worktree {
+                let name = tree.name.trimmingCharacters(in: .whitespaces)
+                metaParts.append(name.isEmpty ? tree.branch : tree.name)
+            }
+            if showMachine, let machine = machineLabel(summary.metadata?.machineId) {
+                metaParts.append(machine)
+            }
             return SessionRowUI(
                 summary: summary,
                 title: title,
-                subtitle: (summaryText != nil && summaryText != title)
-                    ? summaryText
-                    : summary.metadata?.path,
-                machineLabel: machineLabel(summary.metadata?.machineId),
+                subtitle: (summaryText != nil && summaryText != title) ? summaryText : nil,
+                meta: metaParts.isEmpty ? nil : metaParts.joined(separator: " · "),
                 flavor: summary.metadata?.flavor,
                 unread: LastSeenStore.isUnread(summary, lastSeenAt: lastSeen[summary.id] ?? 0)
             )
@@ -130,6 +147,18 @@ final class SessionListModel {
     /// index is where the pinned section ends.
     static func pinnedCount(of rows: [SessionRowUI]) -> Int {
         rows.prefix { $0.summary.globalPinned == true || $0.summary.pinned == true }.count
+    }
+
+    /// Project identity for the meta line: last two segments of the worktree
+    /// base path, session path fallback — mirrors the web sidebar's
+    /// `getGroupDisplayName` rule (`SessionList.tsx`).
+    static func projectLabel(_ summary: SessionSummary) -> String? {
+        guard let path = summary.metadata?.worktree?.basePath ?? summary.metadata?.path,
+              !path.isEmpty else { return nil }
+        let parts = path.split(whereSeparator: { $0 == "/" || $0 == "\\" }).map(String.init)
+        if parts.isEmpty { return path }
+        if parts.count == 1 { return parts[0] }
+        return "\(parts[parts.count - 2])/\(parts[parts.count - 1])"
     }
 
     // MARK: - Actions

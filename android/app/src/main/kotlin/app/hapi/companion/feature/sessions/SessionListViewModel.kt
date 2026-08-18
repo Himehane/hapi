@@ -28,9 +28,17 @@ data class SessionRowUi(
     val summary: SessionSummary,
     /** `getSessionTitle` port: name → summary text → path tail → id prefix. */
     val title: String,
-    /** Secondary line: summary text when it is not already the title, else the path. */
+    /** Secondary line: summary text, only when it is not already the title. */
     val subtitle: String?,
-    val machineLabel: String?,
+    /**
+     * Single meta line, `project · worktree · machine`: project is the last
+     * two segments of the worktree base path (session path fallback, the web
+     * sidebar's group-name rule); the machine label is disambiguation only —
+     * present only when several machines are known and no machine filter is
+     * active. Full paths never render in the list (title tooltip territory
+     * on web; here the session detail owns them).
+     */
+    val meta: String?,
     /** Raw flavor id (`claude`, `codex`, …); resolve labels via the catalog. */
     val flavor: String?,
     val unread: Boolean,
@@ -328,17 +336,22 @@ class SessionListViewModel(
             sessions.filter { (it.metadata?.machineId ?: UNKNOWN_MACHINE_ID) == activeFilter }
         }
 
+        // With one machine — or a machine filter active — every visible row
+        // shares the machine, so repeating it per row is noise.
+        val showMachine = filters.size >= 2 && activeFilter == null
+
         val rows = visible.map { summary ->
             val title = sessionTitle(summary)
             val summaryText = summary.metadata?.summary?.text?.takeIf { it.isNotBlank() }
             SessionRowUi(
                 summary = summary,
                 title = title,
-                subtitle = when {
-                    summaryText != null && summaryText != title -> summaryText
-                    else -> summary.metadata?.path
-                },
-                machineLabel = machineLabel(summary.metadata?.machineId),
+                subtitle = summaryText?.takeIf { it != title },
+                meta = buildList {
+                    projectLabel(summary)?.let(::add)
+                    summary.metadata?.worktree?.let { add(it.name.ifBlank { it.branch }) }
+                    if (showMachine) machineLabel(summary.metadata?.machineId)?.let(::add)
+                }.takeIf { it.isNotEmpty() }?.joinToString(" · "),
                 flavor = summary.metadata?.flavor,
                 unread = LastSeenStore.isUnread(summary, lastSeen[summary.id] ?: 0),
             )
@@ -365,6 +378,22 @@ class SessionListViewModel(
                 if (tail != null) return tail
             }
             return summary.id.take(8)
+        }
+
+        /**
+         * Project identity for the meta line: last two segments of the
+         * worktree base path, session path fallback — mirrors the web
+         * sidebar's `getGroupDisplayName` rule (`SessionList.tsx`).
+         */
+        fun projectLabel(summary: SessionSummary): String? {
+            val path = summary.metadata?.worktree?.basePath ?: summary.metadata?.path
+            if (path.isNullOrEmpty()) return null
+            val parts = path.split('/', '\\').filter { it.isNotEmpty() }
+            return when {
+                parts.isEmpty() -> path
+                parts.size == 1 -> parts[0]
+                else -> "${parts[parts.size - 2]}/${parts[parts.size - 1]}"
+            }
         }
     }
 }

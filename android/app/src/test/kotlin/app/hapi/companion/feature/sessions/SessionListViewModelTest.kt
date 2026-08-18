@@ -9,6 +9,7 @@ import app.hapi.protocol.wire.SessionSummary
 import app.hapi.protocol.wire.SessionSummaryMetadata
 import app.hapi.protocol.wire.SummaryText
 import app.hapi.protocol.wire.SyncEvent
+import app.hapi.protocol.wire.WorktreeMetadata
 import app.hapi.protocol.wire.sortSessionSummaries
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -101,6 +102,7 @@ private fun summary(
     name: String? = null,
     summaryText: String? = null,
     path: String = "/repo/app",
+    worktree: WorktreeMetadata? = null,
 ): SessionSummary = SessionSummary(
     id = id,
     active = active,
@@ -113,6 +115,7 @@ private fun summary(
         machineId = machineId,
         summary = summaryText?.let { SummaryText(it) },
         flavor = "claude",
+        worktree = worktree,
     ),
     metadataVersion = 0,
     agentStateVersion = 0,
@@ -167,7 +170,7 @@ private fun TestScope.buildViewModel(
 class SessionListViewModelTest {
 
     @Test
-    fun `uiState maps rows with titles machine labels and unread`() = runTest {
+    fun `uiState maps rows with titles meta and unread`() = runTest {
         val (viewModel, sessions, machines) = buildViewModel()
         machines.backing.value = listOf(machine("m1", host = "devbox.local", displayName = "Devbox"))
         sessions.set(
@@ -183,14 +186,17 @@ class SessionListViewModelTest {
         assertEquals("Named session", byId.getValue("s1").title)
         assertEquals("working on it", byId.getValue("s1").subtitle)
         assertEquals("summary title", byId.getValue("s2").title)
-        // Summary text already used as the title → path becomes the subtitle.
-        assertEquals("/repo/app", byId.getValue("s2").subtitle)
+        // Summary text already used as the title → no subtitle (the path no
+        // longer backfills it; the meta line carries the project instead).
+        assertNull(byId.getValue("s2").subtitle)
         assertEquals("tail-name", byId.getValue("s3").title)
 
-        // Machine labels: displayName wins; unlisted machines shorten the id.
-        assertEquals("Devbox", byId.getValue("s1").machineLabel)
-        assertEquals("offline-", byId.getValue("s2").machineLabel)
-        assertNull(byId.getValue("s3").machineLabel)
+        // Meta = `project · machine`: last two path segments, then the
+        // machine label (displayName wins; unlisted machines shorten the id;
+        // shown because several machines are known and no filter is active).
+        assertEquals("repo/app · Devbox", byId.getValue("s1").meta)
+        assertEquals("repo/app · offline-", byId.getValue("s2").meta)
+        assertEquals("repo/tail-name", byId.getValue("s3").meta)
 
         // No baseline seeded (no successful refresh yet) → activity is unread.
         assertTrue(byId.getValue("s1").unread)
@@ -210,9 +216,14 @@ class SessionListViewModelTest {
         assertEquals(listOf("m1", "m2"), state.machineFilters.map { it.id })
         assertEquals(listOf(2, 1), state.machineFilters.map { it.sessionCount })
 
+        // Unfiltered multi-machine view carries the machine in the meta line…
+        assertEquals("repo/app · m1", state.rows.first { it.id == "s1" }.meta)
+
         viewModel.setMachineFilter("m1")
         state = viewModel.uiState.first { it.activeMachineFilter == "m1" }
         assertEquals(listOf("s1", "s3"), state.rows.map { it.id })
+        // …and an active filter drops it: every visible row shares the machine.
+        assertEquals(listOf("repo/app", "repo/app"), state.rows.map { it.meta })
 
         // A filter whose machine lost its sessions falls back to All.
         sessions.set(summary("s2", updatedAt = 800, machineId = "m2"))
@@ -229,6 +240,42 @@ class SessionListViewModelTest {
         val state = viewModel.uiState.first { it.rows.size == 2 }
         assertFalse(state.showMachineFilterBar)
         assertNull(state.activeMachineFilter)
+        // A single machine is not worth naming on every row.
+        assertEquals(listOf("repo/app", "repo/app"), state.rows.map { it.meta })
+    }
+
+    @Test
+    fun `meta line derives the project from the worktree base path`() = runTest {
+        val (viewModel, sessions, _) = buildViewModel()
+        sessions.set(
+            summary(
+                "s1",
+                updatedAt = 900,
+                path = "/data/worktrees/231",
+                worktree = WorktreeMetadata(basePath = "/data/github/hapi", branch = "fix/insets", name = "231"),
+            ),
+            summary(
+                "s2",
+                updatedAt = 800,
+                path = "/data/worktrees/nameless",
+                worktree = WorktreeMetadata(basePath = "/data/github/hapi", branch = "main", name = ""),
+            ),
+            summary("s3", updatedAt = 700, path = "/srv", name = "Named", summaryText = "Ship it"),
+        )
+
+        val state = viewModel.uiState.first { it.rows.size == 3 }
+        val byId = state.rows.associateBy { it.id }
+
+        // Worktree rows: project from the base path, then the worktree name
+        // (branch when the name is blank). One machine → no machine suffix.
+        assertEquals("github/hapi · 231", byId.getValue("s1").meta)
+        assertEquals("github/hapi · main", byId.getValue("s2").meta)
+        // Single-segment paths render as-is.
+        assertEquals("srv", byId.getValue("s3").meta)
+
+        // Subtitle is the summary only — never the path.
+        assertNull(byId.getValue("s1").subtitle)
+        assertEquals("Ship it", byId.getValue("s3").subtitle)
     }
 
     @Test

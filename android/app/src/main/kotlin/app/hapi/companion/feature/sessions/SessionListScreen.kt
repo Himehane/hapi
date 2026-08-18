@@ -74,10 +74,10 @@ import app.hapi.protocol.wire.TodoProgress
  * - pinned section first (the sort already puts globalPinned/pinned rows on
  *   top; a header + divider make the boundary visible);
  * - per row: flavor brand icon + title, spinner while a turn is in flight,
- *   machine + worktree labels, summary/path line, relative `updatedAt`,
- *   pending-request badge, todo-progress chip, unread dot; disconnected
- *   rows are dimmed — connected is the resting state, so no presence dot
- *   (web parity);
+ *   `project · worktree · machine` meta line (machine only when it
+ *   disambiguates), summary line, relative `updatedAt`, pending-request
+ *   badge, todo-progress chip, unread dot; disconnected rows are dimmed —
+ *   connected is the resting state, so no presence dot (web parity);
  * - long-press → actions sheet: pin (none/project/global), rename (dialog),
  *   reopen (inactive rows; navigates into the possibly-superseding id),
  *   archive, delete (confirm; 409 while active) — optimistic store updates;
@@ -352,18 +352,13 @@ private fun SessionRow(
     }
 }
 
-// The agent flavor moved into the title line as a brand icon (web parity:
-// `SessionRowSummary`), so the meta line carries machine + worktree only.
+// `project · worktree · machine`, composed in the ViewModel (machine only
+// when it disambiguates) — the row just renders it.
 @Composable
 private fun MetaLine(row: SessionRowUi) {
-    val worktree = row.summary.metadata?.worktree
-    val parts = buildList {
-        row.machineLabel?.let(::add)
-        worktree?.let { add(it.name.ifBlank { it.branch }) }
-    }
-    if (parts.isEmpty()) return
+    val meta = row.meta ?: return
     Text(
-        text = parts.joinToString(" · "),
+        text = meta,
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
@@ -616,7 +611,7 @@ private fun previewRow(
     ),
     title = title,
     subtitle = "Porting the session list to Compose",
-    machineLabel = "devbox",
+    meta = "github/hapi · devbox",
     flavor = "claude",
     unread = unread,
 )

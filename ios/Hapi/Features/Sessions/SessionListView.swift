@@ -11,10 +11,10 @@ import SwiftUI
 /// - pinned section first (the sort already puts globalPinned/pinned rows on
 ///   top; a header makes the boundary visible);
 /// - per row: flavor brand icon + title, spinner while a turn is in flight,
-///   machine + worktree meta line, summary/path line, relative `updatedAt`,
-///   pending-request badge, todo-progress chip, unread dot; disconnected
-///   rows are dimmed — connected is the resting state, so no presence dot
-///   (web parity);
+///   `project · worktree · machine` meta line (machine only when it
+///   disambiguates), summary line, relative `updatedAt`, pending-request
+///   badge, todo-progress chip, unread dot; disconnected rows are dimmed —
+///   connected is the resting state, so no presence dot (web parity);
 /// - long-press context menu → pin (none/project/global) + archive with
 ///   optimistic store updates; failures land in an alert.
 struct SessionListView: View {
@@ -251,20 +251,12 @@ struct SessionRowView: View {
         }
     }
 
-    // The agent flavor moved into the title line as a brand icon (web parity:
-    // `SessionRowSummary`), so the meta line carries machine + worktree only.
+    // `project · worktree · machine`, composed in the model (machine only
+    // when it disambiguates) — the row just renders it.
     @ViewBuilder
     private var metaLine: some View {
-        let worktree = row.summary.metadata?.worktree
-        let worktreeLabel = worktree.map { tree in
-            tree.name.trimmingCharacters(in: .whitespaces).isEmpty ? tree.branch : tree.name
-        }
-        let parts: [String] = [
-            row.machineLabel,
-            worktreeLabel,
-        ].compactMap { $0 }
-        if !parts.isEmpty {
-            Text(parts.joined(separator: " · "))
+        if let meta = row.meta {
+            Text(meta)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
