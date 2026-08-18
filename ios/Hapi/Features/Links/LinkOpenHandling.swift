@@ -6,16 +6,22 @@ import SwiftUI
 /// `\.hapiOpenURL` (the renderer never opens anything itself and has already
 /// dropped `HrefPolicy.blocked` links):
 ///
-/// - `hapi-file://?path=&line=` workspace citations → an explanatory alert;
-///   the session file viewer lands in M4;
+/// - `hapi-file://?path=&line=` workspace citations → `openWorkspaceFile`
+///   when installed (the chat routes them into the A-M4a session file
+///   viewer, full mode, cited line as a hint), else an explanatory alert;
 /// - `https` (and, after confirmation, `http`) → in-app
 ///   `SFSafariViewController`;
 /// - other `HrefPolicy.allowed` schemes (`mailto`, …) → the system open;
 /// - `HrefPolicy.confirmFirst` schemes → alert first, then open.
 ///
-/// Installed once at the root (see `RootView`), so links behave identically
-/// wherever markdown renders.
+/// Installed once at the root (see `RootView`) so links behave identically
+/// wherever markdown renders; `ChatView` re-installs it over its subtree
+/// with the real file opener.
 struct LinkOpenHandling: ViewModifier {
+    /// Routes workspace-file citations to a real destination; nil shows the
+    /// informational alert (the root fallback outside any session).
+    var openWorkspaceFile: ((FilePathLink) -> Void)?
+
     @State private var safariURL: IdentifiedURL?
     @State private var confirmURL: IdentifiedURL?
     @State private var fileNotice: FilePathLink?
@@ -73,14 +79,18 @@ struct LinkOpenHandling: ViewModifier {
                     fileNotice = nil
                 }
             } message: { link in
-                Text("\(link.path)\(link.line.map { ":\($0)" } ?? "")\n\nThe session file viewer arrives in a later milestone.")
+                Text("\(link.path)\(link.line.map { ":\($0)" } ?? "")\n\nOpen a session chat to browse its files.")
             }
     }
 
     @MainActor
     private func handle(_ url: URL) {
         if let fileLink = FilePathLink(url: url) {
-            fileNotice = fileLink
+            if let openWorkspaceFile {
+                openWorkspaceFile(fileLink)
+            } else {
+                fileNotice = fileLink
+            }
             return
         }
         switch HrefPolicy.classify(url) {
@@ -106,9 +116,11 @@ struct LinkOpenHandling: ViewModifier {
 
 extension View {
     /// Installs the app's `\.hapiOpenURL` handler (plus its presentation
-    /// surfaces) for this subtree.
-    func handlesHapiLinks() -> some View {
-        modifier(LinkOpenHandling())
+    /// surfaces) for this subtree. Pass `openWorkspaceFile` to route
+    /// `hapi-file://` citations into a real viewer instead of the fallback
+    /// alert.
+    func handlesHapiLinks(openWorkspaceFile: ((FilePathLink) -> Void)? = nil) -> some View {
+        modifier(LinkOpenHandling(openWorkspaceFile: openWorkspaceFile))
     }
 }
 

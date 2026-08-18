@@ -36,10 +36,18 @@ struct ChatView: View {
     @State private var pendingAnchorID: String?
     /// Session config sheet (toolbar gear).
     @State private var configSheetOpen = false
+    /// Files browser push (toolbar folder, A-M4a).
+    @State private var filesOpen = false
+    /// File viewer push for `hapi-file://` chat citations (A-M4a).
+    @State private var viewerRoute: FileViewerRoute?
 
     /// Resume/reopen handed back a superseding session id — the host swaps
     /// its navigation entry (HomeView replaces the path element).
     private let onNavigateToSession: ((String) -> Void)?
+
+    /// Kept for the files/viewer pushes (the model owns its own reference).
+    private let session: HubSession
+    private let sessionId: String
 
     private static let bottomSentinelID = "chat-bottom-sentinel"
 
@@ -49,6 +57,8 @@ struct ChatView: View {
         onNavigateToSession: ((String) -> Void)? = nil
     ) {
         _model = State(initialValue: ChatModel(session: session, sessionId: sessionId))
+        self.session = session
+        self.sessionId = sessionId
         self.onNavigateToSession = onNavigateToSession
     }
 
@@ -84,6 +94,14 @@ struct ChatView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
+                    filesOpen = true
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .accessibilityLabel("Session files")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
                     configSheetOpen = true
                 } label: {
                     Image(systemName: "gearshape")
@@ -94,6 +112,26 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $configSheetOpen) {
             SessionConfigView(interactor: model.interactor)
+        }
+        .navigationDestination(isPresented: $filesOpen) {
+            FilesView(session: session, sessionId: sessionId)
+        }
+        .navigationDestination(item: $viewerRoute) { route in
+            // A replaced route value must rebuild the screen's @State model
+            // (HomeView's chat-push precedent).
+            FileViewerView(session: session, route: route)
+                .id(route)
+        }
+        // Chat markdown citations open the real viewer in full mode with the
+        // cited line as a hint chip (replaces the root placeholder alert for
+        // this subtree; the destinations above inherit the handler too).
+        .handlesHapiLinks { link in
+            viewerRoute = FileViewerRoute(
+                sessionId: sessionId,
+                path: link.path,
+                mode: .file,
+                line: link.line
+            )
         }
         .environment(\.chatMedia, model.imageLoader)
         .environment(\.chatInteractions, model.interactor)
@@ -106,7 +144,9 @@ struct ChatView: View {
             model.start()
         }
         .onDisappear {
-            // Pop-only navigation below this screen, so disappear == closed.
+            // Closed, or a files/viewer push covered the chat — either way
+            // the pipe parks; start() rebuilds fresh wiring at the saved
+            // cursor when the screen returns.
             model.stop()
         }
     }
