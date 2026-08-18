@@ -1,5 +1,7 @@
 package app.hapi.companion.feature.chat
 
+import app.hapi.companion.feature.chat.attachments.ComposerAttachmentStatus
+import app.hapi.companion.feature.chat.attachments.PreparedAttachment
 import app.hapi.companion.feature.chat.composer.ChatDrafts
 import app.hapi.data.api.ApiError
 import app.hapi.data.api.ChatSessionApi
@@ -19,8 +21,11 @@ import app.hapi.protocol.wire.AgentState
 import app.hapi.protocol.wire.AgentStateRequest
 import app.hapi.protocol.wire.ApprovePermissionRequest
 import app.hapi.protocol.wire.CancelMessageResponse
+import app.hapi.protocol.chat.NormalizedMessage
+import app.hapi.protocol.chat.normalizeDecryptedMessage
 import app.hapi.protocol.wire.CodexModelsResponse
 import app.hapi.protocol.wire.DecryptedMessage
+import app.hapi.protocol.wire.DeleteUploadResponse
 import app.hapi.protocol.wire.HapiJson
 import app.hapi.protocol.wire.Machine
 import app.hapi.protocol.wire.MessagesPage
@@ -37,11 +42,13 @@ import app.hapi.protocol.wire.SlashCommand
 import app.hapi.protocol.wire.SlashCommandsResponse
 import app.hapi.protocol.wire.SteerQueuedMessageResponse
 import app.hapi.protocol.wire.SyncEvent
+import app.hapi.protocol.wire.UploadFileResponse
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
@@ -241,6 +248,28 @@ private class RecordingChatApi : ChatSessionApi {
     override suspend fun getSlashCommands(sessionId: String): SlashCommandsResponse {
         slashCommandsCalls.value += 1
         return slashCommandsResult
+    }
+
+    var uploadResult: UploadFileResponse = UploadFileResponse(success = true, path = "/uploads/ok")
+
+    /** When set, uploads park here (in-flight chip tests). */
+    var uploadGate: CompletableDeferred<Unit>? = null
+    val uploadCalls = MutableStateFlow<List<String>>(emptyList())
+    override suspend fun uploadFile(
+        sessionId: String,
+        filename: String,
+        contentBase64: String,
+        mimeType: String,
+    ): UploadFileResponse {
+        uploadCalls.value = uploadCalls.value + filename
+        uploadGate?.await()
+        return uploadResult
+    }
+
+    val deleteUploadCalls = MutableStateFlow<List<String>>(emptyList())
+    override suspend fun deleteUpload(sessionId: String, path: String): DeleteUploadResponse {
+        deleteUploadCalls.value = deleteUploadCalls.value + path
+        return DeleteUploadResponse(success = true)
     }
 }
 
@@ -464,6 +493,148 @@ class ChatViewModelInteractionTest {
         }
         val oldRows = harness.window().state.value.messages.filter { it.localId == "local-1" }
         assertTrue(oldRows.isEmpty())
+    }
+
+    // --------------------------------------------------------- attachments --
+
+    private fun preparedShot(id: String = "att-1", filename: String = "shot.jpg") = PreparedAttachment(
+        id = id,
+        filename = filename,
+        mimeType = "image/jpeg",
+        bytes = byteArrayOf(1, 2, 3),
+        previewBytes = byteArrayOf(7, 7),
+    )
+
+    private suspend fun InteractionHarness.awaitAttachmentsReady() {
+        viewModel.attachments.items.first { list ->
+            list.isNotEmpty() && list.all { it.status == ComposerAttachmentStatus.Ready }
+        }
+    }
+
+    @Test
+    fun `send rides ready attachments as wire metadata and the optimistic row carries them`() = runTest {
+        val harness = InteractionHarness(this)
+        harness.viewModel.start()
+
+        harness.viewModel.attachments.add(preparedShot())
+        harness.awaitAttachmentsReady()
+        harness.viewModel.setComposerText("see the screenshot")
+        harness.viewModel.sendMessage()
+
+        val (_, request) = harness.api.sendCalls.first { it.isNotEmpty() }.single()
+        val metadata = request.attachments!!.single()
+        assertEquals("att-1", metadata.id)
+        assertEquals("shot.jpg", metadata.filename)
+        assertEquals("image/jpeg", metadata.mimeType)
+        assertEquals(3L, metadata.size)
+        assertEquals("/uploads/ok", metadata.path)
+        assertTrue(metadata.previewUrl!!.startsWith("data:image/jpeg;base64,"))
+        assertNull(request.scheduledAt)
+
+        // The optimistic row carries the attachments — thumbnails render
+        // before the SSE echo replaces it.
+        val row = harness.window().state.first { state ->
+            state.messages.any { it.localId == "local-1" && it.status == MessageStatus.Sent }
+        }.messages.single()
+        val normalized = normalizeDecryptedMessage(row.wire) as NormalizedMessage.User
+        assertEquals(listOf("shot.jpg"), normalized.attachments?.map { it.filename })
+
+        // The tray was consumed by the send (items is derived — await it).
+        harness.viewModel.attachments.items.first { it.isEmpty() }
+    }
+
+    @Test
+    fun `attachments-only send posts empty text (wire allows text OR attachments)`() = runTest {
+        val harness = InteractionHarness(this)
+        harness.viewModel.start()
+
+        harness.viewModel.attachments.add(preparedShot())
+        harness.awaitAttachmentsReady()
+        harness.viewModel.sendMessage()
+
+        val (_, request) = harness.api.sendCalls.first { it.isNotEmpty() }.single()
+        assertEquals("", request.text)
+        assertEquals(1, request.attachments!!.size)
+    }
+
+    @Test
+    fun `send refuses while an attachment upload is unsettled`() = runTest {
+        val harness = InteractionHarness(this)
+        harness.api.uploadGate = CompletableDeferred()
+        harness.viewModel.start()
+
+        var notice: String? = null
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+            notice = harness.viewModel.events
+                .filterIsInstance<ChatEvent.Notice>()
+                .first()
+                .message
+        }
+
+        harness.viewModel.attachments.add(preparedShot())
+        harness.api.uploadCalls.first { it.isNotEmpty() } // parked on the gate
+        harness.viewModel.setComposerText("hold on")
+        harness.viewModel.sendMessage()
+        collector.join()
+
+        assertTrue(notice!!.contains("uploading"))
+        assertTrue(harness.api.sendCalls.value.isEmpty())
+        // The draft text and the chip both survive the refused send.
+        assertEquals("hold on", harness.viewModel.composer.first { it.text.isNotEmpty() }.text)
+        assertEquals(1, harness.viewModel.attachments.items.first { it.isNotEmpty() }.size)
+
+        // Once the upload settles, the same send goes through with metadata.
+        harness.api.uploadGate!!.complete(Unit)
+        harness.awaitAttachmentsReady()
+        harness.viewModel.sendMessage()
+        val (_, request) = harness.api.sendCalls.first { it.isNotEmpty() }.single()
+        assertEquals("hold on", request.text)
+        assertEquals(1, request.attachments!!.size)
+    }
+
+    @Test
+    fun `failed send retry re-sends the same attachments from the wire row`() = runTest {
+        val harness = InteractionHarness(this)
+        harness.api.sendFailures += RuntimeException("boom")
+        harness.viewModel.start()
+
+        harness.viewModel.attachments.add(preparedShot())
+        harness.awaitAttachmentsReady()
+        harness.viewModel.setComposerText("try again")
+        harness.viewModel.sendMessage()
+        harness.window().state.first { state ->
+            state.messages.any { it.localId == "local-1" && it.status == MessageStatus.Failed }
+        }
+
+        harness.viewModel.retryFailedMessage("local-1")
+        harness.window().state.first { state ->
+            state.messages.any { it.localId == "local-1" && it.status == MessageStatus.Sent }
+        }
+
+        val requests = harness.api.sendCalls.value.map { it.second }
+        assertEquals(2, requests.size)
+        // Attachments round-tripped through the optimistic row's wire JSON.
+        assertEquals(requests[0].attachments, requests[1].attachments)
+        assertEquals("/uploads/ok", requests[1].attachments!!.single().path)
+    }
+
+    @Test
+    fun `removing a ready chip deletes the hub upload and discard drops the rest`() = runTest {
+        val harness = InteractionHarness(this)
+        harness.viewModel.start()
+
+        harness.viewModel.attachments.add(preparedShot(id = "att-1", filename = "a.jpg"))
+        harness.awaitAttachmentsReady()
+        harness.viewModel.attachments.remove("att-1")
+        harness.api.deleteUploadCalls.first { it.size == 1 }
+        harness.viewModel.attachments.items.first { it.isEmpty() }
+
+        // Un-sent leftovers are discarded when the screen goes away for good.
+        harness.viewModel.attachments.add(preparedShot(id = "att-2", filename = "b.jpg"))
+        harness.awaitAttachmentsReady()
+        harness.viewModel.discardAttachments()
+        harness.api.deleteUploadCalls.first { it.size == 2 }
+        harness.viewModel.attachments.items.first { it.isEmpty() }
     }
 
     // ---------------------------------------------------------- queued bar --

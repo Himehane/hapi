@@ -159,6 +159,15 @@ private class FakeMessagesApi : ChatSessionApi {
         CodexModelsResponse(success = false, error = "not scripted")
     override suspend fun getSlashCommands(sessionId: String): app.hapi.protocol.wire.SlashCommandsResponse =
         app.hapi.protocol.wire.SlashCommandsResponse(success = false, error = "not scripted")
+    override suspend fun uploadFile(
+        sessionId: String,
+        filename: String,
+        contentBase64: String,
+        mimeType: String,
+    ): app.hapi.protocol.wire.UploadFileResponse =
+        app.hapi.protocol.wire.UploadFileResponse(success = true, path = "/uploads/$filename")
+    override suspend fun deleteUpload(sessionId: String, path: String): app.hapi.protocol.wire.DeleteUploadResponse =
+        app.hapi.protocol.wire.DeleteUploadResponse(success = true)
 }
 
 private fun page(

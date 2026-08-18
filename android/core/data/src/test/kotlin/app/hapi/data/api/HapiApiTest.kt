@@ -167,6 +167,45 @@ class HapiApiTest {
     }
 
     @Test
+    fun `upload posts json base64 (not multipart) and yields the hub path`() {
+        server.enqueue(ok("""{"success":true,"path":"/tmp/uploads/shot.jpg"}"""))
+
+        val response = runBlocking {
+            session.api.uploadFile("s1", "shot.jpg", "QUJDRA==", "image/jpeg")
+        }
+
+        assertTrue(response.success)
+        assertEquals("/tmp/uploads/shot.jpg", response.path)
+        val request = server.takeRequest()
+        assertEquals("/api/sessions/s1/upload", request.path)
+        assertEquals("POST", request.method)
+        assertTrue(request.getHeader("Content-Type")!!.startsWith("application/json"))
+        assertEquals(
+            buildJsonObject {
+                put("filename", "shot.jpg")
+                put("content", "QUJDRA==")
+                put("mimeType", "image/jpeg")
+            },
+            Json.parseToJsonElement(request.body.readUtf8()).jsonObject,
+        )
+    }
+
+    @Test
+    fun `delete upload posts the path`() {
+        server.enqueue(ok("""{"success":true}"""))
+
+        val response = runBlocking { session.api.deleteUpload("s1", "/tmp/uploads/shot.jpg") }
+
+        assertTrue(response.success)
+        val request = server.takeRequest()
+        assertEquals("/api/sessions/s1/upload/delete", request.path)
+        assertEquals(
+            buildJsonObject { put("path", "/tmp/uploads/shot.jpg") },
+            Json.parseToJsonElement(request.body.readUtf8()).jsonObject,
+        )
+    }
+
+    @Test
     fun `approve body supports nested answers`() {
         server.enqueue(ok("""{"ok":true}"""))
 

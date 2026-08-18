@@ -500,6 +500,10 @@ private class ChatViewModelHolder(
 
     override fun onCleared() {
         dictation.cancel()
+        // Leaving the chat for good (not rotation): un-sent uploaded
+        // attachments are discarded after a best-effort hub delete (B-M3f;
+        // attachments are not part of drafts v1).
+        viewModel.discardAttachments()
         viewModel.stop()
         scope.cancel()
     }
