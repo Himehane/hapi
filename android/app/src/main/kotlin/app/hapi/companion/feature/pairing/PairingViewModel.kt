@@ -23,10 +23,28 @@ import kotlinx.coroutines.withContext
 sealed interface PairingUiState {
     data object Idle : PairingUiState
     data object Validating : PairingUiState
-    data class Error(val message: String) : PairingUiState
+    data class Error(val error: PairingError) : PairingUiState
 
     /** Credentials stored, hub registered + active — navigate home. */
     data class Success(val hubUrl: String) : PairingUiState
+}
+
+/**
+ * Semantic pairing failures (B-M5a): the ViewModel stays string-free and JVM
+ * tests assert these directly; the pairing screens localize them.
+ */
+sealed interface PairingError {
+    data object InvalidUrl : PairingError
+    data object EmptyToken : PairingError
+    data object TokenRejected : PairingError
+
+    /** Deep-link "switch hub" raced a sign-out — that hub left the roster. */
+    data object HubGone : PairingError
+
+    data class Unreachable(val hubUrl: String) : PairingError
+    data class NotAHub(val hubUrl: String) : PairingError
+    data class ProtocolMismatch(val hubVersion: Int, val supportedVersion: Int) : PairingError
+    data class AuthFailed(val httpStatus: Int) : PairingError
 }
 
 /** A `hapicompanion://bind` deep link waiting for user confirmation. */
@@ -66,7 +84,7 @@ class PairingViewModel(
     fun prefillFromLink(link: BindLink) {
         val normalized = HubUrls.normalize(link.hubUrl)
         if (normalized == null) {
-            mutableState.value = PairingUiState.Error(MSG_INVALID_URL)
+            mutableState.value = PairingUiState.Error(PairingError.InvalidUrl)
             return
         }
         mutablePrefill.value = BindPrefill(
@@ -93,7 +111,7 @@ class PairingViewModel(
                 PairingUiState.Success(target.hubUrl)
             } else {
                 // Roster changed under us (sign-out race): fall back to pairing.
-                PairingUiState.Error(MSG_HUB_GONE)
+                PairingUiState.Error(PairingError.HubGone)
             }
         }
     }
@@ -103,14 +121,14 @@ class PairingViewModel(
         if (mutableState.value == PairingUiState.Validating) return
         val normalized = HubUrls.normalize(hubUrl)
         if (normalized == null) {
-            mutableState.value = PairingUiState.Error(MSG_INVALID_URL)
+            mutableState.value = PairingUiState.Error(PairingError.InvalidUrl)
             return
         }
         // Trim whitespace only; the token stays opaque otherwise (never split
         // client-side — the `:namespace` suffix belongs to the hub).
         val token = accessToken.trim()
         if (token.isEmpty()) {
-            mutableState.value = PairingUiState.Error(MSG_EMPTY_TOKEN)
+            mutableState.value = PairingUiState.Error(PairingError.EmptyToken)
             return
         }
         mutableState.value = PairingUiState.Validating
@@ -134,14 +152,16 @@ class PairingViewModel(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: IOException) {
-            return PairingUiState.Error(msgUnreachable(hubUrl))
+            return PairingUiState.Error(PairingError.Unreachable(hubUrl))
         } catch (_: Exception) {
             // Non-2xx or a body that is not the health schema: something
             // answered, but it does not look like a HAPI hub.
-            return PairingUiState.Error(msgNotAHub(hubUrl))
+            return PairingUiState.Error(PairingError.NotAHub(hubUrl))
         }
         if (health.protocolVersion != SUPPORTED_PROTOCOL_VERSION) {
-            return PairingUiState.Error(msgProtocolMismatch(health.protocolVersion))
+            return PairingUiState.Error(
+                PairingError.ProtocolMismatch(health.protocolVersion, SUPPORTED_PROTOCOL_VERSION),
+            )
         }
 
         val auth = try {
@@ -150,12 +170,12 @@ class PairingViewModel(
             throw cancellation
         } catch (error: ApiError) {
             return if (error.status == 401) {
-                PairingUiState.Error(MSG_TOKEN_REJECTED)
+                PairingUiState.Error(PairingError.TokenRejected)
             } else {
-                PairingUiState.Error(msgAuthFailed(error.status))
+                PairingUiState.Error(PairingError.AuthFailed(error.status))
             }
         } catch (_: Exception) {
-            return PairingUiState.Error(msgUnreachable(hubUrl))
+            return PairingUiState.Error(PairingError.Unreachable(hubUrl))
         }
 
         // Credentials first, then the roster: the active-hub observer builds a
@@ -175,31 +195,4 @@ class PairingViewModel(
         return PairingUiState.Success(hubUrl)
     }
 
-    companion object {
-        // Plain English for M1; the M5 i18n pass moves user-facing copy to
-        // resources (these also serve as stable assertions for JVM tests).
-        const val MSG_INVALID_URL: String =
-            "Enter a valid hub URL, like http://192.168.1.10:3006 or https://hub.example.com."
-        const val MSG_EMPTY_TOKEN: String = "Enter the access token shown by your hub."
-        const val MSG_TOKEN_REJECTED: String =
-            "The hub rejected this access token. Tokens change when the hub rotates its " +
-                "CLI_API_TOKEN — grab a fresh QR code or token and try again."
-        const val MSG_HUB_GONE: String = "That hub is no longer paired. Pair it again below."
-
-        fun msgUnreachable(hubUrl: String): String =
-            "Could not reach $hubUrl. Check the address, your network, and that the hub is running."
-
-        fun msgNotAHub(hubUrl: String): String =
-            "$hubUrl answered, but not like a HAPI hub. Double-check the URL (it should be " +
-                "the hub's own address, not the web app's)."
-
-        fun msgProtocolMismatch(hubProtocolVersion: Int): String =
-            "This hub speaks protocol v$hubProtocolVersion but the app supports " +
-                "v$SUPPORTED_PROTOCOL_VERSION. Update the ${
-                    if (hubProtocolVersion > SUPPORTED_PROTOCOL_VERSION) "app" else "hub"
-                } and try again."
-
-        fun msgAuthFailed(status: Int): String =
-            "Pairing failed (HTTP $status). Try again in a moment."
-    }
 }

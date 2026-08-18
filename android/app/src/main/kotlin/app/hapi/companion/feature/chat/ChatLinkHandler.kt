@@ -13,7 +13,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.core.net.toUri
+import app.hapi.companion.R
 import app.hapi.companion.ui.markdown.MarkdownLinkHandler
 import app.hapi.protocol.markdown.HrefDecision
 
@@ -35,7 +37,7 @@ fun rememberChatLinkHandler(
     confirmUrl?.let { url ->
         AlertDialog(
             onDismissRequest = { confirmUrl = null },
-            title = { Text("Open link?") },
+            title = { Text(stringResource(R.string.chat_link_open_title)) },
             text = { Text(url) },
             confirmButton = {
                 TextButton(
@@ -43,10 +45,10 @@ fun rememberChatLinkHandler(
                         confirmUrl = null
                         context.openUrl(url)
                     },
-                ) { Text("Open") }
+                ) { Text(stringResource(R.string.chat_link_open)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmUrl = null }) { Text("Cancel") }
+                TextButton(onClick = { confirmUrl = null }) { Text(stringResource(R.string.chat_cancel)) }
             },
         )
     }
@@ -70,6 +72,6 @@ private fun Context.openUrl(url: String) {
     try {
         startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
     } catch (_: ActivityNotFoundException) {
-        Toast.makeText(this, "No app can open this link", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.chat_link_no_app), Toast.LENGTH_SHORT).show()
     }
 }

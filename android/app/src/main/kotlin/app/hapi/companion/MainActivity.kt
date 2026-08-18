@@ -5,9 +5,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.CompositionLocalProvider
@@ -37,7 +37,10 @@ import kotlinx.coroutines.launch
  *    + session-id extra, B-M4a — explicit intent, deliberately no public URI)
  *    → [AppGraph.pendingOpenSessionId].
  */
-class MainActivity : ComponentActivity() {
+// AppCompatActivity (not ComponentActivity) since B-M5a: the appcompat base
+// class is what applies AppCompatDelegate.setApplicationLocales on API < 33
+// (per-app language switching); on API 33+ the framework handles it.
+class MainActivity : AppCompatActivity() {
 
     private val appGraph: AppGraph get() = (application as HapiApp).appGraph
 

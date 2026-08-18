@@ -37,12 +37,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.hapi.companion.R
 import app.hapi.companion.ui.components.DiffView
 import app.hapi.companion.ui.markdown.CodeBlock
 import app.hapi.companion.ui.markdown.Markdown
@@ -82,7 +84,7 @@ fun FileViewerScreen(
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.files_back))
                     }
                 },
                 title = {
@@ -103,7 +105,7 @@ fun FileViewerScreen(
                 },
                 actions = {
                     IconButton(onClick = viewModel::refresh) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                        Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.files_refresh))
                     }
                 },
             )
@@ -163,7 +165,7 @@ private fun PathRow(path: String) {
             modifier = Modifier.weight(1f),
         )
         Text(
-            text = if (copied) "Copied" else "Copy path",
+            text = stringResource(if (copied) R.string.files_viewer_copied else R.string.files_viewer_copy_path),
             fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
             color = if (copied) MaterialTheme.colorScheme.primary else colors.hint,
@@ -191,22 +193,22 @@ private fun ModeToggleRow(state: FileViewerUiState, viewModel: FileViewerViewMod
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (hasDiff) {
-            ModeChip("Diff", state.mode == ViewerMode.DIFF) { viewModel.setMode(ViewerMode.DIFF) }
-            ModeChip("File", state.mode == ViewerMode.FILE) { viewModel.setMode(ViewerMode.FILE) }
+            ModeChip(stringResource(R.string.files_viewer_diff), state.mode == ViewerMode.DIFF) { viewModel.setMode(ViewerMode.DIFF) }
+            ModeChip(stringResource(R.string.files_viewer_file), state.mode == ViewerMode.FILE) { viewModel.setMode(ViewerMode.FILE) }
         }
         if (hasDiff && state.mode == ViewerMode.DIFF) {
             Text("·", color = MaterialTheme.hapi.hint)
-            ModeChip("Unstaged", !state.staged) { viewModel.setStaged(false) }
-            ModeChip("Staged", state.staged) { viewModel.setStaged(true) }
+            ModeChip(stringResource(R.string.files_viewer_unstaged), !state.staged) { viewModel.setStaged(false) }
+            ModeChip(stringResource(R.string.files_viewer_staged), state.staged) { viewModel.setStaged(true) }
         }
         if (isMarkdownFile && state.mode == ViewerMode.FILE) {
             if (hasDiff) Text("·", color = MaterialTheme.hapi.hint)
-            ModeChip("Source", !state.markdownPreview) { viewModel.setMarkdownPreview(false) }
-            ModeChip("Preview", state.markdownPreview) { viewModel.setMarkdownPreview(true) }
+            ModeChip(stringResource(R.string.files_viewer_source), !state.markdownPreview) { viewModel.setMarkdownPreview(false) }
+            ModeChip(stringResource(R.string.files_viewer_preview), state.markdownPreview) { viewModel.setMarkdownPreview(true) }
         }
         state.focusLine?.let { line ->
             Text(
-                text = "Line $line",
+                text = stringResource(R.string.files_viewer_line, line),
                 fontSize = 11.sp,
                 color = MaterialTheme.hapi.hint,
                 modifier = Modifier.padding(start = 4.dp),
@@ -239,7 +241,7 @@ private fun ModeChip(label: String, selected: Boolean, onClick: () -> Unit) {
 private fun DiffContent(state: FileViewerUiState) {
     when (val diff = state.diff) {
         DiffUiState.Loading -> LoadingBlock()
-        DiffUiState.Empty -> HintBlock("No changes in this file")
+        DiffUiState.Empty -> HintBlock(stringResource(R.string.files_viewer_no_changes))
         is DiffUiState.Failed -> HintBlock(diff.message)
         is DiffUiState.Ready -> diff.files.forEach { file ->
             DiffView(file = file, compact = false, modifier = Modifier.fillMaxWidth())
@@ -252,8 +254,8 @@ private fun FileContent(state: FileViewerUiState) {
     when (val content = state.content) {
         FileContentUiState.Loading -> LoadingBlock()
         is FileContentUiState.Failed -> HintBlock(content.message)
-        FileContentUiState.Empty -> HintBlock("This file is empty")
-        FileContentUiState.Binary -> HintBlock("Binary file — no preview available")
+        FileContentUiState.Empty -> HintBlock(stringResource(R.string.files_viewer_empty))
+        FileContentUiState.Binary -> HintBlock(stringResource(R.string.files_viewer_binary))
         is FileContentUiState.Image -> ImageContent(content, state.fileName)
         is FileContentUiState.Text ->
             if (content.isMarkdown && state.markdownPreview) {
@@ -275,7 +277,7 @@ private fun ImageContent(content: FileContentUiState.Image, fileName: String) {
     }
     if (bitmap == null) {
         // SVG and other formats BitmapFactory can't decode.
-        HintBlock("Preview not available for this image format")
+        HintBlock(stringResource(R.string.files_viewer_image_unsupported))
     } else {
         Image(
             bitmap = bitmap,

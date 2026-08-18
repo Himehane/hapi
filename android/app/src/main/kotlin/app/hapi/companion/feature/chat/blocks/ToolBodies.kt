@@ -8,8 +8,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.hapi.companion.R
 import app.hapi.companion.feature.chat.displayPath
 import app.hapi.companion.feature.chat.terminalCommand
 import app.hapi.companion.ui.components.DiffView
@@ -82,7 +84,7 @@ private fun ToolInputSection(tool: ChatToolCall, basePath: String?) {
                     val new = getInputString(edit, "new_string")
                     if (old != null && new != null) {
                         if (edits.size > 1) {
-                            SectionLabel("Edit ${index + 1}/${edits.size}")
+                            SectionLabel(stringResource(R.string.chat_edit_n_of_m, index + 1, edits.size))
                         }
                         BeforeAfter(old, new, language)
                     }
@@ -148,10 +150,11 @@ private fun ToolInputSection(tool: ChatToolCall, basePath: String?) {
 @Composable
 private fun BeforeAfter(old: String, new: String, language: String?) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SectionLabel("Before")
-        CodeBlock(code = old.ifEmpty { "(empty)" }, language = language)
-        SectionLabel("After")
-        CodeBlock(code = new.ifEmpty { "(empty)" }, language = language)
+        val emptyLabel = stringResource(R.string.chat_empty_snippet)
+        SectionLabel(stringResource(R.string.chat_before))
+        CodeBlock(code = old.ifEmpty { emptyLabel }, language = language)
+        SectionLabel(stringResource(R.string.chat_after))
+        CodeBlock(code = new.ifEmpty { emptyLabel }, language = language)
     }
 }
 
@@ -219,7 +222,9 @@ private fun ToolResultSection(tool: ChatToolCall) {
     val rendering = remember(result) { resultRendering(result) } ?: return
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        SectionLabel(if (isError) "Result · error" else "Result")
+        SectionLabel(
+            stringResource(if (isError) R.string.chat_result_error else R.string.chat_result),
+        )
         when (rendering) {
             is ResultRendering.Diffs -> rendering.files.forEach { DiffView(file = it) }
             is ResultRendering.Terminal -> TerminalText(rendering.text, isError = isError)

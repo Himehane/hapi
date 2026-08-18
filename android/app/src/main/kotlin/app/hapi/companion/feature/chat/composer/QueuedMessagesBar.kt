@@ -16,9 +16,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import app.hapi.companion.R
 import app.hapi.companion.feature.chat.QueuedRowUi
 import app.hapi.companion.ui.theme.HapiTheme
 import app.hapi.companion.ui.theme.hapi
@@ -48,7 +50,11 @@ fun QueuedMessagesBar(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
-            text = if (rows.size == 1) "1 queued message" else "${rows.size} queued messages",
+            text = if (rows.size == 1) {
+                stringResource(R.string.chat_queued_one)
+            } else {
+                stringResource(R.string.chat_queued_many, rows.size)
+            },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.hapi.hint,
         )
@@ -90,18 +96,21 @@ private fun QueuedRow(
                 )
                 row.scheduledAt?.let { scheduledAt ->
                     Text(
-                        text = "Scheduled · " + DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(scheduledAt)),
+                        text = stringResource(
+                            R.string.chat_queued_scheduled,
+                            DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(scheduledAt)),
+                        ),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.hapi.hint,
                     )
                 }
             }
             if (row.canSteer) {
-                TextButton(onClick = { onSteer(row.id) }) { Text("Steer") }
+                TextButton(onClick = { onSteer(row.id) }) { Text(stringResource(R.string.chat_queued_steer)) }
             }
-            TextButton(onClick = { onEdit(row.id) }, enabled = row.canAct) { Text("Edit") }
+            TextButton(onClick = { onEdit(row.id) }, enabled = row.canAct) { Text(stringResource(R.string.chat_queued_edit)) }
             TextButton(onClick = { onCancel(row.id) }, enabled = row.canAct) {
-                Text("Cancel", color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.chat_cancel), color = MaterialTheme.colorScheme.error)
             }
         }
     }

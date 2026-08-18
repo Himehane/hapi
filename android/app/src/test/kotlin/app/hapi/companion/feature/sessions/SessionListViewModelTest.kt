@@ -316,7 +316,8 @@ class SessionListViewModelTest {
 
         val error = seen
         assertTrue(error is SessionListError.DeleteFailed)
-        assertTrue(error.message!!.contains("archive it first"))
+        // The UI resolves the localized "archive it first" wording from this flag.
+        assertTrue(error.stillActive)
     }
 
     @Test

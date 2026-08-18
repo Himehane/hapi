@@ -17,8 +17,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import app.hapi.companion.R
 import app.hapi.companion.ui.markdown.Markdown
 import app.hapi.companion.ui.theme.HapiTheme
 import app.hapi.companion.ui.theme.hapi
@@ -51,7 +53,9 @@ fun AgentReasoningBlockView(block: AgentReasoningBlock, modifier: Modifier = Mod
                 .padding(vertical = 2.dp),
         ) {
             Text(
-                text = if (expanded) "💭 Reasoning ▾" else "💭 Reasoning ▸",
+                text = stringResource(
+                    if (expanded) R.string.chat_reasoning_expanded else R.string.chat_reasoning_collapsed,
+                ),
                 style = MaterialTheme.typography.labelMedium,
                 color = hint,
             )

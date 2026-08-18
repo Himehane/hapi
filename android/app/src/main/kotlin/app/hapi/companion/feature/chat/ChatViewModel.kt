@@ -183,8 +183,38 @@ sealed interface ChatEvent {
     /** The session was deleted — leave the chat screen. */
     data object SessionDeleted : ChatEvent
 
-    /** Transient failure/notice for a snackbar. */
-    data class Notice(val message: String) : ChatEvent
+    /** Transient failure/notice for a snackbar (resolved to a string at the UI layer). */
+    data class Notice(val notice: ChatNotice) : ChatEvent
+}
+
+/**
+ * Semantic snackbar notices (B-M5a): the ViewModel stays string-free so the
+ * UI layer localizes; `detail` carries server/exception text and, when
+ * present, is shown verbatim (matching the previous `message ?: fallback`
+ * behavior).
+ */
+sealed interface ChatNotice {
+    data object DraftParked : ChatNotice
+    data object ScratchlistFull : ChatNotice
+    data object ScratchlistParkFailed : ChatNotice
+    data object AttachmentsUploading : ChatNotice
+    data object ResumeFailed : ChatNotice
+    data object QueuedEditKeptDraft : ChatNotice
+    data object QueuedAlreadyDelivered : ChatNotice
+    data object PermissionAlreadyHandled : ChatNotice
+
+    /** `DELETE` answered 409 — the session is still active (archive first). */
+    data object DeleteConflictActive : ChatNotice
+
+    data class AbortFailed(val detail: String?) : ChatNotice
+    data class RenameFailed(val detail: String?) : ChatNotice
+    data class DeleteFailed(val detail: String?) : ChatNotice
+    data class ReopenFailed(val detail: String?) : ChatNotice
+    data class CancelQueuedFailed(val detail: String?) : ChatNotice
+    data class SteerFailed(val detail: String?) : ChatNotice
+    data class PermissionRequestFailed(val detail: String?) : ChatNotice
+    data class ModelsLoadFailed(val detail: String?) : ChatNotice
+    data class ConfigUpdateFailed(val detail: String?) : ChatNotice
 }
 
 /** A permission decision the UI can request (bodies mirror `PermissionFooter.tsx`). */
@@ -591,12 +621,12 @@ class ChatViewModel(
                     // Clear only when the draft is still what we parked (the
                     // operator may have kept typing while the POST ran).
                     if (composerText.value == text) setComposerText("")
-                    _events.tryEmit(ChatEvent.Notice("Draft parked to scratchlist"))
+                    _events.tryEmit(ChatEvent.Notice(ChatNotice.DraftParked))
                 }
                 ScratchlistCreateResult.AtCap ->
-                    _events.tryEmit(ChatEvent.Notice("Scratchlist is full (200 entries)"))
+                    _events.tryEmit(ChatEvent.Notice(ChatNotice.ScratchlistFull))
                 is ScratchlistCreateResult.Failed ->
-                    _events.tryEmit(ChatEvent.Notice("Couldn't park the draft — check the hub connection"))
+                    _events.tryEmit(ChatEvent.Notice(ChatNotice.ScratchlistParkFailed))
             }
         }
     }
@@ -640,9 +670,7 @@ class ChatViewModel(
     fun sendMessage(steer: Boolean = false) {
         if (sendInFlight.value) return
         if (attachments.hasUnsettled()) {
-            _events.tryEmit(
-                ChatEvent.Notice("Attachments are still uploading — wait, or retry/remove the failed ones"),
-            )
+            _events.tryEmit(ChatEvent.Notice(ChatNotice.AttachmentsUploading))
             return
         }
         val text = composerText.value.trim()
@@ -785,7 +813,7 @@ class ChatViewModel(
             throw cancellation
         } catch (error: Exception) {
             store.updateStatus(localId, MessageStatus.Failed)
-            _events.tryEmit(ChatEvent.Notice("Session is inactive and could not be resumed"))
+            _events.tryEmit(ChatEvent.Notice(ChatNotice.ResumeFailed))
             return
         }
 
@@ -828,7 +856,7 @@ class ChatViewModel(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
-                _events.tryEmit(ChatEvent.Notice(error.message ?: "Failed to abort"))
+                _events.tryEmit(ChatEvent.Notice(ChatNotice.AbortFailed(error.message)))
             }
         }
     }
@@ -845,7 +873,7 @@ class ChatViewModel(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
-                _events.tryEmit(ChatEvent.Notice(error.message ?: "Failed to rename session"))
+                _events.tryEmit(ChatEvent.Notice(ChatNotice.RenameFailed(error.message)))
             }
         }
     }
@@ -860,12 +888,12 @@ class ChatViewModel(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
-                val message = if (error is ApiError && error.status == 409) {
-                    "Session is still active — archive it first"
+                val notice = if (error is ApiError && error.status == 409) {
+                    ChatNotice.DeleteConflictActive
                 } else {
-                    error.message ?: "Failed to delete session"
+                    ChatNotice.DeleteFailed(error.message)
                 }
-                _events.tryEmit(ChatEvent.Notice(message))
+                _events.tryEmit(ChatEvent.Notice(notice))
             } finally {
                 sessionOpPending.value = false
             }
@@ -891,7 +919,7 @@ class ChatViewModel(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
-                _events.tryEmit(ChatEvent.Notice(formatReopenError(error)))
+                _events.tryEmit(ChatEvent.Notice(ChatNotice.ReopenFailed(formatReopenError(error))))
             } finally {
                 sessionOpPending.value = false
             }
@@ -928,7 +956,7 @@ class ChatViewModel(
             throw cancellation
         } catch (error: Exception) {
             store.appendOptimistic(row)
-            _events.tryEmit(ChatEvent.Notice(error.message ?: "Failed to cancel queued message"))
+            _events.tryEmit(ChatEvent.Notice(ChatNotice.CancelQueuedFailed(error.message)))
             null
         } finally {
             queuedOpPending.value = false
@@ -948,10 +976,10 @@ class ChatViewModel(
                     if (composerText.value == composerAtEdit) {
                         setComposerText(editText)
                     } else {
-                        _events.tryEmit(ChatEvent.Notice("Message cancelled — kept your current draft"))
+                        _events.tryEmit(ChatEvent.Notice(ChatNotice.QueuedEditKeptDraft))
                     }
                 }
-                "invoked" -> _events.tryEmit(ChatEvent.Notice("Already delivered to the agent"))
+                "invoked" -> _events.tryEmit(ChatEvent.Notice(ChatNotice.QueuedAlreadyDelivered))
                 else -> Unit
             }
         }
@@ -972,7 +1000,7 @@ class ChatViewModel(
                 val response = api.steerMessage(sessionId, messageId)
                 when (response.status) {
                     "failed" -> _events.tryEmit(
-                        ChatEvent.Notice(response.error ?: "Failed to steer message"),
+                        ChatEvent.Notice(ChatNotice.SteerFailed(response.error)),
                     )
                     "invoked" -> {
                         val message = response.message
@@ -987,7 +1015,7 @@ class ChatViewModel(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
-                _events.tryEmit(ChatEvent.Notice(error.message ?: "Failed to steer message"))
+                _events.tryEmit(ChatEvent.Notice(ChatNotice.SteerFailed(error.message)))
             } finally {
                 queuedOpPending.value = false
             }
@@ -1063,10 +1091,10 @@ class ChatViewModel(
             } catch (error: Exception) {
                 if (error is ApiError && (error.status == 404 || error.status == 409)) {
                     permissionOverrides.update { it + (requestId to PermissionRowOverride.AlreadyHandled) }
-                    _events.tryEmit(ChatEvent.Notice("Request was already handled"))
+                    _events.tryEmit(ChatEvent.Notice(ChatNotice.PermissionAlreadyHandled))
                 } else {
                     permissionOverrides.update { it - requestId }
-                    _events.tryEmit(ChatEvent.Notice(error.message ?: "Request failed"))
+                    _events.tryEmit(ChatEvent.Notice(ChatNotice.PermissionRequestFailed(error.message)))
                 }
             }
         }
@@ -1177,13 +1205,13 @@ class ChatViewModel(
                 if (response.success && models != null) {
                     CodexModels.Loaded(models)
                 } else {
-                    _events.tryEmit(ChatEvent.Notice(response.error ?: "Failed to load models"))
+                    _events.tryEmit(ChatEvent.Notice(ChatNotice.ModelsLoadFailed(response.error)))
                     CodexModels.Failed
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
-                _events.tryEmit(ChatEvent.Notice(error.message ?: "Failed to load models"))
+                _events.tryEmit(ChatEvent.Notice(ChatNotice.ModelsLoadFailed(error.message)))
                 CodexModels.Failed
             }
         }
@@ -1201,7 +1229,7 @@ class ChatViewModel(
                 // Roll back by rolling forward to server truth (an SSE patch
                 // may have moved other fields since the optimistic write).
                 runCatching { sessionStore.loadSessionDetail(sessionId) }
-                _events.tryEmit(ChatEvent.Notice(error.message ?: "Failed to update session"))
+                _events.tryEmit(ChatEvent.Notice(ChatNotice.ConfigUpdateFailed(error.message)))
             } finally {
                 configOpPending.value = false
             }

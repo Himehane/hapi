@@ -50,6 +50,7 @@ import app.hapi.protocol.wire.SyncEvent
 import app.hapi.protocol.wire.UploadFileResponse
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -614,12 +615,12 @@ class ChatViewModelInteractionTest {
         harness.api.uploadGate = CompletableDeferred()
         harness.viewModel.start()
 
-        var notice: String? = null
+        var notice: ChatNotice? = null
         val collector = launch(start = CoroutineStart.UNDISPATCHED) {
             notice = harness.viewModel.events
                 .filterIsInstance<ChatEvent.Notice>()
                 .first()
-                .message
+                .notice
         }
 
         harness.viewModel.attachments.add(preparedShot())
@@ -628,7 +629,7 @@ class ChatViewModelInteractionTest {
         harness.viewModel.sendMessage()
         collector.join()
 
-        assertTrue(notice!!.contains("uploading"))
+        assertEquals(ChatNotice.AttachmentsUploading, notice)
         assertTrue(harness.api.sendCalls.value.isEmpty())
         // The draft text and the chip both survive the refused send.
         assertEquals("hold on", harness.viewModel.composer.first { it.text.isNotEmpty() }.text)
@@ -898,9 +899,9 @@ class ChatViewModelInteractionTest {
         harness.api.configFailure = ApiError(409, code = "apply_failed")
         harness.viewModel.start()
 
-        var notice: String? = null
+        var notice: ChatNotice? = null
         val collector = launch(start = CoroutineStart.UNDISPATCHED) {
-            notice = harness.viewModel.events.filterIsInstance<ChatEvent.Notice>().first().message
+            notice = harness.viewModel.events.filterIsInstance<ChatEvent.Notice>().first().notice
         }
 
         harness.viewModel.setPermissionMode(PermissionMode.AcceptEdits)
@@ -908,7 +909,7 @@ class ChatViewModelInteractionTest {
         assertEquals("acceptEdits", harness.sessionStore.currentDetail(IX_SESSION)?.permissionMode)
 
         collector.join()
-        assertNotNull(notice)
+        assertIs<ChatNotice.ConfigUpdateFailed>(notice)
         // Rollback = reload server truth (scripted detail carries "default").
         assertEquals("default", harness.sessionStore.currentDetail(IX_SESSION)?.permissionMode)
         assertTrue(harness.sessionStore.calls.value.count { it == "loadDetail:$IX_SESSION" } >= 2)
@@ -1044,15 +1045,15 @@ class ChatViewModelInteractionTest {
         )
         harness.viewModel.start()
 
-        var notice: String? = null
+        var notice: ChatNotice? = null
         val collector = launch(start = CoroutineStart.UNDISPATCHED) {
-            notice = harness.viewModel.events.filterIsInstance<ChatEvent.Notice>().first().message
+            notice = harness.viewModel.events.filterIsInstance<ChatEvent.Notice>().first().notice
         }
 
         harness.viewModel.reopenSession()
         collector.join()
 
-        assertEquals("Cannot reopen (missing: cursorSessionId)", notice)
+        assertEquals(ChatNotice.ReopenFailed("Cannot reopen (missing: cursorSessionId)"), notice)
     }
 
     @Test
@@ -1067,15 +1068,15 @@ class ChatViewModelInteractionTest {
         deleted.join()
 
         harness.sessionStore.deleteFailure = ApiError(409, code = "session_active")
-        var notice: String? = null
+        var notice: ChatNotice? = null
         val noticeJob = launch(start = CoroutineStart.UNDISPATCHED) {
-            notice = harness.viewModel.events.filterIsInstance<ChatEvent.Notice>().first().message
+            notice = harness.viewModel.events.filterIsInstance<ChatEvent.Notice>().first().notice
         }
         harness.viewModel.deleteSession()
         noticeJob.join()
 
         assertEquals(2, harness.sessionStore.calls.value.count { it == "delete:$IX_SESSION" })
-        assertTrue("archive it first" in notice!!)
+        assertEquals(ChatNotice.DeleteConflictActive, notice)
     }
 
     @Test
@@ -1089,14 +1090,14 @@ class ChatViewModelInteractionTest {
         harness.viewModel.renameSession("   ")
         harness.sessionStore.calls.first { calls -> calls.count { it.startsWith("rename:") } == 1 }
 
-        var notice: String? = null
+        var notice: ChatNotice? = null
         val collector = launch(start = CoroutineStart.UNDISPATCHED) {
-            notice = harness.viewModel.events.filterIsInstance<ChatEvent.Notice>().first().message
+            notice = harness.viewModel.events.filterIsInstance<ChatEvent.Notice>().first().notice
         }
         harness.sessionStore.renameFailure = RuntimeException("nope")
         harness.viewModel.renameSession("Other")
         collector.join()
-        assertEquals("nope", notice)
+        assertEquals(ChatNotice.RenameFailed("nope"), notice)
     }
 
     // ------------------------------------------------------ slash commands --
@@ -1202,7 +1203,7 @@ class ChatViewModelInteractionTest {
         harness.viewModel.composer.first { it.text.isNotEmpty() }
         harness.viewModel.parkComposerDraft()
 
-        assertTrue(notice.await().message.contains("full"))
+        assertEquals(ChatNotice.ScratchlistFull, notice.await().notice)
         assertEquals("do not lose me", harness.viewModel.composer.value.text)
     }
 

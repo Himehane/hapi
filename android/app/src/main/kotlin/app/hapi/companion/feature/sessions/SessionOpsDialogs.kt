@@ -10,7 +10,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import app.hapi.companion.R
 import app.hapi.companion.ui.theme.HapiTheme
 
 /**
@@ -28,23 +30,23 @@ fun RenameSessionDialog(
     var name by remember { mutableStateOf(initialName) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Rename session") },
+        title = { Text(stringResource(R.string.sessions_rename_title)) },
         text = {
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it.take(255) },
                 singleLine = true,
-                placeholder = { Text("Session name") },
+                placeholder = { Text(stringResource(R.string.sessions_rename_placeholder)) },
             )
         },
         confirmButton = {
             TextButton(
                 enabled = name.isNotBlank(),
                 onClick = { onConfirm(name.trim()) },
-            ) { Text("Rename") }
+            ) { Text(stringResource(R.string.sessions_action_rename)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.sessions_cancel)) }
         },
     )
 }
@@ -58,20 +60,20 @@ fun DeleteSessionDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Delete session?") },
+        title = { Text(stringResource(R.string.sessions_delete_title)) },
         text = {
-            Text(
-                "“$sessionTitle” and its message history will be removed " +
-                    "from the hub permanently. Active sessions must be archived first.",
-            )
+            Text(stringResource(R.string.sessions_delete_message, sessionTitle))
         },
         confirmButton = {
             TextButton(onClick = onConfirm) {
-                Text("Delete", color = MaterialTheme.colorScheme.error)
+                Text(
+                    stringResource(R.string.sessions_action_delete),
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.sessions_cancel)) }
         },
     )
 }

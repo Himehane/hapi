@@ -109,7 +109,7 @@ class PairingViewModelTest {
         vm.pair(HUB, "tok")
         advanceUntilIdle()
 
-        assertEquals(PairingUiState.Error(PairingViewModel.msgUnreachable(HUB)), vm.state.value)
+        assertEquals(PairingUiState.Error(PairingError.Unreachable(HUB)), vm.state.value)
         assertTrue(client.authCalls.isEmpty())
         assertNull(credentialStore.get(HUB))
         assertNull(registry.activeHubUrl)
@@ -123,7 +123,7 @@ class PairingViewModelTest {
         vm.pair(HUB, "rotated-token")
         advanceUntilIdle()
 
-        assertEquals(PairingUiState.Error(PairingViewModel.MSG_TOKEN_REJECTED), vm.state.value)
+        assertEquals(PairingUiState.Error(PairingError.TokenRejected), vm.state.value)
         assertNull(credentialStore.get(HUB))
         assertNull(registry.activeHubUrl)
     }
@@ -134,12 +134,12 @@ class PairingViewModelTest {
 
         vm.pair("not a url", "tok")
 
-        assertEquals(PairingUiState.Error(PairingViewModel.MSG_INVALID_URL), vm.state.value)
+        assertEquals(PairingUiState.Error(PairingError.InvalidUrl), vm.state.value)
         vm.dismissError()
         assertEquals(PairingUiState.Idle, vm.state.value)
 
         vm.pair("ftp://hub.example", "tok")
-        assertEquals(PairingUiState.Error(PairingViewModel.MSG_INVALID_URL), vm.state.value)
+        assertEquals(PairingUiState.Error(PairingError.InvalidUrl), vm.state.value)
 
         advanceUntilIdle()
         assertTrue(requestedUrls.isEmpty())
@@ -154,7 +154,7 @@ class PairingViewModelTest {
         advanceUntilIdle()
 
         assertEquals(
-            PairingUiState.Error(PairingViewModel.msgProtocolMismatch(99)),
+            PairingUiState.Error(PairingError.ProtocolMismatch(99, SUPPORTED_PROTOCOL_VERSION)),
             vm.state.value,
         )
         assertTrue(client.authCalls.isEmpty())
@@ -168,7 +168,7 @@ class PairingViewModelTest {
         vm.pair(HUB, "tok")
         advanceUntilIdle()
 
-        assertEquals(PairingUiState.Error(PairingViewModel.msgNotAHub(HUB)), vm.state.value)
+        assertEquals(PairingUiState.Error(PairingError.NotAHub(HUB)), vm.state.value)
     }
 
     @Test

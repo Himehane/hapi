@@ -15,9 +15,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.hapi.companion.R
 import app.hapi.companion.ui.theme.HapiTheme
 import app.hapi.companion.ui.theme.hapi
 
@@ -37,14 +39,14 @@ fun AttachmentPickerSheet(
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.padding(bottom = 20.dp)) {
             Text(
-                text = "Attach",
+                text = stringResource(R.string.chat_picker_title),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.hapi.hint,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
             )
-            PickerRow(glyph = "🖼", label = "Photo library", onClick = { onDismiss(); onPickPhotos() })
-            PickerRow(glyph = "📷", label = "Camera", onClick = { onDismiss(); onTakePhoto() })
-            PickerRow(glyph = "📄", label = "Files", onClick = { onDismiss(); onPickFiles() })
+            PickerRow(glyph = "🖼", label = stringResource(R.string.chat_picker_photos), onClick = { onDismiss(); onPickPhotos() })
+            PickerRow(glyph = "📷", label = stringResource(R.string.chat_picker_camera), onClick = { onDismiss(); onTakePhoto() })
+            PickerRow(glyph = "📄", label = stringResource(R.string.chat_picker_files), onClick = { onDismiss(); onPickFiles() })
         }
     }
 }

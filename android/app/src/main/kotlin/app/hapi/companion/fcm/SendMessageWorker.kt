@@ -6,6 +6,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import app.hapi.companion.R
 import app.hapi.companion.di.AppGraph
+import app.hapi.companion.di.localizedForAppLanguage
 import app.hapi.data.push.PushActionOutcome
 
 /**
@@ -31,7 +32,8 @@ class SendMessageWorker(
 
         appGraph.awaitReady()
 
-        val context = applicationContext
+        // In-app language (B-M5a): result strings resolve from the worker context.
+        val context = applicationContext.localizedForAppLanguage(appGraph.appLanguage.value)
         return when (val outcome = appGraph.pushActionRunner.sendMessage(sessionId, text, localId)) {
             is PushActionOutcome.Success -> {
                 result(tag, sessionId, channelId, title, context.getString(R.string.notif_reply_sent), autoExpire = true)
@@ -70,11 +72,16 @@ class SendMessageWorker(
         text: String,
         autoExpire: Boolean,
     ) {
-        PushNotifications.showActionResult(applicationContext, tag, sessionId, channelId, title, text, autoExpire)
+        PushNotifications.showActionResult(
+            applicationContext.localizedForAppLanguage(appGraph.appLanguage.value),
+            tag, sessionId, channelId, title, text, autoExpire,
+        )
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo =
-        PushNotifications.workerForegroundInfo(applicationContext)
+        PushNotifications.workerForegroundInfo(
+            applicationContext.localizedForAppLanguage(appGraph.appLanguage.value),
+        )
 
     companion object {
         const val KEY_SESSION_ID = "sessionId"

@@ -51,6 +51,23 @@ data class MachineOptionUi(
 /** Directory hint under the input (web `directoryStatusMessage` + tone). */
 data class DirectoryStatusUi(val message: String, val isError: Boolean)
 
+/**
+ * User-facing strings the form ViewModel needs (B-M5a Strings seam): defaults
+ * are the pre-i18n English (JVM tests construct without arguments; the MSG_*
+ * companion constants they assert against alias these defaults); production
+ * passes resource-resolved values from the Navigation holder.
+ */
+class NewSessionStrings(
+    val worktreeMissing: String = NewSessionViewModel.MSG_WORKTREE_MISSING,
+    val directoryMissing: String = NewSessionViewModel.MSG_DIRECTORY_MISSING,
+    val directoryMissingConfirm: String = NewSessionViewModel.MSG_DIRECTORY_MISSING_CONFIRM,
+    val createFailed: String = "Failed to create session",
+    val codexModelsFailed: String = "Failed to load Codex models",
+    /** `%1$s` = failure detail. */
+    val modelsFailedDetail: String = "Failed to load models: %1\$s",
+    val worktreeNameInvalid: String = "Name needs at least one letter or digit",
+)
+
 /** Which permission control the current flavor renders (web `PermissionField`). */
 sealed interface PermissionUi {
     /** Native permission-mode picker (grok + codex-family). */
@@ -130,6 +147,7 @@ class NewSessionViewModel(
     private val scope: CoroutineScope,
     initialMachineId: String? = null,
     private val debounceMs: Long = 250L,
+    private val strings: NewSessionStrings = NewSessionStrings(),
 ) {
     private val form = MutableStateFlow(NewSessionForm())
     private val prefsData = MutableStateFlow(NewSessionPrefsData())
@@ -340,7 +358,7 @@ class NewSessionViewModel(
                     pathExistence.update { it + (directory to exists) }
                 }
                 if (current.sessionType == SESSION_TYPE_WORKTREE && exists == false) {
-                    spawnError.value = MSG_WORKTREE_MISSING
+                    spawnError.value = strings.worktreeMissing
                     return@launch
                 }
                 if (current.sessionType == SESSION_TYPE_SIMPLE && exists == false && !confirmCreateDirectory.value) {
@@ -354,12 +372,12 @@ class NewSessionViewModel(
                     persistOnSuccess(machineId, directory)
                     _spawned.tryEmit(result.sessionId!!)
                 } else {
-                    spawnError.value = result.message ?: "Failed to create session"
+                    spawnError.value = result.message ?: strings.createFailed
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
-                spawnError.value = error.message ?: "Failed to create session"
+                spawnError.value = error.message ?: strings.createFailed
             } finally {
                 spawnInFlight = false
                 isSpawning.value = false
@@ -472,7 +490,7 @@ class NewSessionViewModel(
                 if (response.success) {
                     CodexModelsUi.Loaded(response.models.orEmpty())
                 } else {
-                    CodexModelsUi.Failed(response.error ?: "Failed to load Codex models")
+                    CodexModelsUi.Failed(response.error ?: strings.codexModelsFailed)
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
@@ -480,10 +498,10 @@ class NewSessionViewModel(
                 if (error.code == "rpc_target_missing") {
                     CodexModelsUi.Unsupported
                 } else {
-                    CodexModelsUi.Failed(error.message ?: "Failed to load Codex models")
+                    CodexModelsUi.Failed(error.message ?: strings.codexModelsFailed)
                 }
             } catch (error: Exception) {
-                CodexModelsUi.Failed(error.message ?: "Failed to load Codex models")
+                CodexModelsUi.Failed(error.message ?: strings.codexModelsFailed)
             }
             codexModels.value = state
             if (state is CodexModelsUi.Loaded) {
@@ -553,9 +571,9 @@ class NewSessionViewModel(
         val needsCreationWarning =
             currentForm.sessionType == SESSION_TYPE_SIMPLE && trimmed.isNotEmpty() && directoryExists == false
         val directoryStatus = when {
-            missingWorktreeDirectory -> DirectoryStatusUi(MSG_WORKTREE_MISSING, isError = true)
+            missingWorktreeDirectory -> DirectoryStatusUi(strings.worktreeMissing, isError = true)
             needsCreationWarning -> DirectoryStatusUi(
-                if (flags.confirmed) MSG_DIRECTORY_MISSING_CONFIRM else MSG_DIRECTORY_MISSING,
+                if (flags.confirmed) strings.directoryMissingConfirm else strings.directoryMissing,
                 isError = false,
             )
             else -> null
@@ -600,7 +618,7 @@ class NewSessionViewModel(
             (currentForm.model != "auto" || currentForm.modelReasoningEffort != "default" || currentForm.serviceTier == "fast")
 
         val nameError = if (currentForm.sessionType == SESSION_TYPE_WORKTREE) {
-            worktreeNameError(currentForm.worktreeName)
+            worktreeNameError(currentForm.worktreeName)?.let { strings.worktreeNameInvalid }
         } else {
             null
         }
@@ -616,7 +634,7 @@ class NewSessionViewModel(
             agents = AgentFlavor.CREATABLE.map { OptionItem(it.id, Flavors.label(it.id)) },
             modelOptions = modelOptions,
             modelsLoading = agent == "codex" && codex is CodexModelsUi.Loading,
-            modelsError = (codex as? CodexModelsUi.Failed)?.message?.let { "Failed to load models: $it" },
+            modelsError = (codex as? CodexModelsUi.Failed)?.message?.let { strings.modelsFailedDetail.format(it) },
             effortOptions = if (agent == "claude") NewSessionCatalogs.CLAUDE_EFFORTS else null,
             reasoningEffortOptions = reasoningEffortOptions,
             permission = permission,

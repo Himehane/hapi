@@ -28,10 +28,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.hapi.companion.R
 import app.hapi.companion.feature.chat.ChatBlockCard
 import app.hapi.companion.feature.chat.LocalChatInteractions
 import app.hapi.companion.feature.chat.toolCardPresentation
@@ -54,7 +57,8 @@ import kotlinx.serialization.json.JsonPrimitive
 @Composable
 fun ToolCallBlockView(block: ToolCallBlock, basePath: String?, modifier: Modifier = Modifier) {
     val tool = block.tool
-    val presentation = remember(tool, basePath) { toolCardPresentation(tool, basePath) }
+    val resources = LocalContext.current.resources
+    val presentation = remember(tool, basePath, resources) { toolCardPresentation(tool, basePath, resources) }
     val pendingPermission = tool.permission?.status == "pending"
     var expanded by rememberSaveable(block.id) { mutableStateOf(pendingPermission) }
     val colors = MaterialTheme.hapi
@@ -104,7 +108,7 @@ fun ToolCallBlockView(block: ToolCallBlock, basePath: String?, modifier: Modifie
                     ) {
                         Column {
                             Text(
-                                text = "Awaiting approval",
+                                text = stringResource(R.string.chat_tool_awaiting_approval),
                                 style = MaterialTheme.typography.labelLarge,
                                 modifier = Modifier.padding(start = 10.dp, top = 6.dp),
                             )
@@ -143,9 +147,13 @@ private fun ChildrenColumn(block: ToolCallBlock, basePath: String?, parentExpand
     var childrenOpen by rememberSaveable("children:" + block.id) { mutableStateOf(parentExpanded) }
     val colors = MaterialTheme.hapi
 
+    val stepsLabel = if (block.children.size == 1) {
+        stringResource(R.string.chat_agent_steps_one)
+    } else {
+        stringResource(R.string.chat_agent_steps_many, block.children.size)
+    }
     Text(
-        text = (if (childrenOpen) "▾" else "▸") + " ${block.children.size} agent step" +
-            (if (block.children.size == 1) "" else "s"),
+        text = (if (childrenOpen) "▾ " else "▸ ") + stepsLabel,
         style = MaterialTheme.typography.labelMedium,
         color = colors.hint,
         modifier = Modifier
@@ -188,12 +196,12 @@ internal fun ToolStatusIndicator(state: String) {
             strokeWidth = 2.dp,
         )
         ToolState.PENDING -> StatusChip(
-            text = "pending",
+            text = stringResource(R.string.chat_tool_status_pending),
             container = MaterialTheme.colorScheme.surfaceContainerHigh,
             content = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         ToolState.ERROR -> StatusChip(
-            text = "error",
+            text = stringResource(R.string.chat_tool_status_error),
             container = MaterialTheme.colorScheme.errorContainer,
             content = MaterialTheme.colorScheme.onErrorContainer,
         )
@@ -233,14 +241,19 @@ private fun PermissionStateRow(permission: ToolPermission) {
         ) {
             Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                 Text(
-                    text = "⏳ Awaiting approval",
+                    text = stringResource(R.string.chat_tool_awaiting_approval_badge),
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
         }
-        "approved" -> PermissionLine("✓ Approved" + (permission.mode?.let { " · $it" } ?: ""))
-        "denied" -> PermissionLine("✕ Denied" + (permission.reason?.let { " · $it" } ?: ""), error = true)
-        "canceled" -> PermissionLine("— Canceled")
+        "approved" -> PermissionLine(
+            stringResource(R.string.chat_tool_approved) + (permission.mode?.let { " · $it" } ?: ""),
+        )
+        "denied" -> PermissionLine(
+            stringResource(R.string.chat_tool_denied) + (permission.reason?.let { " · $it" } ?: ""),
+            error = true,
+        )
+        "canceled" -> PermissionLine(stringResource(R.string.chat_tool_canceled))
     }
 }
 

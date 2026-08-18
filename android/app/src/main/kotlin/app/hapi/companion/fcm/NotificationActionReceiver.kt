@@ -13,7 +13,9 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import app.hapi.companion.HapiApp
 import app.hapi.companion.R
+import app.hapi.companion.di.localizedForAppLanguage
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -32,13 +34,19 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val channelId = intent.getStringExtra(EXTRA_CHANNEL_ID) ?: return
         val title = intent.getStringExtra(EXTRA_TITLE) ?: ""
 
+        // In-app language (B-M5a): progress strings resolve from the receiver
+        // context, which per-app locales miss on API < 33.
+        val localized = (context.applicationContext as? HapiApp)
+            ?.appGraph?.appLanguage?.value
+            ?.let(context::localizedForAppLanguage) ?: context
+
         when (intent.action) {
             ACTION_APPROVE, ACTION_DENY -> {
                 val requestId = intent.getStringExtra(EXTRA_REQUEST_ID) ?: return
                 val approve = intent.action == ACTION_APPROVE
                 PushNotifications.showActionProgress(
-                    context, tag, sessionId, channelId, title,
-                    context.getString(if (approve) R.string.notif_allowing else R.string.notif_denying),
+                    localized, tag, sessionId, channelId, title,
+                    localized.getString(if (approve) R.string.notif_allowing else R.string.notif_denying),
                 )
                 enqueueExpedited(
                     context,
@@ -69,8 +77,8 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     return
                 }
                 PushNotifications.showActionProgress(
-                    context, tag, sessionId, channelId, title,
-                    context.getString(R.string.notif_sending),
+                    localized, tag, sessionId, channelId, title,
+                    localized.getString(R.string.notif_sending),
                 )
                 val localId = UUID.randomUUID().toString()
                 enqueueExpedited(

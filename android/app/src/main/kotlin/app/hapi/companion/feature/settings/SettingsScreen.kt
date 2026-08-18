@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -37,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.os.LocaleListCompat
 import app.hapi.companion.BuildConfig
 import app.hapi.companion.R
 import app.hapi.protocol.wire.SUPPORTED_PROTOCOL_VERSION
@@ -110,7 +112,6 @@ fun SettingsScreen(
                 SettingsRow(
                     label = stringResource(R.string.settings_language),
                     value = languageLabel(language),
-                    description = stringResource(R.string.settings_language_pending_note),
                     onClick = { showLanguageDialog = true },
                 )
             }
@@ -177,6 +178,13 @@ fun SettingsScreen(
             onSelect = { choice ->
                 showLanguageDialog = false
                 viewModel.setLanguage(choice)
+                // Apply immediately (B-M5a): appcompat recreates the activity
+                // with the new locale and, thanks to autoStoreLocales in the
+                // manifest, re-applies it on every cold start. The DataStore
+                // write above keeps the settings row in sync.
+                AppCompatDelegate.setApplicationLocales(
+                    LocaleListCompat.forLanguageTags(choice.localeTags),
+                )
             },
             onDismiss = { showLanguageDialog = false },
         )
@@ -324,12 +332,6 @@ private fun LanguageDialog(
                         onClick = { onSelect(language) },
                     )
                 }
-                Text(
-                    text = stringResource(R.string.settings_language_pending_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
             }
         },
         confirmButton = {
@@ -365,10 +367,12 @@ private fun themeModeLabelRes(mode: ThemeMode): Int = when (mode) {
 
 /**
  * Language names are shown in their own language (standard picker
- * convention), so they are string literals, not resources — nothing to
- * translate in M5 either.
+ * convention), so they are string literals, not resources; only the
+ * follow-system row translates with the app language.
  */
+@Composable
 private fun languageLabel(language: AppLanguage): String = when (language) {
+    AppLanguage.SYSTEM -> stringResource(R.string.settings_language_system)
     AppLanguage.ENGLISH -> "English"
     AppLanguage.SIMPLIFIED_CHINESE -> "简体中文"
 }

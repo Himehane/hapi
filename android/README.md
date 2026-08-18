@@ -105,6 +105,62 @@ stored credentials for that hub and drops it from the roster.
 - **M4** — FCM push (register → notification actions via expedited WorkManager) + files/git viewer, Scratchlist, usage/storage stats.
   - **B-M4a landed** — FCM push + notification actions. `:core:data` `push/`: `PushPayload` (data-only contract v1 decoding: type/severity/`notifySummary` parsing, channel routing, `type-<sessionId>` coalescing tags, unknown type/contractVersion degrade to plain title/body), `DeviceRegistrar` (registers the FCM token with **every** paired hub on start/pairing/`onNewToken`, DataStore-persisted `deviceId` UUID, WorkManager retry seam, best-effort unregister on sign-out before credentials are wiped), `PushHubAccess` + `PushActionRunner` (workers build a `HubSession` on demand from stored credentials — no `HubGraph` needed in background — and resolve the owning hub: active hub first, other paired hubs on 404 session-miss). `:app`: `push/PushBinding` (Firebase availability gate — no `google-services.json` → all push paths no-op), `fcm/` (`HapiFirebaseMessagingService`, `NotificationChannels` — `permission_requests` HIGH / `ready` / `task_notifications`, `PushNotifications` builder with severity accents + suppress-when-open rule, `NotificationActionReceiver` → expedited `PermissionActionWorker` (Allow/Deny → approve/deny `{}`) and `SendMessageWorker` (RemoteInput reply → `{text, localId}`) with pending → done/"Already handled"/failed notification states), WorkManager on-demand init + `HapiWorkerFactory`, notification tap → internal `MainActivity` intent route → chat.
 - **M5** — polish: zh-CN i18n, OLED/Material You theming, predictive back, LeakCanary pass, Play listing + self-build docs.
+  - **B-M5a landed** — zh-CN localization + in-app language switching (see "Internationalization" below).
+
+## Internationalization (B-M5a)
+
+The app ships English (default) and Simplified Chinese
+(`app/src/main/res/values-zh-rCN/strings.xml`). Every user-visible string
+lives in resources; both files carry the **same key set** (lint
+`MissingTranslation` is the gate).
+
+**Adding a string**
+
+1. Add it to `app/src/main/res/values/strings.xml` with a feature-prefixed
+   key matching the existing convention (`chat_`, `sessions_`, `files_`,
+   `scratchlist_`, `pairing_`, `settings_`, `new_session_`, `notif_`,
+   `tool_` for tool-card titles). Dynamic values use positional format args
+   (`%1$s`, `%2$d`); count-dependent copy uses explicit `_one`/`_many` keys
+   (the deliberate house style — no `<plurals>`).
+2. Add the zh-CN twin to `values-zh-rCN/strings.xml`. **Terminology source of
+   truth is the web corpus** `web/src/lib/locales/zh-CN.ts` — reuse its
+   product terms (会话 session, 机器 machine, 权限模式 permission mode,
+   工作树 worktree, 草稿夹 scratchlist, 语音输入 dictation, 用量 usage,
+   智能体/代理 agent). Technical identifiers (model ids, flavor names like
+   Claude/Codex, permission-mode catalog labels, CLI flags) stay
+   untranslated, matching the web's choices.
+3. Reference it: composables via `stringResource(R.string...)`. ViewModels
+   stay string-free — transient notices are **semantic sealed types**
+   (`ChatNotice`, `ScratchlistNotice`, `PairingError`, `DictationErrorKind`)
+   resolved at the UI layer; where a ViewModel genuinely composes display
+   text it takes a small Strings seam (`FilesStrings`, `FileViewerStrings`,
+   `NewSessionStrings`) whose defaults are the English values (JVM tests
+   construct without arguments) and whose production instance is
+   resource-resolved in the Navigation holders. Server-provided error text
+   passes through verbatim.
+
+**Language switching**
+
+`Settings → App language` offers Follow system (default) / English /
+简体中文. The choice persists in `LanguagePrefs` (DataStore) and applies
+immediately via `AppCompatDelegate.setApplicationLocales`:
+
+- `MainActivity` extends `AppCompatActivity` (theme parent
+  `Theme.AppCompat.DayNight.NoActionBar`) so per-app locales work back to
+  API 26; on API 33+ the framework `LocaleManager` takes over (the app also
+  declares `android:localeConfig` for the system App-languages screen).
+- The manifest opts into appcompat's `autoStoreLocales`
+  (`AppLocalesMetadataHolderService` meta-data), which re-applies the stored
+  choice synchronously on cold start.
+- Surfaces that resolve strings from the **application** context — FCM
+  notifications, WorkManager result updates, notification-action receivers —
+  wrap their context with `localizedForAppLanguage(AppGraph.appLanguage)`
+  (`di/LocaleContexts.kt`), since per-app locales only retarget activity
+  contexts below API 33.
+
+Out of scope on purpose: `:core:protocol` presentation strings
+(`getEventPresentation`, tool-group activity titles) stay English — the web
+does not translate them either, and terminology parity with the web wins.
 
 ## Firebase / push
 

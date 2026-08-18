@@ -35,14 +35,17 @@ import app.hapi.companion.feature.chat.composer.HapiDictationApi
 import app.hapi.companion.feature.chat.composer.MediaRecorderDictation
 import app.hapi.companion.feature.files.ApiFilesGateway
 import app.hapi.companion.feature.files.FileViewerScreen
+import app.hapi.companion.feature.files.FileViewerStrings
 import app.hapi.companion.feature.files.FileViewerViewModel
 import app.hapi.companion.feature.files.FilesScreen
+import app.hapi.companion.feature.files.FilesStrings
 import app.hapi.companion.feature.files.FilesViewModel
 import app.hapi.companion.feature.files.ViewerMode
 import app.hapi.companion.feature.home.HomeScreen
 import app.hapi.companion.feature.newsession.ApiNewSessionGateway
 import app.hapi.companion.feature.newsession.NewSessionPrefs
 import app.hapi.companion.feature.newsession.NewSessionScreen
+import app.hapi.companion.feature.newsession.NewSessionStrings
 import app.hapi.companion.feature.newsession.NewSessionViewModel
 import app.hapi.companion.feature.pairing.ManualEntryScreen
 import app.hapi.companion.feature.pairing.PairingScreen
@@ -161,10 +164,11 @@ fun HapiNavigation() {
     }
 
     // Silent re-auth gave up for good: back to pairing, with the reason.
-    LaunchedEffect(navController) {
+    val terminalContext = LocalContext.current
+    LaunchedEffect(navController, terminalContext) {
         graph.authTerminals.collect { terminal ->
             if (terminal.hubUrl == graph.hubRegistry.activeHubUrl) {
-                graph.pairingNotice.value = terminalNotice(terminal.reason)
+                graph.pairingNotice.value = terminalContext.getString(terminalNoticeRes(terminal.reason))
                 navController.navigateClearingBackStack(Routes.PAIRING)
             }
         }
@@ -331,9 +335,12 @@ fun HapiNavigation() {
         ) { entry ->
             val sessionId = entry.arguments?.getString("sessionId") ?: return@composable
             val hubGraph = activeHubGraph ?: return@composable
+            val filesContext = LocalContext.current
             val holder = viewModel<FilesViewModelHolder>(
                 key = "files:${hubGraph.hubUrl}:$sessionId",
-                factory = viewModelFactory { FilesViewModelHolder(hubGraph, sessionId) },
+                factory = viewModelFactory {
+                    FilesViewModelHolder(hubGraph, sessionId, filesStrings(filesContext))
+                },
             )
             FilesScreen(
                 viewModel = holder.viewModel,
@@ -381,10 +388,14 @@ fun HapiNavigation() {
                 else -> null
             }
             val line = entry.arguments?.getString("line")?.toIntOrNull()
+            val viewerContext = LocalContext.current
             val holder = viewModel<FileViewerViewModelHolder>(
                 key = "file:${hubGraph.hubUrl}:$sessionId:$encodedPath:$staged:$mode",
                 factory = viewModelFactory {
-                    FileViewerViewModelHolder(hubGraph, sessionId, path, staged, mode, line)
+                    FileViewerViewModelHolder(
+                        hubGraph, sessionId, path, staged, mode, line,
+                        fileViewerStrings(viewerContext),
+                    )
                 },
             )
             FileViewerScreen(
@@ -447,10 +458,14 @@ fun HapiNavigation() {
         ) { entry ->
             val hubGraph = activeHubGraph ?: return@composable
             val machineId = entry.arguments?.getString("machineId")
+            val formContext = LocalContext.current
             val holder = viewModel<NewSessionViewModelHolder>(
                 key = "newSession:${hubGraph.hubUrl}",
                 factory = viewModelFactory {
-                    NewSessionViewModelHolder(hubGraph, graph.newSessionPrefs, machineId)
+                    NewSessionViewModelHolder(
+                        hubGraph, graph.newSessionPrefs, machineId,
+                        newSessionStrings(formContext),
+                    )
                 },
             )
             NewSessionScreen(
@@ -596,13 +611,18 @@ private class ChatViewModelHolder(
 }
 
 /** Shell for the files browser (B-M4c); keyed per hub+session. */
-private class FilesViewModelHolder(hubGraph: HubGraph, sessionId: String) : ViewModel() {
+private class FilesViewModelHolder(
+    hubGraph: HubGraph,
+    sessionId: String,
+    strings: FilesStrings,
+) : ViewModel() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val viewModel = FilesViewModel(
         sessionId = sessionId,
         gateway = ApiFilesGateway(hubGraph.session.api),
         scope = scope,
+        strings = strings,
     )
 
     override fun onCleared() {
@@ -618,6 +638,7 @@ private class FileViewerViewModelHolder(
     staged: Boolean?,
     mode: ViewerMode?,
     line: Int?,
+    strings: FileViewerStrings,
 ) : ViewModel() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -629,6 +650,7 @@ private class FileViewerViewModelHolder(
         focusLine = line,
         gateway = ApiFilesGateway(hubGraph.session.api),
         scope = scope,
+        strings = strings,
     )
 
     override fun onCleared() {
@@ -715,6 +737,7 @@ private class NewSessionViewModelHolder(
     hubGraph: HubGraph,
     prefs: NewSessionPrefs,
     initialMachineId: String?,
+    strings: NewSessionStrings,
 ) : ViewModel() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -724,6 +747,7 @@ private class NewSessionViewModelHolder(
         prefs = prefs,
         scope = scope,
         initialMachineId = initialMachineId,
+        strings = strings,
     )
 
     override fun onCleared() {
@@ -774,15 +798,36 @@ private fun NavHostController.navigateClearingBackStack(route: String) {
     }
 }
 
-/**
- * Why the app fell back to pairing. Plain English until the M5 i18n pass
- * (emitted outside composition, so no `stringResource` here).
- */
-private fun terminalNotice(reason: AuthTerminalReason): String = when (reason) {
-    AuthTerminalReason.ACCESS_TOKEN_REJECTED ->
-        "This device's pairing was revoked — the hub's access token changed. Pair again to continue."
-    AuthTerminalReason.RETRY_EXHAUSTED ->
-        "The hub kept rejecting this device's session. Pair again to continue."
-    AuthTerminalReason.MISSING_CREDENTIALS ->
-        "The stored credentials for this hub went missing. Pair again to continue."
+/** Why the app fell back to pairing (resolved with a Context at the emit site). */
+private fun terminalNoticeRes(reason: AuthTerminalReason): Int = when (reason) {
+    AuthTerminalReason.ACCESS_TOKEN_REJECTED -> R.string.pairing_notice_token_revoked
+    AuthTerminalReason.RETRY_EXHAUSTED -> R.string.pairing_notice_retry_exhausted
+    AuthTerminalReason.MISSING_CREDENTIALS -> R.string.pairing_notice_missing_credentials
 }
+
+/** Resource-resolved [FilesStrings] (B-M5a Strings seam). */
+private fun filesStrings(context: Context) = FilesStrings(
+    gitStatusUnavailable = context.getString(R.string.files_error_git_status),
+    unstagedDiffUnavailable = context.getString(R.string.files_error_unstaged_diff),
+    stagedDiffUnavailable = context.getString(R.string.files_error_staged_diff),
+    unknownError = context.getString(R.string.files_error_unknown),
+    listDirectoryFailed = context.getString(R.string.files_error_list),
+    searchFailed = context.getString(R.string.files_error_search),
+)
+
+/** Resource-resolved [FileViewerStrings] (B-M5a Strings seam). */
+private fun fileViewerStrings(context: Context) = FileViewerStrings(
+    loadDiffFailed = context.getString(R.string.files_error_load_diff),
+    readFileFailed = context.getString(R.string.files_error_read_file),
+)
+
+/** Resource-resolved [NewSessionStrings] (B-M5a Strings seam). */
+private fun newSessionStrings(context: Context) = NewSessionStrings(
+    worktreeMissing = context.getString(R.string.new_session_error_worktree_missing),
+    directoryMissing = context.getString(R.string.new_session_error_directory_missing),
+    directoryMissingConfirm = context.getString(R.string.new_session_error_directory_missing_confirm),
+    createFailed = context.getString(R.string.new_session_error_create),
+    codexModelsFailed = context.getString(R.string.new_session_error_codex_models),
+    modelsFailedDetail = context.getString(R.string.new_session_error_models_detail),
+    worktreeNameInvalid = context.getString(R.string.new_session_error_worktree_name),
+)

@@ -2,6 +2,7 @@ package app.hapi.companion.fcm
 
 import app.hapi.companion.HapiApp
 import app.hapi.companion.di.AppGraph
+import app.hapi.companion.di.localizedForAppLanguage
 import app.hapi.data.push.PushPayload
 import app.hapi.data.push.shouldSuppressPush
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -36,6 +37,8 @@ class HapiFirebaseMessagingService : FirebaseMessagingService() {
         if (shouldSuppressPush(graph.foreground, graph.openChatSessionId.value, payload.sessionId)) {
             return
         }
-        PushNotifications.show(this, payload)
+        // In-app language (B-M5a): notification strings resolve from this
+        // service context, which per-app locales miss on API < 33.
+        PushNotifications.show(localizedForAppLanguage(graph.appLanguage.value), payload)
     }
 }

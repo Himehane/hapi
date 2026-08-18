@@ -43,8 +43,32 @@ data class ScratchlistEditorState(
 )
 
 sealed interface ScratchlistEvent {
-    /** Transient failure/notice for a snackbar. */
-    data class Notice(val message: String) : ScratchlistEvent
+    /** Transient failure/notice for a snackbar (resolved to a string at the UI layer). */
+    data class Notice(val notice: ScratchlistNotice) : ScratchlistEvent
+}
+
+/** Semantic scratchlist notices (B-M5a) — localized by the screen. */
+sealed interface ScratchlistNotice {
+    data object AtCapDeleteFirst : ScratchlistNotice
+    data object AtCap : ScratchlistNotice
+    data object NeedsContent : ScratchlistNotice
+    data object SaveFailed : ScratchlistNotice
+    data object DeleteFailed : ScratchlistNotice
+    data object AttachFailed : ScratchlistNotice
+    data object RemoveAttachmentFailed : ScratchlistNotice
+    data object UploadTooLarge : ScratchlistNotice
+    data object UploadFailed : ScratchlistNotice
+    data class ImportRejected(val reason: ScratchlistImportRejection) : ScratchlistNotice
+}
+
+/** Why an attachment pick was rejected before upload (localized by the screen). */
+sealed interface ScratchlistImportRejection {
+    data object Unreadable : ScratchlistImportRejection
+    data object ImageTooLarge : ScratchlistImportRejection
+    data class TooManyAttachments(val max: Int) : ScratchlistImportRejection
+    data object FileTypeNotAllowed : ScratchlistImportRejection
+    data class FileTooLarge(val maxMb: Long) : ScratchlistImportRejection
+    data object BudgetExhausted : ScratchlistImportRejection
 }
 
 /** Prepared upload payload produced by a [ScratchlistAttachmentImporter]. */
@@ -56,7 +80,7 @@ class PreparedScratchlistAttachment(
 
 sealed interface ScratchlistImportOutcome {
     data class Ready(val attachment: PreparedScratchlistAttachment) : ScratchlistImportOutcome
-    data class Rejected(val message: String) : ScratchlistImportOutcome
+    data class Rejected(val reason: ScratchlistImportRejection) : ScratchlistImportOutcome
 }
 
 /**
@@ -135,7 +159,7 @@ class ScratchlistViewModel(
     /** Card tap (existing) or FAB (`entry = null`, new draft). */
     fun openEditor(entry: ScratchlistEntry?) {
         if (entry == null && uiState.value.atCap) {
-            notice("Scratchlist is full (200 entries) — delete one first")
+            notice(ScratchlistNotice.AtCapDeleteFirst)
             return
         }
         _editor.value = if (entry == null) {
@@ -179,7 +203,7 @@ class ScratchlistViewModel(
             if (editor.entryId == null) {
                 _editor.value = null
             } else {
-                notice("A note needs text or an attachment — use Delete to remove it")
+                notice(ScratchlistNotice.NeedsContent)
             }
             return
         }
@@ -188,12 +212,12 @@ class ScratchlistViewModel(
             if (editor.entryId == null) {
                 when (store.createEntry(sessionId, text, editor.attachments)) {
                     is ScratchlistCreateResult.Created -> Unit
-                    ScratchlistCreateResult.AtCap -> notice("Scratchlist is full (200 entries)")
-                    is ScratchlistCreateResult.Failed -> notice("Couldn't save the note — check the hub connection")
+                    ScratchlistCreateResult.AtCap -> notice(ScratchlistNotice.AtCap)
+                    is ScratchlistCreateResult.Failed -> notice(ScratchlistNotice.SaveFailed)
                 }
             } else {
                 if (!store.updateEntry(sessionId, editor.entryId, text = text)) {
-                    notice("Couldn't save the note — check the hub connection")
+                    notice(ScratchlistNotice.SaveFailed)
                 }
             }
         }
@@ -204,7 +228,7 @@ class ScratchlistViewModel(
         if (_editor.value?.entryId == entryId) _editor.value = null
         scope.launch {
             if (!store.deleteEntry(sessionId, entryId)) {
-                notice("Couldn't delete the note — check the hub connection")
+                notice(ScratchlistNotice.DeleteFailed)
             }
         }
     }
@@ -224,7 +248,7 @@ class ScratchlistViewModel(
                 val outcome = importer.import(uri, limits, current.attachments)
                 val prepared = when (outcome) {
                     is ScratchlistImportOutcome.Rejected -> {
-                        notice(outcome.message)
+                        notice(ScratchlistNotice.ImportRejected(outcome.reason))
                         return@launch
                     }
                     is ScratchlistImportOutcome.Ready -> outcome.attachment
@@ -236,7 +260,7 @@ class ScratchlistViewModel(
                     mimeType = prepared.mimeType,
                 )
                 when (uploaded) {
-                    is ScratchlistUploadResult.Failed -> notice(uploadFailureMessage(uploaded))
+                    is ScratchlistUploadResult.Failed -> notice(uploadFailureNotice(uploaded))
                     is ScratchlistUploadResult.Uploaded -> attachToEditor(uploaded.attachment)
                 }
             } finally {
@@ -257,7 +281,7 @@ class ScratchlistViewModel(
             if (!store.updateEntry(sessionId, editor.entryId, attachments = next)) {
                 rollbackEditorAttachments(editor.entryId, editor.attachments)
                 runCatching { store.deleteAttachment(sessionId, attachment.id) }
-                notice("Couldn't attach the file — check the hub connection")
+                notice(ScratchlistNotice.AttachFailed)
             }
         }
     }
@@ -280,7 +304,7 @@ class ScratchlistViewModel(
             if (editor.entryId != null) {
                 if (!store.updateEntry(sessionId, editor.entryId, attachments = next)) {
                     rollbackEditorAttachments(editor.entryId, editor.attachments)
-                    notice("Couldn't remove the attachment — check the hub connection")
+                    notice(ScratchlistNotice.RemoveAttachmentFailed)
                     return@launch
                 }
             }
@@ -295,12 +319,13 @@ class ScratchlistViewModel(
         }
     }
 
-    private fun uploadFailureMessage(failed: ScratchlistUploadResult.Failed): String = when (failed.code) {
-        ScratchlistErrorCodes.ATTACHMENT_TOO_LARGE -> "That file is over the hub's per-file size limit"
-        else -> "Upload failed — check the hub connection"
-    }
+    private fun uploadFailureNotice(failed: ScratchlistUploadResult.Failed): ScratchlistNotice =
+        when (failed.code) {
+            ScratchlistErrorCodes.ATTACHMENT_TOO_LARGE -> ScratchlistNotice.UploadTooLarge
+            else -> ScratchlistNotice.UploadFailed
+        }
 
-    private fun notice(message: String) {
-        _events.tryEmit(ScratchlistEvent.Notice(message))
+    private fun notice(notice: ScratchlistNotice) {
+        _events.tryEmit(ScratchlistEvent.Notice(notice))
     }
 }

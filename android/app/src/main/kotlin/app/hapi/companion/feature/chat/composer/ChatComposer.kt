@@ -39,11 +39,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.hapi.companion.R
 import app.hapi.companion.feature.chat.ComposerUiState
 import app.hapi.companion.feature.chat.attachments.ComposerAttachmentStatus
 import app.hapi.companion.feature.chat.attachments.ComposerAttachmentUi
@@ -131,7 +133,7 @@ fun ChatComposer(
                 OutlinedTextField(
                     value = state.text,
                     onValueChange = onTextChange,
-                    placeholder = { Text("Message the agent…") },
+                    placeholder = { Text(stringResource(R.string.chat_composer_placeholder)) },
                     minLines = 1,
                     maxLines = 6,
                     shape = RoundedCornerShape(20.dp),
@@ -192,8 +194,8 @@ private fun ComposerAttachmentChip(
                 )
                 Text(
                     text = when (attachment.status) {
-                        ComposerAttachmentStatus.Uploading -> "Uploading…"
-                        ComposerAttachmentStatus.Failed -> "Failed — tap to retry"
+                        ComposerAttachmentStatus.Uploading -> stringResource(R.string.chat_attachment_uploading)
+                        ComposerAttachmentStatus.Failed -> stringResource(R.string.chat_attachment_failed_retry)
                         ComposerAttachmentStatus.Ready -> formatChipSize(attachment.sizeBytes)
                     },
                     style = MaterialTheme.typography.labelSmall,
@@ -347,13 +349,13 @@ private fun RecordingChip(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "● Recording…  ${formatElapsed(elapsedSec)}",
+                text = stringResource(R.string.chat_recording, formatElapsed(elapsedSec)),
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier
                     .weight(1f)
                     .padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
             )
-            TextButton(onClick = onCancel) { Text("Cancel") }
+            TextButton(onClick = onCancel) { Text(stringResource(R.string.chat_cancel)) }
         }
     }
 }
@@ -433,7 +435,7 @@ private fun ComposerOverflowButton(
     }
     DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
         DropdownMenuItem(
-            text = { Text("Park draft to scratchlist") },
+            text = { Text(stringResource(R.string.chat_park_draft)) },
             enabled = hasText,
             onClick = {
                 open = false
@@ -520,7 +522,7 @@ private fun SendButton(
         }
         DropdownMenu(expanded = steerMenuOpen, onDismissRequest = { steerMenuOpen = false }) {
             DropdownMenuItem(
-                text = { Text("Send & steer into current turn") },
+                text = { Text(stringResource(R.string.chat_send_steer)) },
                 onClick = {
                     steerMenuOpen = false
                     onSendSteer()

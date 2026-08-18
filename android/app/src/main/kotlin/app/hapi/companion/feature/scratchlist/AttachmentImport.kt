@@ -34,7 +34,7 @@ class ContentResolverAttachmentImporter(
             resolver.openInputStream(uri)?.use { it.readBytes() }
         } catch (_: Exception) {
             null
-        } ?: return@withContext ScratchlistImportOutcome.Rejected("Couldn't read the selected file")
+        } ?: return@withContext ScratchlistImportOutcome.Rejected(ScratchlistImportRejection.Unreadable)
 
         val filename = displayNameOf(uri) ?: fallbackName(mimeType)
 
@@ -45,7 +45,7 @@ class ContentResolverAttachmentImporter(
             is ScratchlistAttachmentGuard.Verdict.Downscale -> {
                 val compressed = downscaleToJpeg(bytes, verdict.targetBytes)
                 if (compressed == null) {
-                    ScratchlistImportOutcome.Rejected("Image is too large even after compression")
+                    ScratchlistImportOutcome.Rejected(ScratchlistImportRejection.ImageTooLarge)
                 } else {
                     ScratchlistImportOutcome.Ready(
                         PreparedScratchlistAttachment(jpegName(filename), compressed, "image/jpeg")
@@ -54,7 +54,7 @@ class ContentResolverAttachmentImporter(
             }
 
             is ScratchlistAttachmentGuard.Verdict.Reject ->
-                ScratchlistImportOutcome.Rejected(rejectionMessage(verdict.reason, limits))
+                ScratchlistImportOutcome.Rejected(rejectionOf(verdict.reason, limits))
         }
     }
 
@@ -82,18 +82,18 @@ class ContentResolverAttachmentImporter(
         fun jpegName(original: String): String =
             original.substringBeforeLast('.', original).ifBlank { "photo" } + ".jpg"
 
-        fun rejectionMessage(
+        fun rejectionOf(
             reason: ScratchlistAttachmentGuard.Reason,
             limits: ScratchlistAttachmentLimits,
-        ): String = when (reason) {
+        ): ScratchlistImportRejection = when (reason) {
             ScratchlistAttachmentGuard.Reason.TooManyForEntry ->
-                "A note can hold at most ${limits.maxAttachmentsPerEntry} attachments"
+                ScratchlistImportRejection.TooManyAttachments(limits.maxAttachmentsPerEntry)
             ScratchlistAttachmentGuard.Reason.MimeNotAllowed ->
-                "That file type isn't allowed for scratchlist attachments"
+                ScratchlistImportRejection.FileTypeNotAllowed
             ScratchlistAttachmentGuard.Reason.TooLarge ->
-                "That file is over the ${limits.maxBytesPerFile / (1024 * 1024)} MB limit"
+                ScratchlistImportRejection.FileTooLarge(limits.maxBytesPerFile / (1024 * 1024))
             ScratchlistAttachmentGuard.Reason.EntryBudgetExhausted ->
-                "This note's attachment budget is used up"
+                ScratchlistImportRejection.BudgetExhausted
         }
 
         /**

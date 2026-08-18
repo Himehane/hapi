@@ -23,10 +23,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.hapi.companion.R
 import app.hapi.companion.ui.theme.HapiTheme
 import app.hapi.companion.ui.theme.hapi
 import app.hapi.protocol.chat.ToolGroupBlock
@@ -61,7 +63,11 @@ fun ToolGroupBlockView(block: ToolGroupBlock, basePath: String?, modifier: Modif
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = block.activityTitle
-                            ?: "${block.summary.totalTools} tool" + (if (block.summary.totalTools == 1) "" else "s"),
+                            ?: if (block.summary.totalTools == 1) {
+                                stringResource(R.string.chat_group_tools_one)
+                            } else {
+                                stringResource(R.string.chat_group_tools_many, block.summary.totalTools)
+                            },
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
