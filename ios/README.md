@@ -84,7 +84,25 @@ ios/
                                       Links/ (app-wide \.hapiOpenURL handler:
                                       https/http → SFSafariViewController,
                                       confirm-first schemes → alert,
-                                      hapi-file:// → M4 placeholder).
+                                      hapi-file:// → M4 placeholder),
+                                      NewSession/ (A-M3c create form, a sheet
+                                      off the session list "+": machine picker
+                                      with last-used preselect + health line,
+                                      directory field with debounced 250 ms
+                                      list-directory autocomplete (per-parent
+                                      cache) + per-machine recent-path chips +
+                                      exists probe (worktree-blocking /
+                                      simple two-tap-create), flavor picker
+                                      over CREATABLE, per-flavor options —
+                                      claude model/effort/yolo; codex machine
+                                      catalog (rpc_target_missing hides it),
+                                      reasoning effort, native permission,
+                                      collaboration + fast tier when
+                                      advertised; copilot agent mode; pi
+                                      managed note — session type simple/
+                                      worktree + name, UserDefaults draft +
+                                      prefs per hub; success dismisses the
+                                      sheet and pushes the chat).
   Packages/HapiKit/      Local SPM package with the real logic:
     HapiProtocol         Pure-Foundation protocol layer. As of M2a:
                            Models/   wire types mirroring shared/src/schemas.ts
@@ -101,7 +119,10 @@ ios/
                                      globalPinned > pinned > active > pending
                                      desc among active > recency, stable)
                            Catalog/  permission-mode / flavor tables ported from
-                                     shared/src/{modes,flavors,copilotModes}.ts
+                                     shared/src/{modes,flavors,copilotModes}.ts,
+                                     plus the static create-form option lists
+                                     (claude models/efforts, codex reasoning-
+                                     effort fallback — NewSessionCatalogs)
                            Patch/    versioned session-patch application ported
                                      from web/src/lib/sessionPatch.ts
                            Pairing/  BindLink — parses both pairing QR forms
@@ -223,6 +244,18 @@ ios/
                                             normalize memoized by row instance
                                             identity, reduce + toolGroups with
                                             previousGroups-stable group ids.
+                           NewSession/      pure create-form logic (A-M3c),
+                                            tested against the Android/web
+                                            reference: NewSessionForm (typed
+                                            draft, tolerant decode) +
+                                            NewSessionLogic (the exact spawn
+                                            body per SpawnSessionRequestSchema
+                                            incl. the per-flavor yolo/
+                                            permissionMode matrix, parent-path
+                                            derivation + suggestion filtering,
+                                            recent-path LRU(8), worktree-name
+                                            validation, codex catalog helpers,
+                                            draft sanitization).
                          Feature endpoints (git/files, scratchlist, voice,
                          usage) join Endpoints/ with their feature packages
                          in M3/M4.

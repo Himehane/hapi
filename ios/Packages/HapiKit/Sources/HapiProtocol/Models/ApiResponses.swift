@@ -387,6 +387,57 @@ public struct MachinePathsExistsResponse: Codable, Equatable, Sendable {
     }
 }
 
+// MARK: - Codex model catalog
+
+/// One row of `GET /api/machines/:id/codex-models` (also the session-level
+/// twin). Mirrors `CodexModelSummary` (`shared/src/apiTypes.ts`).
+public struct CodexModelSummary: Codable, Equatable, Sendable {
+    public var id: String
+    public var displayName: String
+    public var isDefault: Bool
+    public var defaultReasoningEffort: String?
+    public var defaultServiceTier: String?
+    public var supportedReasoningEfforts: [String]?
+    /// Service tier ids advertised for this model in the current auth/plan
+    /// context (e.g. `fast`).
+    public var serviceTiers: [String]?
+
+    public init(
+        id: String,
+        displayName: String,
+        isDefault: Bool,
+        defaultReasoningEffort: String? = nil,
+        defaultServiceTier: String? = nil,
+        supportedReasoningEfforts: [String]? = nil,
+        serviceTiers: [String]? = nil
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.isDefault = isDefault
+        self.defaultReasoningEffort = defaultReasoningEffort
+        self.defaultServiceTier = defaultServiceTier
+        self.supportedReasoningEfforts = supportedReasoningEfforts
+        self.serviceTiers = serviceTiers
+    }
+}
+
+/// Body of `GET /api/machines/:id/codex-models` (RPC envelope — check
+/// `success`). A runner that does not expose the machine-scoped RPC answers
+/// HTTP 503 `{success:false, code:'rpc_target_missing'}`, which surfaces as
+/// the transport error, not this body. Added in A-M3c for the new-session
+/// codex model picker; mirrors `CodexModelsResponse` (`shared/src/apiTypes.ts`).
+public struct CodexModelsResponse: Codable, Equatable, Sendable {
+    public var success: Bool
+    public var models: [CodexModelSummary]?
+    public var error: String?
+
+    public init(success: Bool, models: [CodexModelSummary]? = nil, error: String? = nil) {
+        self.success = success
+        self.models = models
+        self.error = error
+    }
+}
+
 // MARK: - Uploads
 
 /// Body of `POST /api/sessions/:id/upload` (RPC envelope). `path` feeds the

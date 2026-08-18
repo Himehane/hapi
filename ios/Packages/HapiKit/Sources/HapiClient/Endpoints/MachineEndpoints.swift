@@ -63,4 +63,13 @@ extension APIClient {
         )
         return response.exists
     }
+
+    /// `GET /api/machines/:id/codex-models` — pre-spawn codex model catalog
+    /// (RPC envelope — check `success`). A runner without the machine-scoped
+    /// RPC answers 503 `rpc_target_missing`, surfaced as an ``APIError``
+    /// whose `code` the new-session form uses to hide the picker. Added in
+    /// A-M3c (endpoint documented in `docs/api/client-contract/rest.md`).
+    public func machineCodexModels(machineId: String) async throws -> CodexModelsResponse {
+        try await request(.get, "/api/machines/\(encodePathComponent(machineId))/codex-models")
+    }
 }
