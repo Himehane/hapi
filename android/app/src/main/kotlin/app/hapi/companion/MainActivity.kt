@@ -1,25 +1,45 @@
 package app.hapi.companion
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.lifecycle.lifecycleScope
 import app.hapi.companion.di.AppGraph
 import app.hapi.companion.di.LocalAppGraph
+import app.hapi.companion.fcm.PushNotifications
+import app.hapi.companion.push.PushBinding
 import app.hapi.companion.ui.theme.HapiTheme
 import app.hapi.protocol.pairing.BindLink
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * Single-activity entry point (`launchMode="singleTask"`). Hosts the
- * Navigation Compose graph and feeds `hapicompanion://bind?hub=…&code=…`
- * deep links — cold start and [onNewIntent] — into
- * [AppGraph.pendingBindLink]; all parsing stays in [BindLink].
+ * Navigation Compose graph and feeds two intent routes — cold start and
+ * [onNewIntent] — into [AppGraph] flows the navigation layer consumes:
+ *
+ *  - `hapicompanion://bind?hub=…&code=…` pairing deep links (parsing stays in
+ *    [BindLink]) → [AppGraph.pendingBindLink];
+ *  - the **internal** notification-tap route ([PushNotifications.ACTION_OPEN_SESSION]
+ *    + session-id extra, B-M4a — explicit intent, deliberately no public URI)
+ *    → [AppGraph.pendingOpenSessionId].
  */
 class MainActivity : ComponentActivity() {
 
     private val appGraph: AppGraph get() = (application as HapiApp).appGraph
+
+    private val notificationPermissionRequest =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            // Denial is respected silently: pushes still arrive and update in-app
+            // state via SSE; only the OS notification surface stays quiet.
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,8 +47,10 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) {
             // Only a fresh launch consumes the launching intent — after a
             // config change / process restore the same (already-consumed)
-            // intent is redelivered and must not resurrect the confirm card.
+            // intent is redelivered and must not resurrect the confirm card
+            // (or re-trigger a notification navigation).
             handleBindIntent(intent)
+            handleOpenSessionIntent(intent)
         }
         setContent {
             HapiTheme {
@@ -37,11 +59,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        maybeRequestNotificationPermission()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleBindIntent(intent)
+        handleOpenSessionIntent(intent)
     }
 
     private fun handleBindIntent(intent: Intent?) {
@@ -53,6 +77,32 @@ class MainActivity : ComponentActivity() {
         } else if (BindLink.SCHEME.equals(data.scheme, ignoreCase = true)) {
             // Ours but malformed (truncated QR, mangled copy/paste).
             appGraph.pairingNotice.value = getString(R.string.pairing_invalid_link)
+        }
+    }
+
+    /** Notification tap: stash the target session for `HapiNavigation`. */
+    private fun handleOpenSessionIntent(intent: Intent?) {
+        if (intent?.action != PushNotifications.ACTION_OPEN_SESSION) return
+        val sessionId = intent.getStringExtra(PushNotifications.EXTRA_SESSION_ID) ?: return
+        appGraph.pendingOpenSessionId.value = sessionId
+    }
+
+    /**
+     * POST_NOTIFICATIONS (API 33+) — asked only once a hub is actually
+     * paired (never on the pristine first open) and only when push can work
+     * at all ([PushBinding.isAvailable]). Waiting on the roster flow means a
+     * fresh pairing in this very session triggers the prompt right away.
+     */
+    private fun maybeRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) return
+        if (!PushBinding.isAvailable(this)) return
+        lifecycleScope.launch {
+            appGraph.hubRegistry.state.first { it.hubs.isNotEmpty() }
+            val granted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                notificationPermissionRequest.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
     }
 }

@@ -29,6 +29,15 @@ highlights = "1.0.0"
 # Generated-image loading (B-M2d2). Coil 2.x (stable, OkHttp 4-compatible);
 # Coil 3 is a package rename + engine split — migrate deliberately later.
 coil = "2.7.0"
+# FCM push + notification actions (B-M4a). All on Google Maven:
+# work-runtime-ktx 2.10.1 (2025-03), firebase-messaging 24.1.0 (2024-11),
+# google-services 4.4.2 (2024-04; applied conditionally, see :app build file).
+# fragment 1.8.5 is a version FLOOR constraint only (firebase-messaging drags
+# in 1.1.0 transitively, which lintVital rejects next to ActivityResult APIs).
+workManager = "2.10.1"
+firebaseMessaging = "24.1.0"
+googleServices = "4.4.2"
+fragment = "1.8.5"
 
 [libraries]
 # AndroidX
@@ -70,6 +79,12 @@ zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embe
 # Image loading (generated images ride the authed hub OkHttp client).
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
+# Push (B-M4a): FCM transport + expedited workers for notification actions.
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
+firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging", version.ref = "firebaseMessaging" }
+# Constraint-only (see :app build file) — nothing in the app uses fragments.
+androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "fragment" }
+
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test", version.ref = "kotlin" }
@@ -83,3 +98,5 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+# Applied conditionally in :app (only when google-services.json exists).
+google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }

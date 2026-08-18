@@ -103,14 +103,39 @@ stored credentials for that hub and drops it from the roster.
 - **M3** — interaction: composer (optimistic send/queue/steer/drafts), permission approvals UX, session controls (mode/model/abort/resume/rename/archive), new session, dictation.
   - **B-M3ce landed** — voice dictation: mic button in the composer (`RECORD_AUDIO` requested at first use), `MediaRecorder` → m4a/AAC, provider discovery via `GET /api/voice/transcription/providers` (first `standard`-capable provider; a hub without one shows a notice), upload through the multipart `POST /api/voice/transcription`, transcript appended at the composer text with a space separator; `DictationController` is a plain seam over recorder + API, JVM-tested with fakes. Slash commands: typing a lone `/token` opens a dropdown merging the session's `metadata.slashCommands` names with the `GET /slash-commands` RPC list (RPC entries win dedupe; exact → prefix → contains filtering), tap inserts `/name ` (the skills `$` trigger is deferred). Session ops: list long-press sheet and chat top-bar overflow gain Rename (`PATCH /sessions/:id`, optimistic name with roll-forward on failure), Delete (confirm; 409-while-active surfaced), and Reopen for inactive sessions (`POST /reopen`; a superseding id reuses the supersede path — window seed + draft move + navigate-replace; 422 missing-metadata formatted); chat shows an inactive-session bar ("send to resume, or Reopen").
 - **M4** — FCM push (register → notification actions via expedited WorkManager) + files/git viewer, Scratchlist, usage/storage stats.
+  - **B-M4a landed** — FCM push + notification actions. `:core:data` `push/`: `PushPayload` (data-only contract v1 decoding: type/severity/`notifySummary` parsing, channel routing, `type-<sessionId>` coalescing tags, unknown type/contractVersion degrade to plain title/body), `DeviceRegistrar` (registers the FCM token with **every** paired hub on start/pairing/`onNewToken`, DataStore-persisted `deviceId` UUID, WorkManager retry seam, best-effort unregister on sign-out before credentials are wiped), `PushHubAccess` + `PushActionRunner` (workers build a `HubSession` on demand from stored credentials — no `HubGraph` needed in background — and resolve the owning hub: active hub first, other paired hubs on 404 session-miss). `:app`: `push/PushBinding` (Firebase availability gate — no `google-services.json` → all push paths no-op), `fcm/` (`HapiFirebaseMessagingService`, `NotificationChannels` — `permission_requests` HIGH / `ready` / `task_notifications`, `PushNotifications` builder with severity accents + suppress-when-open rule, `NotificationActionReceiver` → expedited `PermissionActionWorker` (Allow/Deny → approve/deny `{}`) and `SendMessageWorker` (RemoteInput reply → `{text, localId}`) with pending → done/"Already handled"/failed notification states), WorkManager on-demand init + `HapiWorkerFactory`, notification tap → internal `MainActivity` intent route → chat.
 - **M5** — polish: zh-CN i18n, OLED/Material You theming, predictive back, LeakCanary pass, Play listing + self-build docs.
 
-## Firebase / push (self-build note)
+## Firebase / push
 
-M0 deliberately does **not** apply the `com.google.gms.google-services`
-plugin and has no Firebase dependency, so the project builds without any
-`google-services.json`. In M4a the plugin lands together with the FCM
-service: official builds inject the default Firebase project config in CI,
-while self-builders drop in their own `app/google-services.json` (docs will
-accompany M4a; a `PushBinding` seam for hub-provided `FirebaseOptions` is
-planned for v1.x).
+FCM needs a Firebase project binding, which is deliberately **optional**:
+the `com.google.gms.google-services` plugin is applied *conditionally*
+(only when `app/google-services.json` exists — see `app/build.gradle.kts`),
+so the repo always builds green without any Firebase config. Without one,
+`FirebaseApp` never initializes, `PushBinding.isAvailable` reports false,
+and every push code path (registration, FCM service, workers, the
+notification-permission prompt) no-ops — the app behaves like pre-M4a.
+
+To enable push:
+
+1. **Official builds**: CI injects the default Firebase project's
+   `google-services.json` before assembling (the file is gitignored;
+   `app/google-services.json.example` documents the expected shape).
+2. **Self-builds**: create your own Firebase project, add an Android app
+   with your `applicationId` (default `run.hapi.companion`), download
+   `google-services.json` into `android/app/`, and rebuild.
+3. **Hub side**: point the hub at the *same* Firebase project —
+   `FCM_SERVICE_ACCOUNT_PATH` + `FCM_PROJECT_ID`
+   (`docs/api/native-companion-contract.md`). The device registers itself
+   with every paired hub (`POST /api/devices/register`) on pairing, app
+   start, and token rotation, and unregisters on sign-out.
+
+Multi-hub note: the FCM payload does not name the sending hub (contract v1),
+so notification actions resolve it — the workers try the **active** hub
+first, then the other paired hubs when a hub answers 404 for the session.
+Single-hub setups always hit on the first try. Tapping a notification opens
+the session against the active hub.
+
+Planned for v1.x: runtime `FirebaseOptions` handed out by the hub, so
+self-builds get push without baking a config into the APK. That lands
+entirely behind the existing `app/.../push/PushBinding.kt` seam.

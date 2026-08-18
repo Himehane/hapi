@@ -66,3 +66,8 @@ android/local.properties
 android/captures/
 *.keystore
 *.jks
+
+# Firebase config is per-operator (official builds inject via CI; self-builds
+# drop in their own) — never commit a real one. The committed placeholder is
+# android/app/google-services.json.example.
+android/app/google-services.json

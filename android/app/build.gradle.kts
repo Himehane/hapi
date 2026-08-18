@@ -6,9 +6,17 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     // New-session form draft + prefs persist as JSON blobs in DataStore (B-M3d).
     alias(libs.plugins.kotlin.serialization)
-    // NOTE: com.google.gms.google-services is deliberately NOT applied in M0.
-    // It is added in M4a together with google-services.json + the FCM service,
-    // so the scaffold builds green without any Firebase project configured.
+    // com.google.gms.google-services is applied CONDITIONALLY below (B-M4a):
+    // the plugin hard-fails when app/google-services.json is missing, and the
+    // repo must build green without any Firebase project configured.
+}
+
+// FCM (B-M4a): official builds inject google-services.json in CI; self-builders
+// drop in their own (see ../README.md "Firebase / push"); everyone else builds
+// without it — Firebase then never initializes and PushBinding reports push as
+// unavailable, so every push code path no-ops cleanly.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 android {
@@ -80,6 +88,19 @@ dependencies {
     // Generated images (chat, B-M2d2): loader wired in HubGraph over the
     // authed + disk-cached hub image client.
     implementation(libs.coil.compose)
+
+    // FCM push + notification actions (B-M4a). firebase-messaging is always on
+    // the classpath; whether it *activates* depends on google-services.json
+    // (conditional plugin above) — PushBinding gates every use at runtime.
+    implementation(libs.firebase.messaging)
+    implementation(libs.androidx.work.runtime.ktx)
+    constraints {
+        // Version floor only: firebase-messaging → play-services-base drags in
+        // androidx.fragment 1.1.0, whose broken permission-result routing makes
+        // lintVital reject any ActivityResult use (MainActivity's
+        // POST_NOTIFICATIONS prompt). Nothing in the app uses fragments.
+        implementation(libs.androidx.fragment)
+    }
 
     // Markdown rendering (B-M2d1). commonmark comes through :core:protocol's
     // `api` too; declared here because ui/markdown walks the AST types directly.

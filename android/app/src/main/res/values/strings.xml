@@ -91,4 +91,29 @@
     <string name="new_session_create">Create</string>
     <string name="new_session_creating">Creating…</string>
     <string name="new_session_create_and_make_directory">Create and make directory</string>
+
+    <!-- Push notifications (B-M4a) -->
+    <string name="channel_permission_requests">Permission requests</string>
+    <string name="channel_permission_requests_desc">An agent is waiting for you to allow or deny a tool call</string>
+    <string name="channel_ready">Agent ready</string>
+    <string name="channel_ready_desc">An agent finished and is waiting for input</string>
+    <string name="channel_task_notifications">Task notifications</string>
+    <string name="channel_task_notifications_desc">Task completed or failed, and other updates</string>
+    <string name="notif_action_allow">Allow</string>
+    <string name="notif_action_deny">Deny</string>
+    <string name="notif_action_reply">Reply</string>
+    <string name="notif_action_dismiss">Dismiss</string>
+    <string name="notif_reply_hint">Message</string>
+    <string name="notif_allowing">Allowing…</string>
+    <string name="notif_denying">Denying…</string>
+    <string name="notif_sending">Sending…</string>
+    <string name="notif_allowed">Allowed</string>
+    <string name="notif_denied">Denied</string>
+    <string name="notif_reply_sent">Reply sent</string>
+    <string name="notif_already_handled">Already handled</string>
+    <string name="notif_session_inactive">Session is no longer active — open the app to resume it</string>
+    <string name="notif_session_not_found">Session not found on any paired hub</string>
+    <string name="notif_action_failed">Couldn’t reach the hub — open the app to respond</string>
+    <string name="notif_reply_failed">Reply not sent — open the app to try again</string>
+    <string name="notif_working">Contacting hub…</string>
 </resources>
