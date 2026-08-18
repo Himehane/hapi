@@ -1354,7 +1354,18 @@ class ChatViewModel(
                 cached.normalized?.let(normalized::add)
                 continue
             }
-            val next = normalizeDecryptedMessage(message.wire)
+            // Re-attach the window row's client-side status after normalizing
+            // the bare wire (web parity: `normalize.ts` copies `message.status`
+            // onto the normalized row). Without this, failed sends never render
+            // as failed and tap-to-retry can't trigger. Memo-safe: status
+            // changes always allocate a new row instance (B-M2c contract).
+            val bare = normalizeDecryptedMessage(message.wire)
+            val rowStatus = message.status
+            val next = if (bare is NormalizedMessage.User && rowStatus != null) {
+                bare.copy(status = rowStatus.wire)
+            } else {
+                bare
+            }
             normalizeCache[message.id] = NormalizeCacheEntry(message, next)
             next?.let(normalized::add)
         }
