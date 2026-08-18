@@ -374,7 +374,6 @@ ios/
                                             POST /api/visibility per tracked
                                             handshake subscriptionId on
                                             scene-phase flips, 404 pruning.
-<<<<<<< HEAD
                            Settings/        A-M4de pure settings logic,
                                             transcribed (with tests) from
                                             the Android reference: UsageMath
@@ -520,7 +519,6 @@ scripted): canonical approve/deny/send/config wire bodies asserted
 byte-for-byte, optimistic send happy/fail/retry, 409 → resume → retry (same
 and superseding id), queued cancel invoked-race, steer reconcile, edit
 prefill, permission override lifecycle, and config optimistic + rollback.
-<<<<<<< HEAD
 Since A-M3f, `Attachments/AttachmentPolicyTests` ports the Android policy
 matrix, `Attachments/ComposerAttachmentsTests` drives the upload tray over
 the real client (exact base64 upload bodies, consume/retry/remove,
