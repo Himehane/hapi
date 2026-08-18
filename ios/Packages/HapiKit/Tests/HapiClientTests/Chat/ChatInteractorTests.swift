@@ -28,6 +28,8 @@ private actor ChatRoutingPerformer: HTTPPerforming {
     private var scripted: [String: [(status: Int, json: String)]] = [:]
     private var served: [String: (status: Int, json: String)] = [:]
     private var suffixRoutes: [(method: String, suffix: String, handler: @Sendable (URLRequest) -> (Int, String))] = []
+    private var gatedRoutes: [(method: String, suffix: String)] = []
+    private var gateWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// One-shot response for an exact `path`, consumed in FIFO order.
     func script(_ method: String, _ path: String, status: Int = 200, json: String = "{}") {
@@ -46,6 +48,21 @@ private actor ChatRoutingPerformer: HTTPPerforming {
         handler: @escaping @Sendable (URLRequest) -> (Int, String)
     ) {
         suffixRoutes.append((method, suffix, handler))
+    }
+
+    /// Parks matching requests (after recording them) until ``openGates()``
+    /// — in-flight-state tests.
+    func gate(_ method: String, pathSuffix: String) {
+        gatedRoutes.append((method, pathSuffix))
+    }
+
+    func openGates() {
+        gatedRoutes = []
+        let waiters = gateWaiters
+        gateWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
     func bodies(_ method: String, pathSuffix: String) -> [String] {
@@ -70,6 +87,11 @@ private actor ChatRoutingPerformer: HTTPPerforming {
             path: path,
             body: request.httpBody.map { String(decoding: $0, as: UTF8.self) }
         ))
+        if gatedRoutes.contains(where: { $0.method == method && path.hasSuffix($0.suffix) }) {
+            await withCheckedContinuation { continuation in
+                gateWaiters.append(continuation)
+            }
+        }
         let key = "\(method) \(path)"
         let status: Int
         let json: String
@@ -227,6 +249,17 @@ private final class ChatInteractionHarness {
             return (200, "{\"queuedLocalIds\":\(queued),\"invokedLocalMessages\":[]}")
         }
         await performer.serve("GET", "/api/sessions", json: "{\"sessions\":[]}")
+        // Uploads succeed with a filename-derived path (Android fake parity).
+        await performer.serveSuffix("POST", "/upload") { request in
+            struct UploadBody: Decodable { let filename: String }
+            let filename = request.httpBody
+                .flatMap { try? JSONDecoder().decode(UploadBody.self, from: $0) }?
+                .filename ?? "file"
+            return (200, "{\"success\":true,\"path\":\"/uploads/\(filename)\"}")
+        }
+        await performer.serveSuffix("POST", "/upload/delete") { _ in
+            (200, "{\"success\":true}")
+        }
 
         let baseURL = try #require(URL(string: testHubURLString))
         let credentials = InMemoryCredentialStore()
@@ -423,6 +456,155 @@ struct ChatInteractorTests {
         #expect(await harness.row(localId: "local-1") == nil)
         // The draft was cleared before the send; migration must not resurrect it.
         #expect(harness.drafts.storage["sess-2"] == nil)
+    }
+
+    // MARK: Attachments (A-M3f, transcribed from the Android VM suite)
+
+    private func preparedShot(id: String = "att-1", filename: String = "shot.jpg") -> PreparedAttachment {
+        PreparedAttachment(
+            id: id,
+            filename: filename,
+            mimeType: "image/jpeg",
+            bytes: Data([1, 2, 3]),
+            previewBytes: Data([7, 7])
+        )
+    }
+
+    /// The canonical send body for one `preparedShot` upload.
+    private func attachmentSendBody(text: String, filename: String = "shot.jpg") -> String {
+        let preview = AttachmentPolicy.dataUrl(mimeType: "image/jpeg", bytes: Data([7, 7]))
+        return "{\"attachments\":[{\"filename\":\"\(filename)\",\"id\":\"att-1\","
+            + "\"mimeType\":\"image/jpeg\",\"path\":\"/uploads/\(filename)\","
+            + "\"previewUrl\":\"\(preview)\",\"size\":3}],"
+            + "\"deliveryMode\":\"queue\",\"localId\":\"local-1\",\"text\":\"\(text)\"}"
+    }
+
+    @Test func sendRidesReadyAttachmentsAsWireMetadataAndTheOptimisticRowCarriesThem() async throws {
+        let harness = try await ChatInteractionHarness()
+
+        harness.interactor.attachments.add(preparedShot())
+        #expect(await eventually { harness.interactor.attachments.allReady })
+        harness.interactor.setComposerText("see the screenshot")
+        harness.interactor.sendMessage()
+
+        #expect(await eventually {
+            await harness.row(localId: "local-1")?.status == .sent
+        })
+        let sends = await harness.performer.bodies("POST", pathSuffix: "/api/sessions/sess-1/messages")
+        #expect(sends == [attachmentSendBody(text: "see the screenshot")])
+
+        // The optimistic row carries the attachments — thumbnails render
+        // before the SSE echo replaces it.
+        let row = try #require(await harness.row(localId: "local-1"))
+        let normalized = try #require(normalizeDecryptedMessage(row.asDecryptedMessage))
+        guard case .user(_, let attachments) = normalized.content else {
+            Issue.record("expected a user row")
+            return
+        }
+        #expect(attachments?.map(\.filename) == ["shot.jpg"])
+
+        // The tray was consumed by the send.
+        #expect(harness.interactor.attachments.items.isEmpty)
+    }
+
+    @Test func attachmentsOnlySendPostsEmptyText() async throws {
+        let harness = try await ChatInteractionHarness()
+
+        harness.interactor.attachments.add(preparedShot())
+        #expect(await eventually { harness.interactor.attachments.allReady })
+        harness.interactor.sendMessage()
+
+        #expect(await eventually {
+            await harness.performer.count("POST", pathSuffix: "/api/sessions/sess-1/messages") == 1
+        })
+        // Wire allows text OR attachments — empty text rides along.
+        let sends = await harness.performer.bodies("POST", pathSuffix: "/api/sessions/sess-1/messages")
+        #expect(sends == [attachmentSendBody(text: "")])
+    }
+
+    @Test func sendRefusesWhileAnAttachmentUploadIsUnsettled() async throws {
+        let harness = try await ChatInteractionHarness()
+        await harness.performer.gate("POST", pathSuffix: "/upload")
+
+        harness.interactor.attachments.add(preparedShot())
+        // Upload started and parked on the gate.
+        #expect(await eventually {
+            await harness.performer.count("POST", pathSuffix: "/upload") == 1
+        })
+        harness.interactor.setComposerText("hold on")
+        harness.interactor.sendMessage()
+
+        #expect(await eventually {
+            harness.events.contains { event in
+                if case .notice(let message) = event { return message.contains("uploading") }
+                return false
+            }
+        })
+        let refusedSends = await harness.performer.count("POST", pathSuffix: "/api/sessions/sess-1/messages")
+        #expect(refusedSends == 0)
+        // The draft text and the chip both survive the refused send.
+        #expect(harness.interactor.composerText == "hold on")
+        #expect(harness.interactor.attachments.items.count == 1)
+
+        // Once the upload settles, the same send goes through with metadata.
+        await harness.performer.openGates()
+        #expect(await eventually { harness.interactor.attachments.allReady })
+        harness.interactor.sendMessage()
+        #expect(await eventually {
+            await harness.performer.count("POST", pathSuffix: "/api/sessions/sess-1/messages") == 1
+        })
+        let sends = await harness.performer.bodies("POST", pathSuffix: "/api/sessions/sess-1/messages")
+        #expect(sends == [attachmentSendBody(text: "hold on")])
+    }
+
+    @Test func failedSendRetryReSendsTheSameAttachmentsFromTheWireRow() async throws {
+        let harness = try await ChatInteractionHarness()
+        await harness.performer.script(
+            "POST", "/api/sessions/sess-1/messages",
+            status: 500, json: #"{"error":"boom"}"#
+        )
+
+        harness.interactor.attachments.add(preparedShot())
+        #expect(await eventually { harness.interactor.attachments.allReady })
+        harness.interactor.setComposerText("try again")
+        harness.interactor.sendMessage()
+        #expect(await eventually {
+            await harness.row(localId: "local-1")?.status == .failed
+        })
+
+        harness.interactor.retryFailedMessage(localId: "local-1")
+        #expect(await eventually {
+            await harness.row(localId: "local-1")?.status == .sent
+        })
+
+        let sends = await harness.performer.bodies("POST", pathSuffix: "/api/sessions/sess-1/messages")
+        #expect(sends.count == 2)
+        // Attachments round-tripped through the optimistic row's wire JSON —
+        // the retry body is byte-identical (canonical sorted keys).
+        #expect(sends[0] == sends[1])
+        #expect(sends[1].contains("/uploads/shot.jpg"))
+    }
+
+    @Test func removingAReadyChipDeletesTheHubUploadAndDiscardDropsTheRest() async throws {
+        let harness = try await ChatInteractionHarness()
+
+        harness.interactor.attachments.add(preparedShot(id: "att-1", filename: "a.jpg"))
+        #expect(await eventually { harness.interactor.attachments.allReady })
+        harness.interactor.attachments.remove("att-1")
+        #expect(await eventually {
+            await harness.performer.bodies("POST", pathSuffix: "/upload/delete")
+                == [#"{"path":"/uploads/a.jpg"}"#]
+        })
+        #expect(harness.interactor.attachments.items.isEmpty)
+
+        // Un-sent leftovers are discarded when the screen goes away for good.
+        harness.interactor.attachments.add(preparedShot(id: "att-2", filename: "b.jpg"))
+        #expect(await eventually { harness.interactor.attachments.allReady })
+        harness.interactor.discardAttachments()
+        #expect(await eventually {
+            await harness.performer.count("POST", pathSuffix: "/upload/delete") == 2
+        })
+        #expect(harness.interactor.attachments.items.isEmpty)
     }
 
     // MARK: Queued bar

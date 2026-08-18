@@ -7,9 +7,11 @@ import SwiftUI
 
 /// Operator prompt: right-aligned bubble. Whitespace is preserved and the
 /// text is NOT rendered as markdown — matching the web user bubble and the
-/// Android port. Attachments render as chips; a failed optimistic row gets a
-/// "Not delivered" hint that retries the send when the interaction engine is
-/// present (A-M3a).
+/// Android port. Image attachments with a `previewUrl` render as thumbnails
+/// (decoded off-main; also covers web-sent attachments), everything else as
+/// filename chips (`AttachmentPreviewView`, A-M3f); a failed optimistic row
+/// gets a "Not delivered" hint that retries the send when the interaction
+/// engine is present (A-M3a).
 struct UserTextBlockView: View {
     let block: UserTextBlock
 
@@ -20,13 +22,15 @@ struct UserTextBlockView: View {
             Spacer(minLength: 48)
             VStack(alignment: .trailing, spacing: 2) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(block.text)
-                        .font(.subheadline)
-                        .textSelection(.enabled)
+                    if !block.text.isEmpty {
+                        Text(block.text)
+                            .font(.subheadline)
+                            .textSelection(.enabled)
+                    }
                     if let attachments = block.attachments, !attachments.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(attachments, id: \.id) { attachment in
-                                AttachmentChip(attachment: attachment)
+                                AttachmentPreviewView(attachment: attachment)
                             }
                         }
                     }
@@ -62,22 +66,6 @@ struct UserTextBlockView: View {
                 }
             }
         }
-    }
-}
-
-private struct AttachmentChip: View {
-    let attachment: AttachmentMetadata
-
-    var body: some View {
-        Label(
-            attachment.filename,
-            systemImage: attachment.mimeType.hasPrefix("image/") ? "photo" : "paperclip"
-        )
-        .font(.caption)
-        .lineLimit(1)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 

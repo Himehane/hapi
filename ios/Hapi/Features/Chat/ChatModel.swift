@@ -74,6 +74,10 @@ final class ChatModel {
     /// config. Long-lived alongside this model; `start()`/`stop()` map to its
     /// `activate()`/`deactivate()`.
     let interactor: ChatInteractor
+    /// Voice dictation (A-M3f): provider discovery + record/transcribe state
+    /// machine (HapiKit) over the app-side `AVAudioRecorder` seam.
+    /// Transcripts append to the composer; failures surface as notices.
+    let dictation: DictationController
     @ObservationIgnored private let pipeline = ChatPipeline()
     @ObservationIgnored let imageLoader: GeneratedImageLoader
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
@@ -92,6 +96,10 @@ final class ChatModel {
         self.sessionId = sessionId
         self.chat = session.makeChatSession(sessionId: sessionId)
         self.interactor = session.makeChatInteractor(sessionId: sessionId)
+        self.dictation = DictationController(
+            api: session.api,
+            recorder: AVAudioRecorderDictation()
+        )
         self.imageLoader = GeneratedImageLoader(api: session.api, sessionId: sessionId)
         self.header = ChatHeaderUI(
             title: String(sessionId.prefix(8)),
@@ -122,6 +130,17 @@ final class ChatModel {
             }
         }
         interactor.activate()
+        dictation.onEvent = { [weak self] event in
+            guard let self else { return }
+            switch event {
+            case .transcribed(let text):
+                self.interactor.appendDictatedText(text)
+            case .noProvider:
+                self.showNotice("No transcription provider configured on hub")
+            case .error(let message):
+                self.showNotice(message)
+            }
+        }
         let chat = chat
         chat.onStoreActivity = { [weak self] in
             self?.scheduleRecompute()
@@ -153,6 +172,13 @@ final class ChatModel {
         olderTask = nil
         noticeTask?.cancel()
         noticeTask = nil
+        // Discard an in-flight take — the mic must not stay hot off-screen
+        // (an upload already in Transcribing runs to completion and still
+        // appends). Attachment chips deliberately survive this stop: a
+        // full-screen cover (camera, image viewer) bounces through
+        // stop/start, and un-sent uploads are cleaned up when the tray
+        // deallocates with this model.
+        dictation.cancel()
         interactor.deactivate()
         chat.stop()
     }

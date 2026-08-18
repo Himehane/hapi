@@ -16,6 +16,14 @@ import Observation
 ///   move + ``ChatInteractionEvent/sessionSuperseded(sessionId:)``. Drafts
 ///   persist per session via ``ChatDrafts`` (debounced, flushed on
 ///   ``deactivate()``).
+/// - **Attachments** (``attachments``, a ``ComposerAttachments`` tray —
+///   A-M3f): picks are prepared app-side (`AttachmentPreparer`, policy in
+///   ``AttachmentPolicy``), upload on add, and the Ready set rides
+///   `SendMessageRequest.attachments` — the optimistic row carries the
+///   metadata so bubbles render thumbnails before the SSE echo. An unsettled
+///   chip blocks the send with a notice; attachments-only sends post empty
+///   text (wire: text OR attachments). ``appendDictatedText(_:)`` is the
+///   dictation hand-off (A-M3f voice).
 /// - **Queued bar** (``queuedRows``): uninvoked sends, web sort order
 ///   (immediate by submission, then scheduled by fire time), with Cancel
 ///   (optimistic DELETE; an `invoked` answer ingests the authoritative row as
@@ -39,6 +47,12 @@ import Observation
 @MainActor @Observable
 public final class ChatInteractor {
     public let sessionId: String
+
+    /// Composer attachment tray (A-M3f). The screen feeds prepared picks in
+    /// and renders `attachments.items`; ``sendMessage(steer:)`` consumes the
+    /// Ready set. Lives (and dies) with this interactor — see the tray's own
+    /// docs for the discard-on-deallocation semantics.
+    public let attachments: ComposerAttachments
 
     // MARK: Observable storage
 
@@ -96,6 +110,7 @@ public final class ChatInteractor {
         self.draftSaveDebounce = draftSaveDebounce
         self.now = now
         self.makeLocalId = makeLocalId
+        self.attachments = ComposerAttachments(api: api, sessionId: sessionId)
     }
 
     // MARK: - Lifecycle (paired with the screen's appear/disappear)
@@ -162,10 +177,21 @@ public final class ChatInteractor {
 
     /// Submit the composer. Delivery defaults to durable queue; `steer` is
     /// the explicit long-press intent that delivers into the active turn
-    /// (`deliveryMode: "steer"`).
+    /// (`deliveryMode: "steer"` — attachments may ride a steer, only
+    /// `scheduledAt` excludes them).
+    ///
+    /// Ready attachments are consumed into `SendMessageRequest.attachments`;
+    /// an unsettled chip (uploading/failed) blocks the send with a notice.
+    /// Text may be empty when attachments exist (wire: text OR attachments).
     public func sendMessage(steer: Bool = false) {
+        guard !isSending else { return }
+        if attachments.hasUnsettled {
+            emit(.notice("Attachments are still uploading — wait, or retry/remove the failed ones"))
+            return
+        }
         let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isSending else { return }
+        let attachmentMetadata = attachments.consume()
+        guard !text.isEmpty || attachmentMetadata != nil else { return }
         composerText = ""
         draftTask?.cancel()
         draftTask = nil
@@ -181,11 +207,31 @@ public final class ChatInteractor {
                 localId: localId,
                 createdAt: createdAt,
                 deliveryMode: deliveryMode,
-                attachments: nil,
+                attachments: attachmentMetadata,
                 scheduledAt: nil,
                 isRetry: false
             )
         }
+    }
+
+    /// Dictation transcript arrived: append with a space separator (web
+    /// `appendTranscript`).
+    public func appendDictatedText(_ transcript: String) {
+        setComposerText(appendTranscript(composerText, transcript: transcript))
+    }
+
+    /// Screen-level notices (attachment prep failures, mic permission) ride
+    /// the same event channel as interaction failures.
+    public func postNotice(_ message: String) {
+        emit(.notice(message))
+    }
+
+    /// Explicitly discard un-sent attachment uploads (best-effort hub
+    /// deletes). The tray's deallocation does the same implicitly when the
+    /// chat is left for good; attachments deliberately do not persist in
+    /// drafts v1.
+    public func discardAttachments() {
+        attachments.discardAllDetached()
     }
 
     /// Tap-to-retry on a failed optimistic row: re-fires the send with the

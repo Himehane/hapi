@@ -168,4 +168,71 @@ struct EndpointRequestTests {
         #expect((error as? APIError)?.status == 503)
         #expect((error as? APIError)?.code == "rpc_target_missing")
     }
+
+    @Test func transcriptionProvidersRequestsTheVoiceCatalog() async throws {
+        let harness = try makeHarness(jwt: freshJWT())
+        await harness.performer.enqueue(
+            json: "{\"providers\":[{\"id\":\"openai\",\"label\":\"OpenAI\","
+                + "\"modes\":[\"standard\",\"realtime\"]},"
+                + "{\"id\":\"browser-local\",\"label\":\"Browser on-device\","
+                + "\"modes\":[\"realtime\"]}]}"
+        )
+
+        let response = try await harness.client.transcriptionProviders()
+
+        #expect(response.providers.map(\.id) == ["openai", "browser-local"])
+        #expect(response.providers.first?.modes == ["standard", "realtime"])
+        #expect(response.providers.first?.label == "OpenAI")
+        let request = await harness.performer.requests.first
+        #expect(
+            request?.url?.absoluteString
+                == "\(testHubURLString)/api/voice/transcription/providers"
+        )
+        #expect(request?.httpMethod == "GET")
+    }
+
+    @Test func transcribeVoicePostsMultipartFormData() async throws {
+        let harness = try makeHarness(jwt: freshJWT())
+        await harness.performer.enqueue(json: "{\"text\":\"hello world\",\"language\":\"en\"}")
+
+        let result = try await harness.client.transcribeVoice(
+            audio: Data([1, 2, 3]),
+            filename: "clip.m4a",
+            mimeType: "audio/mp4",
+            provider: "openai",
+            language: "en-US"
+        )
+
+        #expect(result.text == "hello world")
+        #expect(result.language == "en")
+        let request = await harness.performer.requests.first
+        #expect(request?.url?.absoluteString == "\(testHubURLString)/api/voice/transcription")
+        #expect(request?.httpMethod == "POST")
+        let contentType = request?.value(forHTTPHeaderField: "Content-Type") ?? ""
+        #expect(contentType.hasPrefix("multipart/form-data; boundary="))
+        let raw = String(decoding: request?.httpBody ?? Data(), as: UTF8.self)
+        // Android-parity part order: file, provider, mode, language.
+        #expect(raw.contains(#"name="file"; filename="clip.m4a""#))
+        #expect(raw.contains("Content-Type: audio/mp4"))
+        #expect(raw.contains(#"name="provider""#) && raw.contains("openai"))
+        #expect(raw.contains(#"name="mode""#) && raw.contains("standard"))
+        #expect(raw.contains(#"name="language""#) && raw.contains("en-US"))
+    }
+
+    @Test func transcribeVoiceOmitsTheLanguagePartWhenNil() async throws {
+        let harness = try makeHarness(jwt: freshJWT())
+        await harness.performer.enqueue(json: "{\"text\":\"ok\"}")
+
+        _ = try await harness.client.transcribeVoice(
+            audio: Data([9]),
+            filename: "speech.m4a",
+            mimeType: "audio/mp4",
+            provider: "groq"
+        )
+
+        let request = await harness.performer.requests.first
+        let raw = String(decoding: request?.httpBody ?? Data(), as: UTF8.self)
+        #expect(!raw.contains(#"name="language""#))
+        #expect(raw.contains(#"name="mode""#) && raw.contains("standard"))
+    }
 }
