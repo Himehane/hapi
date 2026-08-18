@@ -85,17 +85,28 @@ struct HomeView: View {
 
     // MARK: - Connection state
 
+    /// Shown only while the stream is NOT healthy: a steady "Live" chip was
+    /// pure noise and read as a mystery non-button (device feedback). In the
+    /// degraded states the dot + label explain themselves.
+    private var connectionDegraded: Bool {
+        if case .connected = session.connectionState { return false }
+        return true
+    }
+
+    @ViewBuilder
     private var connectionIndicator: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(connectionColor)
-                .frame(width: 8, height: 8)
-            Text(connectionLabel)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+        if connectionDegraded {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(connectionColor)
+                    .frame(width: 8, height: 8)
+                Text(connectionLabel)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Connection: \(connectionLabel)")
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Connection: \(connectionLabel)")
     }
 
     private var connectionColor: Color {

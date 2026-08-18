@@ -85,9 +85,20 @@ struct SessionListView: View {
                 }
             }
             if rows.count > pinnedCount {
-                Section(pinnedCount > 0 ? String(localized: "Sessions") : "") {
-                    ForEach(rows.dropFirst(pinnedCount)) { row in
-                        rowCell(row, now: now)
+                // Headerless when nothing is pinned: an empty-string Section
+                // header still reserves a blank sticky band above the list
+                // (device feedback: "一片空白").
+                if pinnedCount > 0 {
+                    Section(String(localized: "Sessions")) {
+                        ForEach(rows.dropFirst(pinnedCount)) { row in
+                            rowCell(row, now: now)
+                        }
+                    }
+                } else {
+                    Section {
+                        ForEach(rows) { row in
+                            rowCell(row, now: now)
+                        }
                     }
                 }
             }
