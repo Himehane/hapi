@@ -74,9 +74,9 @@ import app.hapi.protocol.wire.TodoProgress
  * - pinned section first (the sort already puts globalPinned/pinned rows on
  *   top; a header + divider make the boundary visible);
  * - per row: flavor brand icon + title, spinner while a turn is in flight,
- *   `project · worktree · machine` meta line (machine only when it
- *   disambiguates), summary line, relative `updatedAt`, pending-request
- *   badge, todo-progress chip, unread dot; disconnected rows are dimmed —
+ *   summary line, `project · worktree · machine` meta line (machine only
+ *   when it disambiguates), relative `updatedAt`, pending-request badge,
+ *   todo-progress chip, unread dot; disconnected rows are dimmed —
  *   connected is the resting state, so no presence dot (web parity);
  * - long-press → actions sheet: pin (none/project/global), rename (dialog),
  *   reopen (inactive rows; navigates into the possibly-superseding id),
@@ -341,7 +341,8 @@ private fun SessionRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        MetaLine(row)
+        // Summary directly under the title (its prose continuation); the
+        // `project · machine` meta closes the row as a footer.
         row.subtitle?.let { subtitle ->
             Text(
                 text = subtitle,
@@ -351,6 +352,7 @@ private fun SessionRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        MetaLine(row)
         BadgeLine(summary)
     }
 }
@@ -362,7 +364,10 @@ private fun MetaLine(row: SessionRowUi) {
     val meta = row.meta ?: return
     Text(
         text = meta,
-        style = MaterialTheme.typography.labelSmall,
+        // bodySmall, not labelSmall: as the row's only secondary line the
+        // meta carries the project scan key — label tracking (0.5sp at 11sp)
+        // reads stringy on path-like text (web parity: title 14 / meta 12).
+        style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,

@@ -11,9 +11,9 @@ import SwiftUI
 /// - pinned section first (the sort already puts globalPinned/pinned rows on
 ///   top; a header makes the boundary visible);
 /// - per row: flavor brand icon + title, spinner while a turn is in flight,
-///   `project · worktree · machine` meta line (machine only when it
-///   disambiguates), summary line, relative `updatedAt`, pending-request
-///   badge, todo-progress chip, unread dot; disconnected rows are dimmed —
+///   summary line, `project · worktree · machine` meta line (machine only
+///   when it disambiguates), relative `updatedAt`, pending-request badge,
+///   todo-progress chip, unread dot; disconnected rows are dimmed —
 ///   connected is the resting state, so no presence dot (web parity);
 /// - long-press context menu → pin (none/project/global) + archive with
 ///   optimistic store updates; failures land in an alert.
@@ -207,13 +207,15 @@ struct SessionRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             titleLine
-            metaLine
+            // Summary directly under the title (its prose continuation); the
+            // `project · machine` meta closes the row as a footer.
             if let subtitle = row.subtitle {
                 Text(subtitle)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            metaLine
             badgeLine
         }
         .padding(.vertical, 2)
@@ -256,8 +258,11 @@ struct SessionRowView: View {
     @ViewBuilder
     private var metaLine: some View {
         if let meta = row.meta {
+            // Footnote, not caption: as the row's only secondary line the
+            // meta carries the project scan key (web keeps title/meta at
+            // 14/12; 17/13 is the same contrast).
             Text(meta)
-                .font(.caption)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
