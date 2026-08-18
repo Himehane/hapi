@@ -53,6 +53,8 @@ e2e-output/
 
 # Xcode / iOS build artifacts
 ios/**/xcuserdata/
+# Standalone projects recreate this workspace wrapper; keep Package.resolved trackable.
+ios/**/*.xcodeproj/project.xcworkspace/contents.xcworkspacedata
 ios/**/.build/
 ios/**/.swiftpm/
 **/*.xcresult

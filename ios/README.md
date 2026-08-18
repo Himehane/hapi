@@ -31,6 +31,12 @@ swift test --package-path ios/Packages/HapiKit
 CI runs both on `macos-15` via `.github/workflows/ios.yml` (triggered by
 changes under `ios/**` and `shared/fixtures/**`).
 
+### Localization catalog
+
+`Hapi/Resources/Localizable.xcstrings` is hand-maintained. Compiler string
+extraction stays disabled so opening or building the project does not rewrite
+the catalog with decorative or intentionally verbatim strings.
+
 ### Linux verification (no Mac needed)
 
 `ios/scripts/linux-test.sh` compiles and tests the non-UI targets
