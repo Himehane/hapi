@@ -57,16 +57,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import android.content.Context
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import app.hapi.companion.R
+import app.hapi.companion.feature.chat.composer.DictationErrorKind
 import app.hapi.companion.feature.chat.attachments.AttachmentPickerSheet
 import app.hapi.companion.feature.chat.attachments.AttachmentPreparer
 import app.hapi.companion.feature.chat.attachments.CameraCapture
@@ -152,30 +156,40 @@ fun ChatScreen(
         onDispose { viewModel.stop() }
     }
 
-    LaunchedEffect(viewModel) {
+    val context = LocalContext.current
+    LaunchedEffect(viewModel, context) {
         viewModel.events.collect { event ->
             when (event) {
                 is ChatEvent.SessionSuperseded -> onNavigateToSession(event.sessionId)
                 ChatEvent.SessionDeleted -> onBack()
-                is ChatEvent.Notice -> snackbarHostState.showSnackbar(event.message)
+                is ChatEvent.Notice -> snackbarHostState.showSnackbar(chatNoticeText(context, event.notice))
             }
         }
     }
 
     // ------------------------------------------------------------ dictation --
     val dictationState = dictation?.state?.collectAsState()?.value ?: DictationState.Idle
-    LaunchedEffect(dictation) {
+    LaunchedEffect(dictation, context) {
         dictation?.events?.collect { event ->
             when (event) {
                 is DictationEvent.Transcribed -> viewModel.appendDictatedText(event.text)
                 DictationEvent.NoProvider -> snackbarHostState.showSnackbar(
-                    "No transcription provider configured on hub",
+                    context.getString(R.string.chat_notice_no_transcription),
                 )
-                is DictationEvent.Error -> snackbarHostState.showSnackbar(event.message)
+                is DictationEvent.Error -> snackbarHostState.showSnackbar(
+                    event.detail ?: context.getString(
+                        when (event.kind) {
+                            DictationErrorKind.StartFailed -> R.string.chat_dictation_start_failed
+                            DictationErrorKind.HubUnreachable -> R.string.chat_dictation_hub_unreachable
+                            DictationErrorKind.RecordingFailed -> R.string.chat_dictation_recording_failed
+                            DictationErrorKind.NoAudio -> R.string.chat_dictation_no_audio
+                            DictationErrorKind.TranscriptionFailed -> R.string.chat_dictation_failed
+                        },
+                    ),
+                )
             }
         }
     }
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -184,7 +198,7 @@ fun ChatScreen(
             dictation?.toggle()
         } else {
             scope.launch {
-                snackbarHostState.showSnackbar("Microphone permission is needed for dictation")
+                snackbarHostState.showSnackbar(context.getString(R.string.chat_notice_mic_permission))
             }
         }
     }
@@ -211,10 +225,10 @@ fun ChatScreen(
         when (val result = preparer.prepare(uri)) {
             is PrepareResult.Ready -> viewModel.attachments.add(result.attachment)
             is PrepareResult.TooLarge -> snackbarHostState.showSnackbar(
-                "${result.filename} is over the 50 MB upload limit",
+                context.getString(R.string.chat_notice_attachment_too_large, result.filename),
             )
             is PrepareResult.Unreadable -> snackbarHostState.showSnackbar(
-                "Couldn't read ${result.filename}",
+                context.getString(R.string.chat_notice_attachment_unreadable, result.filename),
             )
         }
     }
@@ -263,7 +277,9 @@ fun ChatScreen(
         if (granted) {
             launchCamera()
         } else {
-            scope.launch { snackbarHostState.showSnackbar("Camera permission is needed to take a photo") }
+            scope.launch {
+                snackbarHostState.showSnackbar(context.getString(R.string.chat_notice_camera_permission))
+            }
         }
     }
     val onTakePhoto: () -> Unit = {
@@ -291,7 +307,7 @@ fun ChatScreen(
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.chat_back))
                     }
                 },
                 title = { ChatTitle(state.header) },
@@ -304,10 +320,10 @@ fun ChatScreen(
                         )
                     }
                     IconButton(onClick = onOpenFiles) {
-                        Icon(FolderGlyph, contentDescription = "Session files")
+                        Icon(FolderGlyph, contentDescription = stringResource(R.string.chat_open_files))
                     }
                     IconButton(onClick = { configSheetOpen = true }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Session settings")
+                        Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.chat_open_settings))
                     }
                     SessionOverflowMenu(
                         active = state.header.active,
@@ -433,7 +449,8 @@ private fun ScratchlistTopBarButton(count: Int, onClick: () -> Unit) {
                 }
             },
         ) {
-            Text(text = "🗒", fontSize = 18.sp, modifier = Modifier.semantics { contentDescription = "Scratchlist" })
+            val scratchlistLabel = stringResource(R.string.chat_scratchlist_badge)
+            Text(text = "🗒", fontSize = 18.sp, modifier = Modifier.semantics { contentDescription = scratchlistLabel })
         }
     }
 }
@@ -448,11 +465,11 @@ private fun SessionOverflowMenu(
 ) {
     var open by remember { mutableStateOf(false) }
     IconButton(onClick = { open = true }) {
-        Icon(Icons.Filled.MoreVert, contentDescription = "Session actions")
+        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.chat_session_actions))
     }
     DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
         DropdownMenuItem(
-            text = { Text("Rename") },
+            text = { Text(stringResource(R.string.sessions_action_rename)) },
             onClick = {
                 open = false
                 onRename()
@@ -460,7 +477,7 @@ private fun SessionOverflowMenu(
         )
         if (!active) {
             DropdownMenuItem(
-                text = { Text("Reopen") },
+                text = { Text(stringResource(R.string.sessions_action_reopen)) },
                 onClick = {
                     open = false
                     onReopen()
@@ -468,7 +485,7 @@ private fun SessionOverflowMenu(
             )
         }
         DropdownMenuItem(
-            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+            text = { Text(stringResource(R.string.sessions_action_delete), color = MaterialTheme.colorScheme.error) },
             onClick = {
                 open = false
                 onDelete()
@@ -490,7 +507,7 @@ private fun InactiveSessionBar(onReopen: () -> Unit) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "Session inactive — send to resume, or",
+                text = stringResource(R.string.chat_inactive_bar),
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -498,7 +515,7 @@ private fun InactiveSessionBar(onReopen: () -> Unit) {
                     .weight(1f)
                     .padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
             )
-            TextButton(onClick = onReopen) { Text("Reopen") }
+            TextButton(onClick = onReopen) { Text(stringResource(R.string.sessions_action_reopen)) }
         }
     }
 }
@@ -559,7 +576,7 @@ private fun DegradedBanner(warning: String, onRetry: () -> Unit) {
                     .weight(1f)
                     .padding(start = 16.dp, top = 6.dp, bottom = 6.dp),
             )
-            TextButton(onClick = onRetry) { Text("Retry") }
+            TextButton(onClick = onRetry) { Text(stringResource(R.string.chat_retry)) }
         }
     }
 }
@@ -639,7 +656,7 @@ private fun OlderHistoryRow(isLoading: Boolean) {
             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Loading older messages…",
+                text = stringResource(R.string.chat_loading_older),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.hapi.hint,
             )
@@ -696,7 +713,11 @@ private fun NewMessagesPill(
         modifier = modifier,
     ) {
         Text(
-            text = if (unseenCount == 1) "1 new message ↓" else "$unseenCount new messages ↓",
+            text = if (unseenCount == 1) {
+                stringResource(R.string.chat_new_messages_one)
+            } else {
+                stringResource(R.string.chat_new_messages_many, unseenCount)
+            },
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
         )
@@ -715,7 +736,7 @@ private fun InitialLoading() {
         CircularProgressIndicator()
         Spacer(modifier = Modifier.size(12.dp))
         Text(
-            text = "Loading messages…",
+            text = stringResource(R.string.chat_loading_messages),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -729,15 +750,15 @@ private fun LoadFailed(onRetry: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(text = "Couldn't load this session", style = MaterialTheme.typography.titleMedium)
+        Text(text = stringResource(R.string.chat_load_failed_title), style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.size(8.dp))
         Text(
-            text = "Check the connection to your hub and try again.",
+            text = stringResource(R.string.chat_load_failed_hint),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.size(12.dp))
-        TextButton(onClick = onRetry) { Text("Retry") }
+        TextButton(onClick = onRetry) { Text(stringResource(R.string.chat_retry)) }
     }
 }
 
@@ -748,12 +769,40 @@ private fun EmptyChat() {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(text = "No messages yet", style = MaterialTheme.typography.titleMedium)
+        Text(text = stringResource(R.string.chat_empty_title), style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.size(8.dp))
         Text(
-            text = "Messages will appear here as the agent works.",
+            text = stringResource(R.string.chat_empty_hint),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+// ------------------------------------------------------------- notices --
+
+/**
+ * Localize a [ChatNotice] (B-M5a). Server/exception detail text, when
+ * present, is shown verbatim — matching the pre-i18n `message ?: fallback`
+ * behavior — so hub-side wording is never mistranslated.
+ */
+internal fun chatNoticeText(context: Context, notice: ChatNotice): String = when (notice) {
+    ChatNotice.DraftParked -> context.getString(R.string.chat_notice_draft_parked)
+    ChatNotice.ScratchlistFull -> context.getString(R.string.chat_notice_scratchlist_full)
+    ChatNotice.ScratchlistParkFailed -> context.getString(R.string.chat_notice_park_failed)
+    ChatNotice.AttachmentsUploading -> context.getString(R.string.chat_notice_attachments_uploading)
+    ChatNotice.ResumeFailed -> context.getString(R.string.chat_notice_resume_failed)
+    ChatNotice.QueuedEditKeptDraft -> context.getString(R.string.chat_notice_edit_kept_draft)
+    ChatNotice.QueuedAlreadyDelivered -> context.getString(R.string.chat_notice_already_delivered)
+    ChatNotice.PermissionAlreadyHandled -> context.getString(R.string.chat_notice_request_already_handled)
+    ChatNotice.DeleteConflictActive -> context.getString(R.string.sessions_error_delete_active)
+    is ChatNotice.AbortFailed -> notice.detail ?: context.getString(R.string.chat_notice_abort_failed)
+    is ChatNotice.RenameFailed -> notice.detail ?: context.getString(R.string.chat_notice_rename_failed)
+    is ChatNotice.DeleteFailed -> notice.detail ?: context.getString(R.string.chat_notice_delete_failed)
+    is ChatNotice.ReopenFailed -> notice.detail ?: context.getString(R.string.sessions_reopen_failed_fallback)
+    is ChatNotice.CancelQueuedFailed -> notice.detail ?: context.getString(R.string.chat_notice_cancel_failed)
+    is ChatNotice.SteerFailed -> notice.detail ?: context.getString(R.string.chat_notice_steer_failed)
+    is ChatNotice.PermissionRequestFailed -> notice.detail ?: context.getString(R.string.chat_notice_request_failed)
+    is ChatNotice.ModelsLoadFailed -> notice.detail ?: context.getString(R.string.chat_notice_models_failed)
+    is ChatNotice.ConfigUpdateFailed -> notice.detail ?: context.getString(R.string.chat_notice_config_failed)
 }

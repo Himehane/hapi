@@ -1,5 +1,7 @@
 package app.hapi.companion.feature.chat
 
+import android.content.res.Resources
+import app.hapi.companion.R
 import app.hapi.protocol.chat.ChatToolCall
 import app.hapi.protocol.chat.getInputStringAny
 import app.hapi.protocol.chat.isAskUserQuestionToolName
@@ -117,30 +119,32 @@ internal fun terminalCommand(input: JsonElement?): String? {
     return if (parts.isEmpty()) null else parts.joinToString(" ")
 }
 
-private fun terminalTitle(input: JsonElement?, description: String?): String {
+private fun terminalTitle(input: JsonElement?, description: String?, res: Resources): String {
     val command = terminalCommand(input)
     if (description != null && description != command) return description
-    return formatTerminalCommandTitle(command) ?: description ?: "Terminal"
+    return formatTerminalCommandTitle(command) ?: description ?: res.getString(R.string.tool_terminal)
 }
 
-private fun terminalSubtitle(input: JsonElement?, description: String?): String? {
+private fun terminalSubtitle(input: JsonElement?, description: String?, res: Resources): String? {
     val command = terminalCommand(input)
-    return if (command == terminalTitle(input, description)) null else command
+    return if (command == terminalTitle(input, description, res)) null else command
 }
 
 // ------------------------------------------------------------- questions --
 
-private fun questionTitle(input: JsonElement?): String {
+private fun questionTitle(input: JsonElement?, res: Resources): String {
     val questions = input.asObjectOrNull()?.get("questions") as? JsonArray ?: JsonArray(emptyList())
-    if (questions.size > 1) return "${questions.size} Questions"
+    if (questions.size > 1) return res.getString(R.string.tool_questions, questions.size)
     val header = questions.firstOrNull().asObjectOrNull()?.get("header").asStringOrNull()?.trim().orEmpty()
-    return header.ifEmpty { "Question" }
+    return header.ifEmpty { res.getString(R.string.tool_question) }
 }
 
-private fun questionSubtitle(input: JsonElement?): String? {
+private fun questionSubtitle(input: JsonElement?, res: Resources): String? {
     val questions = input.asObjectOrNull()?.get("questions") as? JsonArray ?: JsonArray(emptyList())
     val question = questions.firstOrNull().asObjectOrNull()?.get("question").asStringOrNull()?.trim().orEmpty()
-    if (questions.size > 1 && question.isNotEmpty()) return truncate(question, 100) + " (+${questions.size - 1} more)"
+    if (questions.size > 1 && question.isNotEmpty()) {
+        return res.getString(R.string.tool_questions_more, truncate(question, 100), questions.size - 1)
+    }
     return question.takeIf { it.isNotEmpty() }?.let { truncate(it, 120) }
 }
 
@@ -167,6 +171,8 @@ private fun mcpTitle(toolName: String): String {
 fun toolCardPresentation(
     tool: ChatToolCall,
     basePath: String?,
+    /** Localizes the semantic fallback titles (B-M5a). */
+    res: Resources,
 ): ToolCardPresentation {
     val input = tool.input
     val name = tool.name
@@ -176,7 +182,7 @@ fun toolCardPresentation(
         return ToolCardPresentation(ToolIcons.PUZZLE, mcpTitle(name), null)
     }
     if (isAskUserQuestionToolName(name) || isRequestUserInputToolName(name)) {
-        return ToolCardPresentation(ToolIcons.QUESTION, questionTitle(input), questionSubtitle(input))
+        return ToolCardPresentation(ToolIcons.QUESTION, questionTitle(input, res), questionSubtitle(input, res))
     }
 
     fun filePathTitle(keys: List<String>, fallback: String): String =
@@ -193,89 +199,98 @@ fun toolCardPresentation(
                         return ToolCardPresentation(
                             ToolIcons.READ,
                             displayPath(file, basePath),
-                            terminalSubtitle(input, description),
+                            terminalSubtitle(input, description, res),
                         )
                     }
                 }
             }
             return ToolCardPresentation(
                 ToolIcons.TERMINAL,
-                terminalTitle(input, description),
-                terminalSubtitle(input, description),
+                terminalTitle(input, description, res),
+                terminalSubtitle(input, description, res),
             )
         }
 
         "Read" -> return ToolCardPresentation(
-            ToolIcons.READ, filePathTitle(listOf("file_path", "path", "file"), "Read file"), null,
+            ToolIcons.READ, filePathTitle(listOf("file_path", "path", "file"), res.getString(R.string.tool_read_file)), null,
         )
 
         "NotebookRead" -> return ToolCardPresentation(
-            ToolIcons.READ, filePathTitle(listOf("notebook_path"), "Read notebook"), null,
+            ToolIcons.READ, filePathTitle(listOf("notebook_path"), res.getString(R.string.tool_read_notebook)), null,
         )
 
         "Edit" -> return ToolCardPresentation(
-            ToolIcons.EDIT, filePathTitle(listOf("file_path", "path"), "Edit file"), null,
+            ToolIcons.EDIT, filePathTitle(listOf("file_path", "path"), res.getString(R.string.tool_edit_file)), null,
         )
 
         "MultiEdit" -> {
             val file = getInputStringAny(input, listOf("file_path", "path"))
-                ?: return ToolCardPresentation(ToolIcons.EDIT, "Edit file", null)
+                ?: return ToolCardPresentation(ToolIcons.EDIT, res.getString(R.string.tool_edit_file), null)
             val count = (input.asObjectOrNull()?.get("edits") as? JsonArray)?.size ?: 0
             val path = displayPath(file, basePath)
-            return ToolCardPresentation(ToolIcons.EDIT, if (count > 1) "$path ($count edits)" else path, null)
+            return ToolCardPresentation(
+                ToolIcons.EDIT,
+                if (count > 1) res.getString(R.string.tool_edits_count, path, count) else path,
+                null,
+            )
         }
 
         "Write" -> {
             val content = getInputStringAny(input, listOf("content", "text"))
             val subtitle = content?.let {
                 val lines = countLines(it)
-                if (lines > 1) "$lines lines" else "${it.length} chars"
+                if (lines > 1) {
+                    res.getString(R.string.tool_write_lines, lines)
+                } else {
+                    res.getString(R.string.tool_write_chars, it.length)
+                }
             }
             return ToolCardPresentation(
-                ToolIcons.EDIT, filePathTitle(listOf("file_path", "path"), "Write file"), subtitle,
+                ToolIcons.EDIT, filePathTitle(listOf("file_path", "path"), res.getString(R.string.tool_write_file)), subtitle,
             )
         }
 
         "NotebookEdit" -> return ToolCardPresentation(
             ToolIcons.EDIT,
-            filePathTitle(listOf("notebook_path"), "Edit notebook"),
+            filePathTitle(listOf("notebook_path"), res.getString(R.string.tool_edit_notebook)),
             getInputStringAny(input, listOf("edit_mode"))?.let { "mode: $it" },
         )
 
         "Glob" -> return ToolCardPresentation(
-            ToolIcons.SEARCH, getInputStringAny(input, listOf("pattern")) ?: "Search files", null,
+            ToolIcons.SEARCH, getInputStringAny(input, listOf("pattern")) ?: res.getString(R.string.tool_search_files), null,
         )
 
         "Grep" -> {
             val pattern = getInputStringAny(input, listOf("pattern"))
             return ToolCardPresentation(
-                ToolIcons.SEARCH, pattern?.let { "grep(pattern: $it)" } ?: "Search content", null,
+                ToolIcons.SEARCH, pattern?.let { "grep(pattern: $it)" } ?: res.getString(R.string.tool_search_content), null,
             )
         }
 
         "LS" -> return ToolCardPresentation(
-            ToolIcons.SEARCH, filePathTitle(listOf("path"), "List files"), null,
+            ToolIcons.SEARCH, filePathTitle(listOf("path"), res.getString(R.string.tool_list_files)), null,
         )
 
         "WebFetch" -> {
             val url = getInputStringAny(input, listOf("url"))
-                ?: return ToolCardPresentation(ToolIcons.WEB, "Web fetch", null)
+                ?: return ToolCardPresentation(ToolIcons.WEB, res.getString(R.string.tool_web_fetch), null)
             val host = Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://([^/]+)").find(url)?.groupValues?.get(1) ?: url
             return ToolCardPresentation(ToolIcons.WEB, host, url)
         }
 
         "WebSearch" -> {
             val query = getInputStringAny(input, listOf("query"))
-            return ToolCardPresentation(ToolIcons.WEB, query ?: "Web search", query?.let { truncate(it, 80) })
+            return ToolCardPresentation(ToolIcons.WEB, query ?: res.getString(R.string.tool_web_search), query?.let { truncate(it, 80) })
         }
 
         "Task", "Agent" -> {
             val inputName = getInputStringAny(input, listOf("name"))
             val teamName = getInputStringAny(input, listOf("team_name"))
             val title = when {
-                name == "Task" && inputName != null && teamName != null -> "Agent: $inputName"
+                name == "Task" && inputName != null && teamName != null ->
+                    res.getString(R.string.tool_agent_named, inputName)
                 else -> getInputStringAny(input, listOf("description"))
-                    ?: if (name == "Task") "Task" else "Launch Agent"
+                    ?: res.getString(if (name == "Task") R.string.tool_task else R.string.tool_launch_agent)
             }
             val subtitle = getInputStringAny(input, listOf("prompt"))?.let { truncate(it, 120) }
                 ?: getInputStringAny(input, listOf("subagent_type"))
@@ -283,14 +298,16 @@ fun toolCardPresentation(
         }
 
         "CodexAgent", "spawn_agent", "resume_agent", "wait_agent", "close_agent", "interrupt_agent" -> {
-            val title = when (name) {
-                "spawn_agent" -> "Spawn agent"
-                "resume_agent" -> "Resume agent"
-                "wait_agent" -> "Wait for agent"
-                "close_agent" -> "Close agent"
-                "interrupt_agent" -> "Interrupt agent"
-                else -> "Agent"
-            }
+            val title = res.getString(
+                when (name) {
+                    "spawn_agent" -> R.string.tool_spawn_agent
+                    "resume_agent" -> R.string.tool_resume_agent
+                    "wait_agent" -> R.string.tool_wait_agent
+                    "close_agent" -> R.string.tool_close_agent
+                    "interrupt_agent" -> R.string.tool_interrupt_agent
+                    else -> R.string.tool_agent
+                },
+            )
             val prompt = getInputStringAny(input, listOf("prompt", "summary"))
             return ToolCardPresentation(ToolIcons.AGENT, title, prompt?.let { truncate(it, 120) })
         }
@@ -299,49 +316,58 @@ fun toolCardPresentation(
             val recipient = getInputStringAny(input, listOf("recipient"))
             val msgType = getInputStringAny(input, listOf("type"))
             val title = when {
-                msgType == "broadcast" -> "Broadcast"
-                msgType == "shutdown_request" -> "Shutdown: ${recipient ?: "agent"}"
-                msgType == "shutdown_response" -> "Shutdown Response"
-                recipient != null -> "Message: $recipient"
-                else -> "Message agent"
+                msgType == "broadcast" -> res.getString(R.string.tool_broadcast)
+                msgType == "shutdown_request" -> res.getString(
+                    R.string.tool_shutdown,
+                    recipient ?: res.getString(R.string.tool_shutdown_fallback_recipient),
+                )
+                msgType == "shutdown_response" -> res.getString(R.string.tool_shutdown_response)
+                recipient != null -> res.getString(R.string.tool_message_named, recipient)
+                else -> res.getString(R.string.tool_message_agent)
             }
             val summary = getInputStringAny(input, listOf("summary"))
             return ToolCardPresentation(ToolIcons.MESSAGE, title, summary?.let { truncate(it, 120) })
         }
 
-        "list_agents" -> return ToolCardPresentation(ToolIcons.TEAM, "List agents", null)
+        "list_agents" -> return ToolCardPresentation(ToolIcons.TEAM, res.getString(R.string.tool_list_agents), null)
 
         "TeamCreate" -> {
             val teamName = getInputStringAny(input, listOf("team_name"))
             return ToolCardPresentation(
                 ToolIcons.TEAM,
-                teamName?.let { "Team: $it" } ?: "Create Team",
+                teamName?.let { res.getString(R.string.tool_team_named, it) }
+                    ?: res.getString(R.string.tool_create_team),
                 getInputStringAny(input, listOf("description")),
             )
         }
 
-        "TeamDelete" -> return ToolCardPresentation(ToolIcons.TEAM, "Delete Team", null)
+        "TeamDelete" -> return ToolCardPresentation(ToolIcons.TEAM, res.getString(R.string.tool_delete_team), null)
 
-        "TodoWrite" -> return ToolCardPresentation(ToolIcons.IDEA, "Todo list", null)
+        "TodoWrite" -> return ToolCardPresentation(ToolIcons.IDEA, res.getString(R.string.tool_todo_list), null)
 
-        "update_plan" -> return ToolCardPresentation(ToolIcons.PLAN, "Plan", null)
+        "update_plan" -> return ToolCardPresentation(ToolIcons.PLAN, res.getString(R.string.tool_plan), null)
 
-        "ExitPlanMode", "exit_plan_mode" -> return ToolCardPresentation(ToolIcons.PLAN, "Plan proposal", null)
+        "ExitPlanMode", "exit_plan_mode" -> return ToolCardPresentation(ToolIcons.PLAN, res.getString(R.string.tool_plan_proposal), null)
 
         "Skill" -> {
             val skill = getInputStringAny(input, listOf("skill"))
-            return ToolCardPresentation(ToolIcons.PUZZLE, skill?.let { "Skill: $it" } ?: "Skill", null)
+            return ToolCardPresentation(
+                ToolIcons.PUZZLE,
+                skill?.let { res.getString(R.string.tool_skill_named, it) } ?: res.getString(R.string.tool_skill),
+                null,
+            )
         }
 
         "CodexReasoning" -> return ToolCardPresentation(
-            ToolIcons.IDEA, getInputStringAny(input, listOf("title")) ?: "Reasoning", null,
+            ToolIcons.IDEA, getInputStringAny(input, listOf("title")) ?: res.getString(R.string.tool_reasoning), null,
         )
 
         "CodexPermission" -> {
             val permissionTool = getInputStringAny(input, listOf("tool"))
             return ToolCardPresentation(
                 ToolIcons.QUESTION,
-                permissionTool?.let { "Permission: $it" } ?: "Permission request",
+                permissionTool?.let { res.getString(R.string.tool_permission_named, it) }
+                    ?: res.getString(R.string.tool_permission_request),
                 getInputStringAny(input, listOf("message", "command")),
             )
         }
@@ -353,7 +379,7 @@ fun toolCardPresentation(
                 val display = basename(displayPath(first, basePath))
                 if (files.size > 1) "$display (+${files.size - 1})" else display
             }
-            return ToolCardPresentation(ToolIcons.EDIT, "Apply changes", subtitle)
+            return ToolCardPresentation(ToolIcons.EDIT, res.getString(R.string.tool_apply_changes), subtitle)
         }
 
         "CodexDiff" -> {
@@ -362,19 +388,22 @@ fun toolCardPresentation(
                 ?.firstOrNull { it.startsWith("+++ ") }
                 ?.removePrefix("+++ ")?.removePrefix("b/")
                 ?.let { it.substringAfterLast('/') }
-            return ToolCardPresentation(ToolIcons.EDIT, "Diff", subtitle)
+            return ToolCardPresentation(ToolIcons.EDIT, res.getString(R.string.tool_diff), subtitle)
         }
 
         "AgyTaskLog" -> {
             val task = getInputStringAny(input, listOf("task"))
             return ToolCardPresentation(
-                ToolIcons.MESSAGE, task?.let { "$it log" } ?: "Inspecting task log", null,
+                ToolIcons.MESSAGE,
+                task?.let { res.getString(R.string.tool_task_log, it) }
+                    ?: res.getString(R.string.tool_inspecting_task_log),
+                null,
             )
         }
 
-        "AgyAsyncTask" -> return ToolCardPresentation(ToolIcons.PLAN, description ?: "Background task", null)
+        "AgyAsyncTask" -> return ToolCardPresentation(ToolIcons.PLAN, description ?: res.getString(R.string.tool_background_task), null)
 
-        "AgyError" -> return ToolCardPresentation(ToolIcons.WARNING, description ?: "Error", null)
+        "AgyError" -> return ToolCardPresentation(ToolIcons.WARNING, description ?: res.getString(R.string.tool_error), null)
     }
 
     // Generic fallback (web `getToolPresentation` tail): promote a semantic
@@ -390,11 +419,11 @@ fun toolCardPresentation(
     var title = description ?: name
     if (subtitle != null && subtitle == title) {
         title = when {
-            filePath != null -> "Read file"
-            command != null -> "Run shell"
-            pattern != null -> "Search"
-            url != null -> "Open URL"
-            query != null -> "Query"
+            filePath != null -> res.getString(R.string.tool_read_file)
+            command != null -> res.getString(R.string.tool_run_shell)
+            pattern != null -> res.getString(R.string.tool_search)
+            url != null -> res.getString(R.string.tool_open_url)
+            query != null -> res.getString(R.string.tool_query)
             else -> title
         }
     }

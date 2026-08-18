@@ -77,6 +77,9 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    // Per-app locales (B-M5a): AppCompatActivity + setApplicationLocales
+    // (autoStoreLocales service is declared in the manifest).
+    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.process)

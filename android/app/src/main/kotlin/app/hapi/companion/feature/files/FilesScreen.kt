@@ -41,11 +41,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.hapi.companion.R
 import app.hapi.companion.ui.theme.hapi
 import app.hapi.protocol.git.GitFileStatus
 import app.hapi.protocol.wire.FileSearchItem
@@ -82,10 +84,10 @@ fun FilesScreen(
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.files_back))
                     }
                 },
-                title = { Text("Files") },
+                title = { Text(stringResource(R.string.files_title)) },
                 actions = {
                     IconButton(
                         onClick = {
@@ -96,7 +98,7 @@ fun FilesScreen(
                             }
                         },
                     ) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                        Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.files_refresh))
                     }
                 },
             )
@@ -108,9 +110,9 @@ fun FilesScreen(
                 .padding(padding),
         ) {
             TabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Changes") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Browse") })
-                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Search") })
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.files_tab_changes)) })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.files_tab_browse)) })
+                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text(stringResource(R.string.files_tab_search)) })
             }
             when (tab) {
                 0 -> ChangesTab(changes, onOpenFile)
@@ -144,7 +146,7 @@ private fun ChangesTab(
 
         when {
             state.loading && state.status == null -> CenteredProgress()
-            state.status == null -> CenteredHint("Git status unavailable for this session")
+            state.status == null -> CenteredHint(stringResource(R.string.files_git_unavailable))
             else -> {
                 val status = state.status
 
@@ -163,12 +165,16 @@ private fun ChangesTab(
                     )
                     Column {
                         Text(
-                            text = status.branch ?: "Detached HEAD",
+                            text = status.branch ?: stringResource(R.string.files_detached_head),
                             fontWeight = FontWeight.SemiBold,
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
-                            text = "${status.totalStaged} staged · ${status.totalUnstaged} unstaged",
+                            text = stringResource(
+                                R.string.files_staged_unstaged,
+                                status.totalStaged,
+                                status.totalUnstaged,
+                            ),
                             fontSize = 12.sp,
                             color = colors.hint,
                         )
@@ -176,12 +182,12 @@ private fun ChangesTab(
                 }
 
                 if (status.stagedFiles.isEmpty() && status.unstagedFiles.isEmpty()) {
-                    CenteredHint("No changes in the working tree")
+                    CenteredHint(stringResource(R.string.files_no_changes))
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
                         if (status.stagedFiles.isNotEmpty()) {
                             item(key = "staged-header") {
-                                SectionHeader("Staged (${status.stagedFiles.size})")
+                                SectionHeader(stringResource(R.string.files_staged_header, status.stagedFiles.size))
                             }
                             items(
                                 status.stagedFiles.size,
@@ -193,7 +199,7 @@ private fun ChangesTab(
                         }
                         if (status.unstagedFiles.isNotEmpty()) {
                             item(key = "unstaged-header") {
-                                SectionHeader("Unstaged (${status.unstagedFiles.size})")
+                                SectionHeader(stringResource(R.string.files_unstaged_header, status.unstagedFiles.size))
                             }
                             items(
                                 status.unstagedFiles.size,
@@ -245,7 +251,7 @@ private fun GitFileRow(file: GitFileStatus, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             val subtitle = file.oldPath?.let { "$it → ${file.fullPath}" }
-                ?: file.filePath.ifEmpty { "Project root" }
+                ?: file.filePath.ifEmpty { stringResource(R.string.files_project_root) }
             Text(
                 text = subtitle,
                 fontSize = 12.sp,
@@ -304,7 +310,7 @@ private fun BrowseTab(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Checkbox(checked = state.showHidden, onCheckedChange = onToggleHidden)
-            Text("Show hidden files", fontSize = 13.sp, color = colors.hint)
+            Text(stringResource(R.string.files_show_hidden), fontSize = 13.sp, color = colors.hint)
         }
 
         LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -347,7 +353,7 @@ private fun DirectoryRow(row: BrowseRow.Dir, onToggle: (String) -> Unit) {
     ) {
         Icon(
             if (row.expanded) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = if (row.expanded) "Collapse" else "Expand",
+            contentDescription = stringResource(if (row.expanded) R.string.files_collapse else R.string.files_expand),
             tint = MaterialTheme.hapi.hint,
             modifier = Modifier.size(18.dp),
         )
@@ -407,16 +413,16 @@ private fun SearchTab(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            placeholder = { Text("Search files…") },
+            placeholder = { Text(stringResource(R.string.files_search_placeholder)) },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
             singleLine = true,
         )
 
         when {
-            state.query.isBlank() -> CenteredHint("Type to search files in the session directory")
+            state.query.isBlank() -> CenteredHint(stringResource(R.string.files_search_hint))
             state.loading -> CenteredProgress()
             state.error != null -> ErrorBanner(state.error)
-            state.searched && state.results.isEmpty() -> CenteredHint("No files matched")
+            state.searched && state.results.isEmpty() -> CenteredHint(stringResource(R.string.files_search_no_match))
             else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(state.results, key = { it.fullPath }) { item ->
                     SearchResultRow(item) { onOpenFile(item.fullPath) }

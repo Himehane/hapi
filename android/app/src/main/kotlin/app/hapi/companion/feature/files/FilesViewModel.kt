@@ -71,6 +71,21 @@ data class SearchUiState(
 )
 
 /**
+ * Fallback strings the files ViewModel needs (B-M5a Strings seam): defaults
+ * are the pre-i18n English (JVM tests construct without arguments); production
+ * passes resource-resolved values from the Navigation holder. The two diff
+ * banners are `%1$s`-formatted with the failure detail.
+ */
+class FilesStrings(
+    val gitStatusUnavailable: String = "Git status unavailable",
+    val unstagedDiffUnavailable: String = "Unstaged diff unavailable: %1\$s",
+    val stagedDiffUnavailable: String = "Staged diff unavailable: %1\$s",
+    val unknownError: String = "unknown error",
+    val listDirectoryFailed: String = "Failed to list directory",
+    val searchFailed: String = "Failed to search files",
+)
+
+/**
  * Files screen state: three independent tabs over the session's git/files
  * endpoints. Changes ports `useGitStatusFiles` (status + both numstat sides
  * merged in `:core:protocol`'s `GitStatusParser.buildGitStatusFiles`); Browse
@@ -82,6 +97,7 @@ class FilesViewModel(
     private val sessionId: String,
     private val gateway: FilesGateway,
     private val scope: CoroutineScope,
+    private val strings: FilesStrings = FilesStrings(),
     private val searchDebounceMs: Long = SEARCH_DEBOUNCE_MS,
 ) {
     private val changesState = MutableStateFlow(ChangesUiState())
@@ -137,7 +153,7 @@ class FilesViewModel(
             changesState.value = ChangesUiState(
                 loading = false,
                 status = null,
-                error = e.message ?: "Git status unavailable",
+                error = e.message ?: strings.gitStatusUnavailable,
             )
             return
         }
@@ -145,7 +161,7 @@ class FilesViewModel(
             changesState.value = ChangesUiState(
                 loading = false,
                 status = null,
-                error = statusResult.error ?: statusResult.stderr ?: "Git status unavailable",
+                error = statusResult.error ?: statusResult.stderr ?: strings.gitStatusUnavailable,
             )
             return
         }
@@ -168,10 +184,10 @@ class FilesViewModel(
 
         val errors = buildList {
             if (unstaged?.success != true) {
-                add("Unstaged diff unavailable: ${describeNumstatFailure(unstaged, unstagedResult.exceptionOrNull())}")
+                add(strings.unstagedDiffUnavailable.format(describeNumstatFailure(unstaged, unstagedResult.exceptionOrNull())))
             }
             if (staged?.success != true) {
-                add("Staged diff unavailable: ${describeNumstatFailure(staged, stagedResult.exceptionOrNull())}")
+                add(strings.stagedDiffUnavailable.format(describeNumstatFailure(staged, stagedResult.exceptionOrNull())))
             }
         }
 
@@ -185,7 +201,7 @@ class FilesViewModel(
     private fun describeNumstatFailure(
         result: GitCommandResponse?,
         exception: Throwable?,
-    ): String = result?.error ?: result?.stderr ?: exception?.message ?: "unknown error"
+    ): String = result?.error ?: result?.stderr ?: exception?.message ?: strings.unknownError
 
     // -------------------------------------------------------------- browse --
 
@@ -219,12 +235,12 @@ class FilesViewModel(
                 if (response.success) {
                     DirNode(entries = response.entries.orEmpty())
                 } else {
-                    DirNode(error = response.error ?: "Failed to list directory")
+                    DirNode(error = response.error ?: strings.listDirectoryFailed)
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                DirNode(error = e.message ?: "Failed to list directory")
+                DirNode(error = e.message ?: strings.listDirectoryFailed)
             }
             nodes.update { it + (path to node) }
             rebuildBrowse()
@@ -287,7 +303,7 @@ class FilesViewModel(
                     it.copy(
                         loading = false,
                         results = emptyList(),
-                        error = response.error ?: "Failed to search files",
+                        error = response.error ?: strings.searchFailed,
                         searched = true,
                     )
                 }
@@ -299,7 +315,7 @@ class FilesViewModel(
                 it.copy(
                     loading = false,
                     results = emptyList(),
-                    error = e.message ?: "Failed to search files",
+                    error = e.message ?: strings.searchFailed,
                     searched = true,
                 )
             }

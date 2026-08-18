@@ -20,9 +20,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import app.hapi.companion.R
 import app.hapi.companion.ui.theme.HapiTheme
 import app.hapi.companion.ui.theme.hapi
 import app.hapi.protocol.catalog.CatalogOption
@@ -75,13 +77,13 @@ internal fun SessionConfigSheetContent(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (!config.active) {
-            Notice("Session is offline — changes apply after it resumes or may be rejected.")
+            Notice(stringResource(R.string.chat_config_offline_note))
         } else if (config.controlledByUser) {
-            Notice("Session is controlled from the terminal — config changes will be rejected.")
+            Notice(stringResource(R.string.chat_config_terminal_note))
         }
 
         if (config.permissionModes.isNotEmpty()) {
-            SectionTitle("Permission mode")
+            SectionTitle(stringResource(R.string.chat_config_permission_mode))
             config.permissionModes.forEach { mode ->
                 OptionRow(
                     label = mode.label,
@@ -94,7 +96,7 @@ internal fun SessionConfigSheetContent(
 
         val modelOptions = config.modelOptions
         if (modelOptions != null || config.modelOptionsLoading) {
-            SectionTitle("Model")
+            SectionTitle(stringResource(R.string.chat_config_model))
             if (config.modelOptionsLoading) {
                 Row(
                     modifier = Modifier.padding(vertical = 8.dp),
@@ -102,7 +104,7 @@ internal fun SessionConfigSheetContent(
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                     Text(
-                        text = "Loading models…",
+                        text = stringResource(R.string.chat_config_loading_models),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.hapi.hint,
                         modifier = Modifier.padding(start = 8.dp),
@@ -110,7 +112,7 @@ internal fun SessionConfigSheetContent(
                 }
             } else if (modelOptions.isNullOrEmpty()) {
                 Text(
-                    text = "Model list unavailable for this session.",
+                    text = stringResource(R.string.chat_config_models_unavailable),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.hapi.hint,
                 )
@@ -127,7 +129,7 @@ internal fun SessionConfigSheetContent(
         }
 
         config.effortOptions?.let { effortOptions ->
-            SectionTitle("Effort")
+            SectionTitle(stringResource(R.string.chat_config_effort))
             val currentEffort = normalizedCurrentEffort(config)
             effortOptions.forEach { option ->
                 OptionRow(

@@ -56,6 +56,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -63,7 +65,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import app.hapi.companion.feature.sessions.formatRelativeAge
+import android.content.Context
+import app.hapi.companion.R
+import app.hapi.companion.feature.sessions.localizedRelativeAge
 import app.hapi.companion.ui.theme.HapiTheme
 import app.hapi.companion.ui.theme.hapi
 import app.hapi.protocol.wire.ScratchlistAttachment
@@ -110,10 +114,12 @@ fun ScratchlistScreen(
         onDispose { viewModel.stop() }
     }
 
-    LaunchedEffect(viewModel) {
+    val context = LocalContext.current
+    LaunchedEffect(viewModel, context) {
         viewModel.events.collect { event ->
             when (event) {
-                is ScratchlistEvent.Notice -> snackbarHostState.showSnackbar(event.message)
+                is ScratchlistEvent.Notice ->
+                    snackbarHostState.showSnackbar(scratchlistNoticeText(context, event.notice))
             }
         }
     }
@@ -124,17 +130,18 @@ fun ScratchlistScreen(
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.scratchlist_back))
                     }
                 },
                 title = {
                     Column {
-                        Text("Scratchlist", style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(R.string.scratchlist_title), style = MaterialTheme.typography.titleMedium)
                         Text(
                             text = when {
-                                !state.isLoading && state.entries.isEmpty() -> "No notes"
-                                state.entries.size == 1 -> "1 note"
-                                else -> "${state.entries.size} notes"
+                                !state.isLoading && state.entries.isEmpty() ->
+                                    stringResource(R.string.scratchlist_count_none)
+                                state.entries.size == 1 -> stringResource(R.string.scratchlist_count_one)
+                                else -> stringResource(R.string.scratchlist_count_many, state.entries.size)
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -146,7 +153,7 @@ fun ScratchlistScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(onClick = { viewModel.openEditor(null) }) {
-                Icon(Icons.Filled.Add, contentDescription = "New note")
+                Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.scratchlist_new_note))
             }
         },
     ) { padding ->
@@ -240,7 +247,7 @@ private fun ScratchlistEntryCard(
                 )
             } else {
                 Text(
-                    text = "Attachment only",
+                    text = stringResource(R.string.scratchlist_attachment_only),
                     style = MaterialTheme.typography.bodyMedium,
                     fontStyle = FontStyle.Italic,
                     color = MaterialTheme.hapi.hint,
@@ -248,14 +255,14 @@ private fun ScratchlistEntryCard(
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = formatRelativeAge(System.currentTimeMillis(), entry.updatedAt),
+                    text = localizedRelativeAge(entry.updatedAt),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.hapi.hint,
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 if (onSendToComposer != null) {
                     TextButton(onClick = onSendToComposer) {
-                        Text("To composer", style = MaterialTheme.typography.labelMedium)
+                        Text(stringResource(R.string.scratchlist_to_composer), style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
@@ -379,14 +386,16 @@ private fun ScratchlistEditorSheet(
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.padding(horizontal = 16.dp)) {
             Text(
-                text = if (editor.entryId == null) "New note" else "Edit note",
+                text = stringResource(
+                    if (editor.entryId == null) R.string.scratchlist_new_note else R.string.scratchlist_edit_note,
+                ),
                 style = MaterialTheme.typography.titleMedium,
             )
             Spacer(modifier = Modifier.height(10.dp))
             OutlinedTextField(
                 value = editor.text,
                 onValueChange = onTextChange,
-                placeholder = { Text("Note, draft, parking-lot idea…") },
+                placeholder = { Text(stringResource(R.string.scratchlist_placeholder)) },
                 minLines = 3,
                 maxLines = 8,
                 modifier = Modifier.fillMaxWidth(),
@@ -429,7 +438,7 @@ private fun ScratchlistEditorSheet(
                         modifier = Modifier.size(72.dp),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Filled.Add, contentDescription = "Add photo")
+                            Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.scratchlist_add_photo))
                         }
                     }
                 }
@@ -438,14 +447,14 @@ private fun ScratchlistEditorSheet(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (onDelete != null) {
                     TextButton(onClick = onDelete) {
-                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.scratchlist_delete), color = MaterialTheme.colorScheme.error)
                     }
                 }
                 Spacer(modifier = Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.scratchlist_cancel)) }
                 Spacer(modifier = Modifier.width(6.dp))
                 Button(onClick = onSave, enabled = !editor.isUploading) {
-                    Text("Save")
+                    Text(stringResource(R.string.scratchlist_save))
                 }
             }
             Spacer(modifier = Modifier.height(24.dp))
@@ -513,15 +522,15 @@ private fun LoadFailed(onRetry: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(text = "Couldn't load the scratchlist", style = MaterialTheme.typography.titleMedium)
+        Text(text = stringResource(R.string.scratchlist_load_failed), style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Check the connection to your hub and try again.",
+            text = stringResource(R.string.scratchlist_check_connection),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(12.dp))
-        TextButton(onClick = onRetry) { Text("Retry") }
+        TextButton(onClick = onRetry) { Text(stringResource(R.string.scratchlist_retry)) }
     }
 }
 
@@ -536,10 +545,10 @@ private fun EmptyScratchlist() {
     ) {
         Text(text = "🗒", fontSize = 34.sp)
         Spacer(modifier = Modifier.height(8.dp))
-        Text(text = "No notes yet", style = MaterialTheme.typography.titleMedium)
+        Text(text = stringResource(R.string.scratchlist_empty_title), style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Park drafts from the composer, or tap + to jot a note for this session.",
+            text = stringResource(R.string.scratchlist_empty_hint),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -597,5 +606,31 @@ private fun ScratchlistEntryCardPreview() {
 private fun EmptyScratchlistPreview() {
     HapiTheme {
         Surface { EmptyScratchlist() }
+    }
+}
+
+// ------------------------------------------------------------- notices --
+
+/** Localize a [ScratchlistNotice] (B-M5a). */
+internal fun scratchlistNoticeText(context: Context, notice: ScratchlistNotice): String = when (notice) {
+    ScratchlistNotice.AtCapDeleteFirst -> context.getString(R.string.scratchlist_notice_full_delete_first)
+    ScratchlistNotice.AtCap -> context.getString(R.string.scratchlist_notice_full)
+    ScratchlistNotice.NeedsContent -> context.getString(R.string.scratchlist_notice_needs_content)
+    ScratchlistNotice.SaveFailed -> context.getString(R.string.scratchlist_notice_save_failed)
+    ScratchlistNotice.DeleteFailed -> context.getString(R.string.scratchlist_notice_delete_failed)
+    ScratchlistNotice.AttachFailed -> context.getString(R.string.scratchlist_notice_attach_failed)
+    ScratchlistNotice.RemoveAttachmentFailed ->
+        context.getString(R.string.scratchlist_notice_remove_attachment_failed)
+    ScratchlistNotice.UploadTooLarge -> context.getString(R.string.scratchlist_notice_too_large)
+    ScratchlistNotice.UploadFailed -> context.getString(R.string.scratchlist_notice_upload_failed)
+    is ScratchlistNotice.ImportRejected -> when (val reason = notice.reason) {
+        ScratchlistImportRejection.Unreadable -> context.getString(R.string.scratchlist_reject_unreadable)
+        ScratchlistImportRejection.ImageTooLarge -> context.getString(R.string.scratchlist_reject_image_too_large)
+        is ScratchlistImportRejection.TooManyAttachments ->
+            context.getString(R.string.scratchlist_reject_max_attachments, reason.max)
+        ScratchlistImportRejection.FileTypeNotAllowed -> context.getString(R.string.scratchlist_reject_type)
+        is ScratchlistImportRejection.FileTooLarge ->
+            context.getString(R.string.scratchlist_reject_file_too_large, reason.maxMb)
+        ScratchlistImportRejection.BudgetExhausted -> context.getString(R.string.scratchlist_reject_budget)
     }
 }

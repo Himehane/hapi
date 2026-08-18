@@ -165,7 +165,12 @@ class DictationControllerTest {
         harness.controller.toggle()
         harness.controller.state.first { it is DictationState.Idle }
 
-        assertEquals(listOf<DictationEvent>(DictationEvent.Error("hub unreachable")), harness.events)
+        assertEquals(
+            listOf<DictationEvent>(
+                DictationEvent.Error(DictationErrorKind.HubUnreachable, "hub unreachable"),
+            ),
+            harness.events,
+        )
         assertEquals(0, harness.recorder.startCalls)
     }
 
@@ -177,7 +182,10 @@ class DictationControllerTest {
         harness.controller.toggle()
         harness.controller.state.first { it is DictationState.Idle }
 
-        assertEquals(listOf<DictationEvent>(DictationEvent.Error("mic busy")), harness.events)
+        assertEquals(
+            listOf<DictationEvent>(DictationEvent.Error(DictationErrorKind.StartFailed, "mic busy")),
+            harness.events,
+        )
         assertTrue(harness.api.transcribeCalls.isEmpty())
     }
 
@@ -191,7 +199,10 @@ class DictationControllerTest {
         harness.controller.toggle()
         harness.controller.state.first { it is DictationState.Idle }
 
-        assertEquals(listOf<DictationEvent>(DictationEvent.Error("No audio was recorded")), harness.events)
+        assertEquals(
+            listOf<DictationEvent>(DictationEvent.Error(DictationErrorKind.NoAudio)),
+            harness.events,
+        )
         assertTrue(harness.api.transcribeCalls.isEmpty())
     }
 
@@ -205,7 +216,12 @@ class DictationControllerTest {
         harness.controller.toggle()
         harness.controller.state.first { it is DictationState.Idle }
 
-        assertEquals(listOf<DictationEvent>(DictationEvent.Error("upload exploded")), harness.events)
+        assertEquals(
+            listOf<DictationEvent>(
+                DictationEvent.Error(DictationErrorKind.TranscriptionFailed, "upload exploded"),
+            ),
+            harness.events,
+        )
     }
 
     @Test

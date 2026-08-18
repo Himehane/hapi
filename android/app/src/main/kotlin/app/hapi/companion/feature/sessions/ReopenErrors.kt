@@ -11,10 +11,12 @@ import kotlinx.serialization.json.Json
  * `formatReopenError`, `reopenError.ts`): the hub 422s with
  * `{error, missing: [...]}` when required metadata is gone (e.g. a Cursor
  * session without `cursorSessionId`); other errors carry `{error, code?}`.
- * Falls back to the raw exception message when the body is unparseable.
+ * Falls back to the raw exception message when the body is unparseable, and
+ * to null when there is no message at all — the UI layer then shows its
+ * localized "failed to reopen" fallback (B-M5a).
  */
-fun formatReopenError(error: Exception): String {
-    val fallback = error.message ?: "Failed to reopen session"
+fun formatReopenError(error: Exception): String? {
+    val fallback = error.message
     val body = (error as? ApiError)?.body ?: return fallback
     val parsed = try {
         Json.parseToJsonElement(body).objOrNull

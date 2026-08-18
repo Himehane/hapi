@@ -6,6 +6,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import app.hapi.companion.R
 import app.hapi.companion.di.AppGraph
+import app.hapi.companion.di.localizedForAppLanguage
 import app.hapi.data.push.PushActionOutcome
 
 /**
@@ -34,7 +35,8 @@ class PermissionActionWorker(
         val runner = appGraph.pushActionRunner
         val outcome = if (approve) runner.approve(sessionId, requestId) else runner.deny(sessionId, requestId)
 
-        val context = applicationContext
+        // In-app language (B-M5a): result strings resolve from the worker context.
+        val context = applicationContext.localizedForAppLanguage(appGraph.appLanguage.value)
         return when (outcome) {
             is PushActionOutcome.Success -> {
                 result(tag, sessionId, channelId, title, context.getString(
@@ -77,12 +79,17 @@ class PermissionActionWorker(
         text: String,
         autoExpire: Boolean,
     ) {
-        PushNotifications.showActionResult(applicationContext, tag, sessionId, channelId, title, text, autoExpire)
+        PushNotifications.showActionResult(
+            applicationContext.localizedForAppLanguage(appGraph.appLanguage.value),
+            tag, sessionId, channelId, title, text, autoExpire,
+        )
     }
 
     /** Expedited-work fallback path on API < 31 (short dataSync foreground). */
     override suspend fun getForegroundInfo(): ForegroundInfo =
-        PushNotifications.workerForegroundInfo(applicationContext)
+        PushNotifications.workerForegroundInfo(
+            applicationContext.localizedForAppLanguage(appGraph.appLanguage.value),
+        )
 
     companion object {
         const val KEY_SESSION_ID = "sessionId"

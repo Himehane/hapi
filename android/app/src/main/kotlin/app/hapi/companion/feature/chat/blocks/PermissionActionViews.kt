@@ -27,9 +27,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import app.hapi.companion.R
 import app.hapi.companion.feature.chat.PermissionAction
 import app.hapi.companion.feature.chat.PermissionRowOverride
 import app.hapi.companion.feature.chat.permissions.AskQuestion
@@ -135,7 +137,7 @@ private fun PermissionActionsRow(
             enabled = !resolving,
             modifier = Modifier.weight(1f),
         ) {
-            Text("Allow", color = MaterialTheme.colorScheme.primary)
+            Text(stringResource(R.string.chat_perm_allow), color = MaterialTheme.colorScheme.primary)
         }
         OutlinedButton(
             onClick = {
@@ -144,7 +146,10 @@ private fun PermissionActionsRow(
             enabled = !resolving,
             modifier = Modifier.weight(1f),
         ) {
-            Text(if (codex) "Abort" else "Deny", color = MaterialTheme.colorScheme.error)
+            Text(
+                stringResource(if (codex) R.string.chat_perm_abort else R.string.chat_perm_deny),
+                color = MaterialTheme.colorScheme.error,
+            )
         }
         if (resolving) {
             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -154,7 +159,7 @@ private fun PermissionActionsRow(
                 DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
                     if (codex || canAllowForSession) {
                         DropdownMenuItem(
-                            text = { Text("Allow for this session") },
+                            text = { Text(stringResource(R.string.chat_perm_allow_for_session)) },
                             onClick = {
                                 overflowOpen = false
                                 onAction(requestId, PermissionAction.AllowForSession)
@@ -163,7 +168,7 @@ private fun PermissionActionsRow(
                     }
                     if (canAllowAllEdits) {
                         DropdownMenuItem(
-                            text = { Text("Allow all edits") },
+                            text = { Text(stringResource(R.string.chat_perm_allow_all_edits)) },
                             onClick = {
                                 overflowOpen = false
                                 onAction(requestId, PermissionAction.AllowAllEdits)
@@ -179,7 +184,7 @@ private fun PermissionActionsRow(
 @Composable
 private fun AlreadyHandledLine(modifier: Modifier = Modifier) {
     Text(
-        text = "Already handled elsewhere",
+        text = stringResource(R.string.chat_perm_already_handled),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.hapi.hint,
         modifier = modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -227,7 +232,7 @@ private fun AskUserQuestionFooter(
                 value = otherText.value[0].orEmpty(),
                 onValueChange = { otherText.value = otherText.value + (0 to it) },
                 enabled = !resolving,
-                placeholder = { Text("Type your answer…") },
+                placeholder = { Text(stringResource(R.string.chat_perm_type_answer)) },
                 minLines = 2,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -275,12 +280,14 @@ private fun AskUserQuestionFooter(
             if (resolving) {
                 CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
             } else {
+                val typeAnswerFirst = stringResource(R.string.chat_perm_type_answer_first)
+                val answerEveryQuestion = stringResource(R.string.chat_perm_answer_all)
                 TextButton(onClick = {
                     val answers = linkedMapOf<String, List<String>>()
                     if (questions.isEmpty()) {
                         val text = otherText.value[0].orEmpty().trim()
                         if (text.isEmpty()) {
-                            validationError = "Type an answer first"
+                            validationError = typeAnswerFirst
                             return@TextButton
                         }
                         answers["0"] = listOf(text)
@@ -298,7 +305,7 @@ private fun AskUserQuestionFooter(
                             }
                             otherText.value[index]?.trim()?.takeIf { it.isNotEmpty() }?.let { values += it }
                             if (values.isEmpty()) {
-                                validationError = "Answer every question first"
+                                validationError = answerEveryQuestion
                                 return@TextButton
                             }
                             answers[question.answerKey(index, cursorDialect)] = values
@@ -306,7 +313,7 @@ private fun AskUserQuestionFooter(
                     }
                     onAction(requestId, PermissionAction.FlatAnswers(answers))
                 }) {
-                    Text("Submit")
+                    Text(stringResource(R.string.chat_perm_submit))
                 }
             }
         }
@@ -377,7 +384,7 @@ private fun AskQuestionSection(
             value = otherText,
             onValueChange = onOtherText,
             enabled = enabled,
-            placeholder = { Text("Other…") },
+            placeholder = { Text(stringResource(R.string.chat_perm_other)) },
             modifier = Modifier.fillMaxWidth(),
         )
     }
@@ -422,7 +429,11 @@ private fun RequestUserInputFooter(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (question.question.isNotEmpty()) {
                     Text(
-                        text = question.question + if (question.required) "" else " (optional)",
+                        text = if (question.required) {
+                            question.question
+                        } else {
+                            stringResource(R.string.chat_perm_optional_format, question.question)
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -478,7 +489,7 @@ private fun RequestUserInputFooter(
                         validationError = null
                     },
                     enabled = !resolving,
-                    placeholder = { Text(question.placeholder ?: "Add a note…") },
+                    placeholder = { Text(question.placeholder ?: stringResource(R.string.chat_perm_add_note)) },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -500,12 +511,13 @@ private fun RequestUserInputFooter(
             if (resolving) {
                 CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
             } else {
+                val answerEveryRequired = stringResource(R.string.chat_perm_answer_required)
                 TextButton(onClick = {
                     for (question in questions) {
                         val questionSelected = (selected.value[question.id] ?: emptySet()).toList()
                         val note = notes.value[question.id].orEmpty()
                         if (!isRequestUserInputAnswered(question, questionSelected, note)) {
-                            validationError = "Answer every required question first"
+                            validationError = answerEveryRequired
                             return@TextButton
                         }
                     }
@@ -518,7 +530,7 @@ private fun RequestUserInputFooter(
                     }
                     onAction(requestId, PermissionAction.NestedAnswers(answers))
                 }) {
-                    Text("Submit")
+                    Text(stringResource(R.string.chat_perm_submit))
                 }
             }
         }

@@ -79,7 +79,8 @@ class ThemePrefsTest {
                 it[LanguagePrefs.LANGUAGE_KEY] = "klingon"
             }
             assertEquals(ThemeMode.SYSTEM, ThemePrefs(dataStore).settings.first().mode)
-            assertEquals(AppLanguage.ENGLISH, LanguagePrefs(dataStore).language.first())
+            // Unknown language keys degrade to follow-system (B-M5a default).
+            assertEquals(AppLanguage.SYSTEM, LanguagePrefs(dataStore).language.first())
         } finally {
             scope.coroutineContext[Job]?.cancelAndJoin()
         }
@@ -93,7 +94,8 @@ class ThemePrefsTest {
             val language = LanguagePrefs(dataStore)
             val theme = ThemePrefs(dataStore)
 
-            assertEquals(AppLanguage.ENGLISH, language.language.first())
+            // Nothing stored yet: follow-system is the B-M5a default.
+            assertEquals(AppLanguage.SYSTEM, language.language.first())
             language.setLanguage(AppLanguage.SIMPLIFIED_CHINESE)
             theme.setMode(ThemeMode.DARK)
 

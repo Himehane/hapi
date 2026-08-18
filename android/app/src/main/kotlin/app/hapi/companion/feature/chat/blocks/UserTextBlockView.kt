@@ -23,10 +23,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.hapi.companion.R
 import app.hapi.companion.feature.chat.LocalChatInteractions
 import app.hapi.companion.feature.chat.attachments.PreviewImage
 import app.hapi.companion.feature.chat.attachments.rememberPreviewImage
@@ -79,11 +81,13 @@ fun UserTextBlockView(block: UserTextBlock, modifier: Modifier = Modifier) {
                     Modifier
                 }
                 Text(
-                    text = if (interactions != null && retryLocalId != null) {
-                        "Not delivered — tap to retry"
-                    } else {
-                        "Not delivered"
-                    },
+                    text = stringResource(
+                        if (interactions != null && retryLocalId != null) {
+                            R.string.chat_not_delivered_retry
+                        } else {
+                            R.string.chat_not_delivered
+                        },
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = retryModifier.padding(top = 2.dp, end = 4.dp),

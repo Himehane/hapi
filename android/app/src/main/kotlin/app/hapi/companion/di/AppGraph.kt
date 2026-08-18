@@ -7,6 +7,7 @@ import app.hapi.companion.feature.newsession.DataStoreNewSessionPrefs
 import app.hapi.companion.feature.newsession.NewSessionPrefs
 import app.hapi.companion.feature.pairing.PairingClient
 import app.hapi.companion.feature.pairing.PairingClientFactory
+import app.hapi.companion.feature.settings.AppLanguage
 import app.hapi.companion.feature.settings.LanguagePrefs
 import app.hapi.companion.feature.settings.ThemePrefs
 import app.hapi.companion.push.DataStorePushDeviceIds
@@ -33,12 +34,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -91,8 +94,19 @@ class AppGraph(context: Context) {
     /** Appearance choice (B-M4e); MainActivity reads it at setContent. */
     val themePrefs: ThemePrefs = ThemePrefs(appContext.hapiDataStore)
 
-    /** Language choice (persist-only until the M5 i18n pass). */
+    /** Language choice (B-M5a: applied via per-app locales; Settings writes it). */
     val languagePrefs: LanguagePrefs = LanguagePrefs(appContext.hapiDataStore)
+
+    /**
+     * Eagerly-cached language for non-composable surfaces (B-M5a): FCM
+     * notifications and WorkManager updates resolve strings from the
+     * application context, which appcompat's per-app locales do not retarget
+     * on API < 33 — they wrap it via `localizedForAppLanguage` instead. May
+     * briefly read [AppLanguage.SYSTEM] on a cold process before the first
+     * DataStore emission (a system-locale notification once — benign).
+     */
+    val appLanguage: StateFlow<AppLanguage> = languagePrefs.language
+        .stateIn(scope, SharingStarted.Eagerly, AppLanguage.SYSTEM)
 
     private val mutableAuthTerminals = MutableSharedFlow<AuthTerminal>(extraBufferCapacity = 16)
 

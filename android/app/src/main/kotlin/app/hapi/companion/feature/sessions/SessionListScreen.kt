@@ -54,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -110,16 +111,26 @@ fun SessionListScreen(
         onDispose { viewModel.stop() }
     }
 
-    LaunchedEffect(viewModel) {
+    val context = LocalContext.current
+    LaunchedEffect(viewModel, context) {
         viewModel.errors.collect { error ->
-            val label = when (error) {
-                is SessionListError.PinFailed -> "Pin failed"
-                is SessionListError.ArchiveFailed -> "Archive failed"
-                is SessionListError.RenameFailed -> "Rename failed"
-                is SessionListError.DeleteFailed -> "Delete failed"
-                is SessionListError.ReopenFailed -> "Reopen failed"
+            val label = context.getString(
+                when (error) {
+                    is SessionListError.PinFailed -> R.string.sessions_error_pin
+                    is SessionListError.ArchiveFailed -> R.string.sessions_error_archive
+                    is SessionListError.RenameFailed -> R.string.sessions_error_rename
+                    is SessionListError.DeleteFailed -> R.string.sessions_error_delete
+                    is SessionListError.ReopenFailed -> R.string.sessions_error_reopen
+                },
+            )
+            // The 409-on-delete conflict gets explicit wording; other messages
+            // are hub/server text appended verbatim.
+            val message = when {
+                error is SessionListError.DeleteFailed && error.stillActive ->
+                    context.getString(R.string.sessions_error_delete_active)
+                else -> error.message
             }
-            snackbarHostState.showSnackbar(error.message?.let { "$label: $it" } ?: label)
+            snackbarHostState.showSnackbar(message?.let { "$label: $it" } ?: label)
         }
     }
 
@@ -247,7 +258,7 @@ private fun SessionRows(
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         if (pinnedCount > 0) {
-            item(key = "header-pinned") { SectionHeader("Pinned") }
+            item(key = "header-pinned") { SectionHeader(stringResource(R.string.sessions_section_pinned)) }
         }
         items(rows.take(pinnedCount), key = { it.id }) { row ->
             SessionRow(row, onOpen = onOpen, onLongPress = onLongPress)
@@ -255,7 +266,7 @@ private fun SessionRows(
         if (pinnedCount in 1 until rows.size) {
             item(key = "divider-pinned") {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                SectionHeader("Sessions")
+                SectionHeader(stringResource(R.string.sessions_section_sessions))
             }
         }
         items(rows.drop(pinnedCount), key = { it.id }) { row ->
@@ -314,7 +325,7 @@ private fun SessionRow(
                 }
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
-                    text = formatRelativeAge(System.currentTimeMillis(), summary.updatedAt),
+                    text = localizedRelativeAge(summary.updatedAt),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -382,9 +393,9 @@ private fun BadgeLine(summary: SessionSummary) {
 private fun PendingBadge(count: Int, kinds: List<String>, requests: List<PendingRequest>) {
     val needsInput = kinds.contains("input") && !kinds.contains("permission")
     val label = when {
-        needsInput -> "needs input"
-        requests.isNotEmpty() -> "approve ${requests.first().tool}"
-        else -> "pending"
+        needsInput -> stringResource(R.string.sessions_badge_needs_input)
+        requests.isNotEmpty() -> stringResource(R.string.sessions_badge_approve, requests.first().tool)
+        else -> stringResource(R.string.sessions_badge_pending)
     }
     val text = if (count > 1) "$count · $label" else label
     Surface(
@@ -474,10 +485,10 @@ private fun MachineFilterRow(
         FilterChip(
             selected = activeFilter == null,
             onClick = { onSelect(null) },
-            label = { Text("All") },
+            label = { Text(stringResource(R.string.sessions_filter_all)) },
         )
         filters.forEach { filter ->
-            val label = filter.label.ifBlank { "Unknown machine" }
+            val label = filter.label.ifBlank { stringResource(R.string.sessions_filter_unknown_machine) }
             FilterChip(
                 selected = activeFilter == filter.id,
                 onClick = { onSelect(if (activeFilter == filter.id) null else filter.id) },
@@ -495,7 +506,7 @@ private fun OfflineBanner() {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            text = "Offline — showing cached sessions",
+            text = stringResource(R.string.sessions_offline_banner),
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
         )
@@ -515,20 +526,24 @@ private fun EmptyState(hasLoaded: Boolean, isOffline: Boolean) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = when {
-                !hasLoaded && !isOffline -> "Loading sessions…"
-                isOffline -> "Hub unreachable"
-                else -> "No sessions yet"
-            },
+            text = stringResource(
+                when {
+                    !hasLoaded && !isOffline -> R.string.sessions_empty_loading_title
+                    isOffline -> R.string.sessions_empty_offline_title
+                    else -> R.string.sessions_empty_title
+                },
+            ),
             style = MaterialTheme.typography.titleMedium,
         )
         Spacer(modifier = Modifier.size(8.dp))
         Text(
-            text = when {
-                !hasLoaded && !isOffline -> "Fetching the session list from the hub."
-                isOffline -> "Pull to retry once you are back online."
-                else -> "Start an agent with the hapi CLI and it will appear here."
-            },
+            text = stringResource(
+                when {
+                    !hasLoaded && !isOffline -> R.string.sessions_empty_loading_hint
+                    isOffline -> R.string.sessions_empty_offline_hint
+                    else -> R.string.sessions_empty_hint
+                },
+            ),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -557,20 +572,20 @@ private fun SessionActionsSheet(
         )
         HorizontalDivider()
         if (summary.pinned == true || summary.globalPinned == true) {
-            SheetAction("Unpin") { onSetPinMode(PinMode.None) }
+            SheetAction(stringResource(R.string.sessions_action_unpin)) { onSetPinMode(PinMode.None) }
         }
         if (summary.pinned != true) {
-            SheetAction("Pin to project") { onSetPinMode(PinMode.Project) }
+            SheetAction(stringResource(R.string.sessions_action_pin_project)) { onSetPinMode(PinMode.Project) }
         }
         if (summary.globalPinned != true) {
-            SheetAction("Pin globally") { onSetPinMode(PinMode.Global) }
+            SheetAction(stringResource(R.string.sessions_action_pin_global)) { onSetPinMode(PinMode.Global) }
         }
-        SheetAction("Rename", onClick = onRename)
+        SheetAction(stringResource(R.string.sessions_action_rename), onClick = onRename)
         if (!summary.active) {
-            SheetAction("Reopen", onClick = onReopen)
+            SheetAction(stringResource(R.string.sessions_action_reopen), onClick = onReopen)
         }
-        SheetAction("Archive", destructive = true, onClick = onArchive)
-        SheetAction("Delete", destructive = true, onClick = onDelete)
+        SheetAction(stringResource(R.string.sessions_action_archive), destructive = true, onClick = onArchive)
+        SheetAction(stringResource(R.string.sessions_action_delete), destructive = true, onClick = onDelete)
         Spacer(modifier = Modifier.size(16.dp))
     }
 }

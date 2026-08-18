@@ -12,19 +12,23 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 /**
- * App language choice (web `Locale` twin: `'en' | 'zh-Hans'`).
+ * App language choice. [ENGLISH]/[SIMPLIFIED_CHINESE] mirror the web's
+ * `Locale` (`'en' | 'zh-Hans'`); [SYSTEM] is the Android-only default —
+ * follow the device language (empty per-app locale list).
  *
- * B-M4e persists the selection only — the zh-CN string resources and the
- * per-app locale application (`LocaleManager` / `AppCompatDelegate`) land with
- * the M5 i18n pass, so changing this has no visible effect yet.
+ * B-M5a wires the selection through `AppCompatDelegate.setApplicationLocales`
+ * ([localeTags] is the BCP-47 tag list to apply); the Settings screen applies
+ * it immediately on selection and appcompat's `autoStoreLocales` re-applies it
+ * on cold start.
  */
-enum class AppLanguage(val storageKey: String) {
-    ENGLISH("en"),
-    SIMPLIFIED_CHINESE("zh-Hans");
+enum class AppLanguage(val storageKey: String, val localeTags: String) {
+    SYSTEM("system", ""),
+    ENGLISH("en", "en"),
+    SIMPLIFIED_CHINESE("zh-Hans", "zh-Hans");
 
     companion object {
         fun fromStorageKey(raw: String?): AppLanguage =
-            entries.firstOrNull { it.storageKey == raw } ?: ENGLISH
+            entries.firstOrNull { it.storageKey == raw } ?: SYSTEM
     }
 }
 

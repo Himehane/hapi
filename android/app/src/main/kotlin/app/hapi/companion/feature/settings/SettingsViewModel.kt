@@ -50,7 +50,7 @@ class SettingsViewModel(
         .stateIn(scope, SharingStarted.Eagerly, ThemeSettings())
 
     val language: StateFlow<AppLanguage> = languagePrefs.language
-        .stateIn(scope, SharingStarted.Eagerly, AppLanguage.ENGLISH)
+        .stateIn(scope, SharingStarted.Eagerly, AppLanguage.SYSTEM)
 
     private val mutableIsOwner = MutableStateFlow(false)
 

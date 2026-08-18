@@ -144,7 +144,7 @@ internal fun PairingStatus(
                 ),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(text = state.message, style = MaterialTheme.typography.bodyMedium)
+                    Text(text = pairingErrorText(state.error), style = MaterialTheme.typography.bodyMedium)
                     TextButton(onClick = onDismissError, modifier = Modifier.align(Alignment.End)) {
                         Text(stringResource(R.string.pairing_error_dismiss))
                     }
@@ -220,4 +220,25 @@ private fun PrefillConfirmCard(
             }
         }
     }
+}
+
+/** Localize a [PairingError] (B-M5a). */
+@Composable
+internal fun pairingErrorText(error: PairingError): String = when (error) {
+    PairingError.InvalidUrl -> stringResource(R.string.pairing_error_invalid_url)
+    PairingError.EmptyToken -> stringResource(R.string.pairing_error_empty_token)
+    PairingError.TokenRejected -> stringResource(R.string.pairing_error_token_rejected)
+    PairingError.HubGone -> stringResource(R.string.pairing_error_hub_gone)
+    is PairingError.Unreachable -> stringResource(R.string.pairing_error_unreachable, error.hubUrl)
+    is PairingError.NotAHub -> stringResource(R.string.pairing_error_not_a_hub, error.hubUrl)
+    is PairingError.ProtocolMismatch -> stringResource(
+        if (error.hubVersion > error.supportedVersion) {
+            R.string.pairing_error_protocol_update_app
+        } else {
+            R.string.pairing_error_protocol_update_hub
+        },
+        error.hubVersion,
+        error.supportedVersion,
+    )
+    is PairingError.AuthFailed -> stringResource(R.string.pairing_error_auth_failed, error.httpStatus)
 }

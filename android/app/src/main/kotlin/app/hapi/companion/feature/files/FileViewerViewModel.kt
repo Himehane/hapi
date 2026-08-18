@@ -17,6 +17,16 @@ import kotlinx.coroutines.launch
 
 enum class ViewerMode { DIFF, FILE }
 
+/**
+ * Fallback strings the viewer ViewModel needs (B-M5a Strings seam): defaults
+ * are the pre-i18n English (JVM tests construct without arguments); production
+ * passes resource-resolved values from the Navigation holder.
+ */
+class FileViewerStrings(
+    val loadDiffFailed: String = "Failed to load diff",
+    val readFileFailed: String = "Failed to read file",
+)
+
 sealed interface DiffUiState {
     data object Loading : DiffUiState
 
@@ -77,6 +87,7 @@ class FileViewerViewModel(
     focusLine: Int?,
     private val gateway: FilesGateway,
     private val scope: CoroutineScope,
+    private val strings: FileViewerStrings = FileViewerStrings(),
 ) {
     private val stateFlow = MutableStateFlow(
         FileViewerUiState(
@@ -133,7 +144,7 @@ class FileViewerViewModel(
                 val response = gateway.gitDiffFile(sessionId, path, staged)
                 when {
                     !response.success ->
-                        DiffUiState.Failed(response.error ?: response.stderr ?: "Failed to load diff")
+                        DiffUiState.Failed(response.error ?: response.stderr ?: strings.loadDiffFailed)
                     response.stdout.isNullOrEmpty() -> DiffUiState.Empty
                     else -> {
                         val files = UnifiedDiffParser.parse(response.stdout.orEmpty())
@@ -143,7 +154,7 @@ class FileViewerViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                DiffUiState.Failed(e.message ?: "Failed to load diff")
+                DiffUiState.Failed(e.message ?: strings.loadDiffFailed)
             }
             stateFlow.update { it.copy(diff = diff) }
             autoSelectMode()
@@ -159,7 +170,7 @@ class FileViewerViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                stateFlow.update { it.copy(content = FileContentUiState.Failed(e.message ?: "Failed to read file")) }
+                stateFlow.update { it.copy(content = FileContentUiState.Failed(e.message ?: strings.readFileFailed)) }
                 return@launch
             }
             stateFlow.update {
@@ -178,7 +189,7 @@ class FileViewerViewModel(
     private fun decodeContent(response: FileReadResponse): DecodedContent {
         if (!response.success) {
             return DecodedContent(
-                FileContentUiState.Failed(response.error ?: "Failed to read file"),
+                FileContentUiState.Failed(response.error ?: strings.readFileFailed),
                 response.size,
                 response.modified,
             )

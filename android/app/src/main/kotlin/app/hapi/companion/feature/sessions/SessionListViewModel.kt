@@ -217,7 +217,7 @@ class SessionListViewModel(
         }
     }
 
-    /** `DELETE /sessions/:id` with optimistic removal; 409 while active gets explicit wording. */
+    /** `DELETE /sessions/:id` with optimistic removal; 409 while active gets explicit wording (in the UI). */
     fun deleteSession(sessionId: String) {
         scope.launch {
             try {
@@ -225,12 +225,14 @@ class SessionListViewModel(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
-                val message = if (error is ApiError && error.status == 409) {
-                    "session is still active — archive it first"
-                } else {
-                    error.message
-                }
-                _errors.tryEmit(SessionListError.DeleteFailed(sessionId, message))
+                val stillActive = error is ApiError && error.status == 409
+                _errors.tryEmit(
+                    SessionListError.DeleteFailed(
+                        sessionId = sessionId,
+                        message = if (stillActive) null else error.message,
+                        stillActive = stillActive,
+                    ),
+                )
             }
         }
     }
@@ -351,6 +353,11 @@ sealed interface SessionListError {
     data class PinFailed(override val sessionId: String, override val message: String?) : SessionListError
     data class ArchiveFailed(override val sessionId: String, override val message: String?) : SessionListError
     data class RenameFailed(override val sessionId: String, override val message: String?) : SessionListError
-    data class DeleteFailed(override val sessionId: String, override val message: String?) : SessionListError
+    data class DeleteFailed(
+        override val sessionId: String,
+        override val message: String?,
+        /** `DELETE` answered 409 — session still active; UI shows the archive-first wording. */
+        val stillActive: Boolean = false,
+    ) : SessionListError
     data class ReopenFailed(override val sessionId: String, override val message: String?) : SessionListError
 }

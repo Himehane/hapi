@@ -24,11 +24,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.hapi.companion.R
 import app.hapi.companion.ui.markdown.Markdown
 import app.hapi.companion.ui.theme.HapiTheme
 import app.hapi.companion.ui.theme.hapi
@@ -61,7 +63,7 @@ fun CodexReviewBlockView(block: CodexReviewBlock, modifier: Modifier = Modifier)
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Code review",
+                    text = stringResource(R.string.chat_review_title),
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f),
                 )
@@ -86,9 +88,13 @@ fun CodexReviewBlockView(block: CodexReviewBlock, modifier: Modifier = Modifier)
             }
             if (review.findings.isNotEmpty()) {
                 HorizontalDivider(color = colors.divider)
+                val findingsLabel = if (review.findings.size == 1) {
+                    stringResource(R.string.chat_review_findings_one)
+                } else {
+                    stringResource(R.string.chat_review_findings_many, review.findings.size)
+                }
                 Text(
-                    text = (if (findingsOpen) "▾ " else "▸ ") +
-                        "${review.findings.size} finding" + if (review.findings.size == 1) "" else "s",
+                    text = (if (findingsOpen) "▾ " else "▸ ") + findingsLabel,
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier
                         .fillMaxWidth()

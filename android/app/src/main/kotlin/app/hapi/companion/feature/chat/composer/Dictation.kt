@@ -100,8 +100,20 @@ sealed interface DictationEvent {
     /** The hub has no transcription provider configured. */
     data object NoProvider : DictationEvent
 
-    /** Recording or transcription failed (snackbar). */
-    data class Error(val message: String) : DictationEvent
+    /**
+     * Recording or transcription failed (snackbar). [kind] localizes at the
+     * UI layer; [detail] is server/exception text shown verbatim when present.
+     */
+    data class Error(val kind: DictationErrorKind, val detail: String? = null) : DictationEvent
+}
+
+/** Semantic dictation failure kinds (B-M5a) — resolved to strings by the UI. */
+enum class DictationErrorKind {
+    StartFailed,
+    HubUnreachable,
+    RecordingFailed,
+    NoAudio,
+    TranscriptionFailed,
 }
 
 /**
@@ -166,7 +178,7 @@ class DictationController(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
-                _events.tryEmit(DictationEvent.Error(error.message ?: "Could not start recording"))
+                _events.tryEmit(DictationEvent.Error(DictationErrorKind.StartFailed, error.message))
                 _state.value = DictationState.Idle
             }
         }
@@ -179,7 +191,7 @@ class DictationController(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (error: Exception) {
-            _events.tryEmit(DictationEvent.Error(error.message ?: "Could not reach the hub"))
+            _events.tryEmit(DictationEvent.Error(DictationErrorKind.HubUnreachable, error.message))
             return null
         }
         // First provider supporting standard (uploaded-file) transcription —
@@ -201,12 +213,12 @@ class DictationController(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
-                _events.tryEmit(DictationEvent.Error(error.message ?: "Audio recording failed"))
+                _events.tryEmit(DictationEvent.Error(DictationErrorKind.RecordingFailed, error.message))
                 _state.value = DictationState.Idle
                 return@launch
             }
             if (audio == null || audio.isEmpty()) {
-                _events.tryEmit(DictationEvent.Error("No audio was recorded"))
+                _events.tryEmit(DictationEvent.Error(DictationErrorKind.NoAudio))
                 _state.value = DictationState.Idle
                 return@launch
             }
@@ -222,7 +234,7 @@ class DictationController(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
-                _events.tryEmit(DictationEvent.Error(error.message ?: "Transcription failed"))
+                _events.tryEmit(DictationEvent.Error(DictationErrorKind.TranscriptionFailed, error.message))
             } finally {
                 _state.value = DictationState.Idle
             }
