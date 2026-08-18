@@ -79,7 +79,8 @@ struct MarkdownBlockTreeTests {
             Issue.record("expected blockquote")
             return
         }
-        let text = try #require(paragraphText(try #require(children.first)))
+        let child = try #require(children.first)
+        let text = try #require(paragraphText(child))
         #expect(plain(text) == "quoted")
     }
 
@@ -101,7 +102,8 @@ struct MarkdownBlockTreeTests {
 
     @Test func htmlBlockRendersAsLiteralParagraph() throws {
         let blocks = MarkdownBlockTree.build(from: "<div>\nraw\n</div>")
-        let text = try #require(paragraphText(try #require(blocks.first)))
+        let block = try #require(blocks.first)
+        let text = try #require(paragraphText(block))
         #expect(plain(text).contains("<div>"))
     }
 
@@ -145,7 +147,8 @@ struct MarkdownBlockTreeTests {
             Issue.record("expected nested list at depth 3")
             return
         }
-        let text = try #require(paragraphText(try #require(inner.items.first?.blocks.first)))
+        let block = try #require(inner.items.first?.blocks.first)
+        let text = try #require(paragraphText(block))
         #expect(plain(text) == "c")
     }
 
