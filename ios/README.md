@@ -359,7 +359,6 @@ ios/
                                             POST /api/visibility per tracked
                                             handshake subscriptionId on
                                             scene-phase flips, 404 pruning.
-<<<<<<< HEAD
                            Settings/        A-M4de pure settings logic,
                                             transcribed (with tests) from
                                             the Android reference: UsageMath
