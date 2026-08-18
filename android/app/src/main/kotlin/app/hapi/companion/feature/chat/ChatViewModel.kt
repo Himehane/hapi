@@ -15,7 +15,9 @@ import app.hapi.data.store.LastSeenStore
 import app.hapi.data.store.MachineListStore
 import app.hapi.data.store.MessageWindowStore
 import app.hapi.data.store.MessageWindowStores
+import app.hapi.data.store.ScratchlistCreateResult
 import app.hapi.data.store.SessionDetailStore
+import app.hapi.data.store.SessionScratchlist
 import app.hapi.protocol.catalog.CatalogOption
 import app.hapi.protocol.catalog.Flavors
 import app.hapi.protocol.catalog.ModelCatalog
@@ -66,6 +68,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
@@ -258,6 +261,8 @@ class ChatViewModel(
     syncTargets: SyncTargets,
     private val scope: CoroutineScope,
     private val drafts: ChatDrafts? = null,
+    /** null ⇒ scratchlist UI hidden (badge, park) — tests/previews without a store. */
+    private val scratchlist: SessionScratchlist? = null,
     private val pipelineDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val pipelineIntervalMs: Long = PIPELINE_INTERVAL_MS,
     private val draftSaveDebounceMs: Long = DRAFT_SAVE_DEBOUNCE_MS,
@@ -398,6 +403,18 @@ class ChatViewModel(
         SlashCommands.filter(SlashCommands.merge(detail?.metadata?.slashCommands, fetched), query)
     }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
+    /**
+     * Entry count for the top-bar scratchlist badge (B-M4d); stays 0 without
+     * a wired store. The store refetches on [start] (open) and on the
+     * `scratchlistUpdatedAt` SSE trigger.
+     */
+    val scratchlistCount: StateFlow<Int> =
+        (scratchlist?.state(sessionId)?.map { it.entries.size } ?: flowOf(0))
+            .stateIn(scope, SharingStarted.Eagerly, 0)
+
+    /** Whether a scratchlist store is wired — gates the badge and park affordances. */
+    val scratchlistEnabled: Boolean = scratchlist != null
+
     // ------------------------------------------------------------ lifecycle --
 
     /** Idempotent; call from the screen's composition, paired with [stop]. */
@@ -429,6 +446,9 @@ class ChatViewModel(
             loadDetail()
         }
 
+        // Badge count + SSE-triggered refetches while this chat is on screen.
+        scratchlist?.open(sessionId)
+
         seenJob = scope.launch {
             // Watermark = updatedAt currently on screen, from whichever cache
             // is fresher (summary via global events, detail via this pipe).
@@ -453,6 +473,7 @@ class ChatViewModel(
         flushPendingDraft()
         sseEngine.unsubscribe(subscriptionKey)
         sessionStore.releaseDetail(sessionId)
+        scratchlist?.release(sessionId)
     }
 
     /**
@@ -521,6 +542,44 @@ class ChatViewModel(
     /** Dictation transcript arrived: append with a space separator (web `appendTranscript`). */
     fun appendDictatedText(transcript: String) {
         setComposerText(appendTranscript(composerText.value, transcript))
+    }
+
+    /**
+     * Scratchlist "Send to composer" (B-M4d): insert [text] into the composer
+     * — an empty composer takes it verbatim, an existing draft keeps its
+     * words and the entry lands on a new line (the entry itself stays on the
+     * scratchlist, like the web's promote-to-composer).
+     */
+    fun insertComposerText(text: String) {
+        if (text.isBlank()) return
+        val current = composerText.value
+        setComposerText(if (current.isBlank()) text else "${current.trimEnd()}\n$text")
+    }
+
+    /**
+     * Scratchlist "Park from composer" (B-M4d): the current draft becomes a
+     * scratchlist entry and the composer clears (store-optimistic; the
+     * composer clears only after the hub accepts, so a failed park cannot
+     * lose the draft).
+     */
+    fun parkComposerDraft() {
+        val store = scratchlist ?: return
+        val text = composerText.value
+        if (text.isBlank()) return
+        scope.launch {
+            when (val result = store.createEntry(sessionId, text)) {
+                is ScratchlistCreateResult.Created -> {
+                    // Clear only when the draft is still what we parked (the
+                    // operator may have kept typing while the POST ran).
+                    if (composerText.value == text) setComposerText("")
+                    _events.tryEmit(ChatEvent.Notice("Draft parked to scratchlist"))
+                }
+                ScratchlistCreateResult.AtCap ->
+                    _events.tryEmit(ChatEvent.Notice("Scratchlist is full (200 entries)"))
+                is ScratchlistCreateResult.Failed ->
+                    _events.tryEmit(ChatEvent.Notice("Couldn't park the draft — check the hub connection"))
+            }
+        }
     }
 
     /** Dropdown tap: replace the slash token with `/name ` ready for arguments. */

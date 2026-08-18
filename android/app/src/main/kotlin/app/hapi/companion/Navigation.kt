@@ -41,6 +41,10 @@ import app.hapi.companion.feature.pairing.PairingScreen
 import app.hapi.companion.feature.pairing.PairingUiState
 import app.hapi.companion.feature.pairing.PairingViewModel
 import app.hapi.companion.feature.pairing.QrScanScreen
+import app.hapi.companion.feature.scratchlist.ContentResolverAttachmentImporter
+import app.hapi.companion.feature.scratchlist.ScratchlistMedia
+import app.hapi.companion.feature.scratchlist.ScratchlistScreen
+import app.hapi.companion.feature.scratchlist.ScratchlistViewModel
 import app.hapi.companion.feature.sessions.SessionListViewModel
 import app.hapi.data.auth.AuthTerminalReason
 import kotlinx.coroutines.CoroutineScope
@@ -56,6 +60,11 @@ object Routes {
     const val CHAT = "chat/{sessionId}"
 
     fun chat(sessionId: String) = "chat/$sessionId"
+
+    /** Per-session scratchlist workbench (B-M4d), pushed above its chat. */
+    const val SCRATCHLIST = "chat/{sessionId}/scratchlist"
+
+    fun scratchlist(sessionId: String) = "chat/$sessionId/scratchlist"
 
     /** New-session form (B-M3d); optional machine preselect. */
     const val NEW_SESSION = "newSession?machineId={machineId}"
@@ -124,7 +133,7 @@ fun HapiNavigation() {
             if (!onPairing) {
                 navController.navigateClearingBackStack(Routes.PAIRING)
             }
-        } else if (navController.currentDestination?.route == Routes.CHAT) {
+        } else if (navController.currentDestination?.route in setOf(Routes.CHAT, Routes.SCRATCHLIST)) {
             navController.popBackStack(Routes.HOME, inclusive = false)
         }
     }
@@ -177,6 +186,49 @@ fun HapiNavigation() {
                     }
                 },
                 dictation = holder.dictation,
+                onOpenScratchlist = { navController.navigate(Routes.scratchlist(sessionId)) },
+            )
+        }
+
+        composable(
+            route = Routes.SCRATCHLIST,
+            arguments = listOf(navArgument("sessionId") { type = NavType.StringType }),
+        ) { entry ->
+            val sessionId = entry.arguments?.getString("sessionId") ?: return@composable
+            val hubGraph = activeHubGraph ?: return@composable
+            val appContext = LocalContext.current.applicationContext
+            val holder = viewModel<ScratchlistViewModelHolder>(
+                key = "scratchlist:${hubGraph.hubUrl}:$sessionId",
+                factory = viewModelFactory { ScratchlistViewModelHolder(hubGraph, sessionId, appContext) },
+            )
+            // "Send to composer" reuses the chat ViewModel of the entry below
+            // this route (same holder key + the chat entry as owner), so the
+            // inserted text lands in the live composer state, not a stale
+            // draft. Guarded: without a chat below, the affordance hides.
+            val chatEntry = remember(entry) {
+                runCatching { navController.getBackStackEntry(Routes.CHAT) }.getOrNull()
+            }
+            val chatHolder = chatEntry?.let { owner ->
+                viewModel<ChatViewModelHolder>(
+                    viewModelStoreOwner = owner,
+                    key = "chat:${hubGraph.hubUrl}:$sessionId",
+                    factory = viewModelFactory { ChatViewModelHolder(hubGraph, sessionId, appContext) },
+                )
+            }
+            ScratchlistScreen(
+                viewModel = holder.viewModel,
+                media = remember(hubGraph, sessionId) {
+                    ScratchlistMedia(hubGraph.imageLoader) { attachmentId ->
+                        hubGraph.scratchlistAttachmentUrl(sessionId, attachmentId)
+                    }
+                },
+                onBack = { navController.popBackStack() },
+                onSendToComposer = chatHolder?.let { chat ->
+                    { scratchEntry ->
+                        chat.viewModel.insertComposerText(scratchEntry.text)
+                        navController.popBackStack()
+                    }
+                },
             )
         }
 
@@ -316,6 +368,7 @@ private class ChatViewModelHolder(
         syncTargets = hubGraph.syncTargets,
         scope = scope,
         drafts = hubGraph.chatDrafts,
+        scratchlist = hubGraph.scratchlistStore,
     )
 
     /**
@@ -330,6 +383,27 @@ private class ChatViewModelHolder(
 
     override fun onCleared() {
         dictation.cancel()
+        viewModel.stop()
+        scope.cancel()
+    }
+}
+
+/** Shell for the per-session scratchlist workbench (B-M4d). */
+private class ScratchlistViewModelHolder(
+    hubGraph: HubGraph,
+    sessionId: String,
+    appContext: Context,
+) : ViewModel() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val viewModel = ScratchlistViewModel(
+        sessionId = sessionId,
+        store = hubGraph.scratchlistStore,
+        scope = scope,
+        importer = ContentResolverAttachmentImporter(appContext),
+    )
+
+    override fun onCleared() {
         viewModel.stop()
         scope.cancel()
     }

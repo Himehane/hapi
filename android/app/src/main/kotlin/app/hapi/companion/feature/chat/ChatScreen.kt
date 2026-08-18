@@ -26,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -55,8 +57,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import app.hapi.companion.feature.chat.composer.ChatComposer
 import app.hapi.companion.feature.chat.composer.DictationController
@@ -100,6 +105,8 @@ fun ChatScreen(
     onNavigateToSession: (String) -> Unit = {},
     /** null ⇒ mic button hidden (tests / previews without a controller). */
     dictation: DictationController? = null,
+    /** null ⇒ no scratchlist top-bar entry (tests / previews). */
+    onOpenScratchlist: (() -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsState()
     val composerState by viewModel.composer.collectAsState()
@@ -186,6 +193,13 @@ fun ChatScreen(
                 },
                 title = { ChatTitle(state.header) },
                 actions = {
+                    if (onOpenScratchlist != null && viewModel.scratchlistEnabled) {
+                        val scratchlistCount by viewModel.scratchlistCount.collectAsState()
+                        ScratchlistTopBarButton(
+                            count = scratchlistCount,
+                            onClick = onOpenScratchlist,
+                        )
+                    }
                     IconButton(onClick = { configSheetOpen = true }) {
                         Icon(Icons.Filled.Settings, contentDescription = "Session settings")
                     }
@@ -221,6 +235,7 @@ fun ChatScreen(
                     dictation = if (dictation != null) dictationState else null,
                     onDictationToggle = onDictationToggle,
                     onDictationCancel = { dictation?.cancel() },
+                    onParkDraft = if (viewModel.scratchlistEnabled) viewModel::parkComposerDraft else null,
                 )
             }
         },
@@ -279,6 +294,25 @@ fun ChatScreen(
             },
             onDismiss = { deleteDialogOpen = false },
         )
+    }
+}
+
+/**
+ * Top-bar scratchlist entry (B-M4d): notepad glyph with an entry-count badge
+ * (hidden at zero) — opens `chat/{id}/scratchlist`.
+ */
+@Composable
+private fun ScratchlistTopBarButton(count: Int, onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        BadgedBox(
+            badge = {
+                if (count > 0) {
+                    Badge { Text(text = if (count > 99) "99+" else count.toString()) }
+                }
+            },
+        ) {
+            Text(text = "🗒", fontSize = 18.sp, modifier = Modifier.semantics { contentDescription = "Scratchlist" })
+        }
     }
 }
 
