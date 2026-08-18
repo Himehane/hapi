@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking  // URLSession types live here on Linux
+#endif
 import HapiProtocol
 
 /// Why a pairing attempt failed, shaped for direct UI presentation

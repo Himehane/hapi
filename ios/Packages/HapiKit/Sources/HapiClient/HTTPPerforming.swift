@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking  // URLSession types live here on Linux
+#endif
 
 /// Seam between the client stack and the actual HTTP transport.
 ///
@@ -33,11 +36,20 @@ public struct URLSessionHTTPPerformer: HTTPPerforming {
     /// decompression of JSON responses is transparent in `URLSession`.
     public static func makeDefaultSession() -> URLSession {
         let configuration = URLSessionConfiguration.default
+        #if canImport(FoundationNetworking)
+        // corelibs-foundation only ships the legacy `diskPath:` initializer.
+        configuration.urlCache = URLCache(
+            memoryCapacity: 32 * 1024 * 1024,
+            diskCapacity: 256 * 1024 * 1024,
+            diskPath: nil
+        )
+        #else
         configuration.urlCache = URLCache(
             memoryCapacity: 32 * 1024 * 1024,
             diskCapacity: 256 * 1024 * 1024,
             directory: nil
         )
+        #endif
         configuration.requestCachePolicy = .useProtocolCachePolicy
         return URLSession(configuration: configuration)
     }

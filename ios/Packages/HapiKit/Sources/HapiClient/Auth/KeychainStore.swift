@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// The per-hub credential record (`docs/api/client-contract/auth.md`).
 ///
@@ -34,6 +36,10 @@ public protocol CredentialStoring: Sendable {
     func deleteCredentials(forHub hubUrl: String) throws
 }
 
+// The Keychain-backed implementation is Darwin-only (Security framework).
+// On Linux the `CredentialStoring` seam keeps everything testable via
+// `InMemoryCredentialStore`; there is no production credential store there.
+#if canImport(Security)
 /// A Keychain operation failed with the given `SecItem` status.
 public struct KeychainError: Error, Equatable, Sendable {
     public let status: OSStatus
@@ -109,6 +115,7 @@ public struct KeychainCredentialStore: CredentialStoring {
         ]
     }
 }
+#endif
 
 /// Dictionary-backed test double (also handy for previews).
 public final class InMemoryCredentialStore: CredentialStoring, @unchecked Sendable {

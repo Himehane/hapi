@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking  // URLSession types live here on Linux
+#endif
 import HapiProtocol
 @testable import HapiClient
 

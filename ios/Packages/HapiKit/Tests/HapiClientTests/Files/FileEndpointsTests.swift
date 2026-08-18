@@ -12,7 +12,9 @@ struct FileEndpointsTests {
     @Test func gitStatusBuildsPathAndDecodesCommandResponse() async throws {
         let harness = try makeHarness(jwt: freshJWT())
         await harness.performer.enqueue(
-            json: #"{"success":true,"stdout":"# branch.head main\n","exitCode":0}"#
+            // ##-delimited: the payload contains `"#`, which would terminate
+            // a single-# raw string early.
+            json: ##"{"success":true,"stdout":"# branch.head main\n","exitCode":0}"##
         )
 
         let response = try await harness.client.gitStatus(sessionId: "s 1")
