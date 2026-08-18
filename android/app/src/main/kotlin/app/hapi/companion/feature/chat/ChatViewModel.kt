@@ -90,6 +90,8 @@ data class ChatHeaderUi(
     val title: String,
     /** "Flavor · machine · worktree/path" meta line; null when nothing known. */
     val subtitle: String?,
+    /** Raw `metadata.flavor` — drives the brand icon next to the meta line. */
+    val flavor: String? = null,
     /** Raw custom `metadata.name` (rename-dialog prefill; the title cascade may show more). */
     val name: String? = null,
     val active: Boolean,
@@ -1472,6 +1474,7 @@ class ChatViewModel(
         return ChatHeaderUi(
             title = title,
             subtitle = subtitle,
+            flavor = flavor,
             name = detail?.metadata?.name ?: summary?.metadata?.name,
             active = detail?.active ?: summary?.active ?: false,
             thinking = detail?.thinking ?: summary?.thinking ?: false,

@@ -324,10 +324,18 @@ struct ChatView: View {
                     .font(.headline)
                     .lineLimit(1)
                 if let subtitle = model.header.subtitle {
-                    Text(subtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        if model.header.flavor != nil {
+                            // Inherits .secondary like the meta text (web:
+                            // currentColor under --app-hint); color variants
+                            // ignore the tint.
+                            AgentFlavorIconView(flavor: model.header.flavor, size: 12)
+                        }
+                        Text(subtitle)
+                            .font(.caption2)
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(.secondary)
                 }
             }
         }

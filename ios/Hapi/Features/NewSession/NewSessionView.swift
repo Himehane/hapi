@@ -189,7 +189,19 @@ struct NewSessionView: View {
         Section("Agent") {
             Picker("Agent", selection: agentBinding) {
                 ForEach(model.agents, id: \.value) { agent in
-                    Text(agent.label).tag(agent.value)
+                    // Plain `Image` icon so the menu representation keeps it
+                    // (UIMenu drops custom icon views); template monos take
+                    // the menu tint, color marks render as-is.
+                    if let asset = AgentFlavorIconView.assetName(forFlavor: agent.value) {
+                        Label {
+                            Text(agent.label)
+                        } icon: {
+                            Image(asset)
+                        }
+                        .tag(agent.value)
+                    } else {
+                        Text(agent.label).tag(agent.value)
+                    }
                 }
             }
         }

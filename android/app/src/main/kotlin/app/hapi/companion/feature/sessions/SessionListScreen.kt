@@ -61,8 +61,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.hapi.companion.R
+import app.hapi.companion.ui.components.AgentFlavorIcon
 import app.hapi.companion.ui.theme.HapiTheme
-import app.hapi.protocol.catalog.Flavors
 import app.hapi.protocol.wire.PendingRequest
 import app.hapi.protocol.wire.SessionSummary
 import app.hapi.protocol.wire.SessionSummaryMetadata
@@ -78,9 +78,9 @@ import app.hapi.protocol.wire.TodoProgress
  *   pull-to-refresh, empty state;
  * - pinned section first (the sort already puts globalPinned/pinned rows on
  *   top; a header + divider make the boundary visible);
- * - per row: status dot (active / thinking pulse), title, flavor + machine
- *   labels, summary/path line, relative `updatedAt`, pending-request badge,
- *   todo-progress chip, unread dot;
+ * - per row: status dot (active / thinking pulse), flavor brand icon +
+ *   title, machine + worktree labels, summary/path line, relative
+ *   `updatedAt`, pending-request badge, todo-progress chip, unread dot;
  * - long-press → actions sheet: pin (none/project/global), rename (dialog),
  *   reopen (inactive rows; navigates into the possibly-superseding id),
  *   archive, delete (confirm; 409 while active) — optimistic store updates;
@@ -312,6 +312,8 @@ private fun SessionRow(
         Spacer(modifier = Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                AgentFlavorIcon(row.flavor, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 // One weighted element only: the title takes ALL leftover
                 // width (start-aligned, ellipsis on true overflow). Splitting
                 // the slack with a weighted trailing spacer truncated even
@@ -350,12 +352,12 @@ private fun SessionRow(
     }
 }
 
+// The agent flavor moved into the title line as a brand icon (web parity:
+// `SessionRowSummary`), so the meta line carries machine + worktree only.
 @Composable
 private fun MetaLine(row: SessionRowUi) {
-    val flavorLabel = row.flavor?.let(Flavors::label)
     val worktree = row.summary.metadata?.worktree
     val parts = buildList {
-        flavorLabel?.let(::add)
         row.machineLabel?.let(::add)
         worktree?.let { add(it.name.ifBlank { it.branch }) }
     }

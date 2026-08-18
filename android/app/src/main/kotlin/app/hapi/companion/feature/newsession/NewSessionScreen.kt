@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -50,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.hapi.companion.R
+import app.hapi.companion.ui.components.AgentFlavorIcon
 import app.hapi.companion.ui.theme.HapiTheme
 
 /**
@@ -447,6 +449,7 @@ private fun AgentSection(state: NewSessionUiState, onAgentSelected: (String) -> 
                     selected = state.form.agent == agent.value,
                     onClick = { onAgentSelected(agent.value) },
                     enabled = !state.isSpawning,
+                    leadingIcon = { AgentFlavorIcon(agent.value, modifier = Modifier.size(16.dp)) },
                     label = { Text(agent.label) },
                 )
             }
