@@ -162,7 +162,9 @@ ones.
 
 ### Transports: self-host (direct APNs) vs official relay
 
-The hub picks one of two transports via `HAPI_IOS_PUSH`:
+The hub picks one of two transports via `HAPI_IOS_PUSH` (or the
+`iosPushMode` field in `~/.hapi/settings.json` — every variable below has a
+settings.json equivalent, see [Environment](#environment-hub-operator)):
 
 | Mode | Who talks to Apple | Requirements |
 |------|--------------------|--------------|
@@ -212,12 +214,19 @@ and suppresses the Web Push fallback for the namespace when a send succeeds
 
 ```bash
 FCM_SERVICE_ACCOUNT_PATH=/path/to/service-account.json
-FCM_PROJECT_ID=your-firebase-project-id
 ```
 
-When unset, hub skips FCM channel (Web Push / Telegram unchanged).
-iOS transport selection (`HAPI_IOS_PUSH`, `APNS_*`) is documented in
+The Firebase project id comes from the service-account JSON itself. When
+unset, hub skips FCM channel (Web Push / Telegram unchanged). iOS transport
+selection (`HAPI_IOS_PUSH`, `APNS_*`) is documented in
 [iOS (APNs)](#transports-self-host-direct-apns-vs-official-relay).
+
+Push configuration follows the hub-wide rule (env > `settings.json` >
+default; an env value is persisted into `~/.hapi/settings.json` on first
+sight, so the variable only has to be passed once). settings.json keys:
+`fcmServiceAccountPath`, `iosPushMode`, `iosPushRelayUrl`, `apnsKeyP8Path`,
+`apnsKeyId`, `apnsTeamId`, `apnsBundleId`, `apnsEnv`. Path values may use
+`~`.
 
 The native push channel is **opt-in**: operators who don't run a companion
 app see no behavior change. When at least one device is registered for a

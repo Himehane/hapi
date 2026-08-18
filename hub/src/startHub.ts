@@ -210,7 +210,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
     // Accountable principal for A2A work-graph notify ingest (P3).
     syncEngine.setHubOwnerUserId(await getOrCreateOwnerId())
 
-    const fcmConfig = resolveFcmConfig()
+    const fcmConfig = resolveFcmConfig(config)
 
     // Build the optional FCM service early so the native-fallback probe
     // can consult its health gate. When FCM is configured, `fcmService` is
@@ -232,17 +232,17 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
     // iOS push (P1): encrypt-then-route sibling of the FCM channel. Ordering
     // matters - both native channels run before PushNotificationChannel so a
     // successful native send sets the nativeGate and suppresses web-push.
-    const iosPushConfig = resolveIosPushConfig()
+    const iosPushConfig = resolveIosPushConfig(config)
     if (iosPushConfig.mode === 'relay') {
         const iosPushService = new IosPushService(new RelayClient(iosPushConfig.relayUrl), store)
         notificationChannels.push(new IosPushNotificationChannel(iosPushService, store))
-        console.log(`[Hub] HAPI_IOS_PUSH: relay (${iosPushConfig.source === 'default' ? 'default' : 'env'}, url: ${iosPushConfig.relayUrl})`)
+        console.log(`[Hub] iOS push: relay (${iosPushConfig.source}, url: ${iosPushConfig.relayUrl})`)
     } else if (iosPushConfig.mode === 'apns') {
         const iosPushService = new IosPushService(new ApnsClient(iosPushConfig), store)
         notificationChannels.push(new IosPushNotificationChannel(iosPushService, store))
-        console.log(`[Hub] HAPI_IOS_PUSH: apns (${iosPushConfig.env}, topic: ${iosPushConfig.bundleId})`)
+        console.log(`[Hub] iOS push: apns (${iosPushConfig.env}, topic: ${iosPushConfig.bundleId})`)
     } else {
-        console.log(`[Hub] HAPI_IOS_PUSH: off (${iosPushConfig.reason})`)
+        console.log(`[Hub] iOS push: off (${iosPushConfig.reason})`)
     }
 
     notificationChannels.push(
