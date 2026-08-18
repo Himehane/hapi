@@ -1,12 +1,14 @@
+import HapiClient
 import HapiProtocol
 import HapiUI
 import SwiftUI
 
 /// One tool invocation (web `ToolCard`): collapsed header row — icon, title,
 /// subtitle, status — expanding to the per-tool body (`ToolCallBody`), the
-/// read-only permission state, and nested children (sidechain transcript
-/// behind an indent rail). Cards with a pending permission start expanded
-/// and carry the "awaiting approval" banner (actions land in M3b).
+/// permission state, and nested children (sidechain transcript behind an
+/// indent rail). Cards with a pending permission start expanded and carry the
+/// "awaiting approval" banner; with a `\.chatInteractions` engine present
+/// (A-M3b) the banner grows the actionable approval footer.
 struct ToolCallBlockView: View {
     let block: ToolCallBlock
     let basePath: String?
@@ -14,6 +16,7 @@ struct ToolCallBlockView: View {
     @State private var expanded: Bool
     @State private var childrenOpen: Bool
     @Environment(\.hapiTheme) private var theme
+    @Environment(\.chatInteractions) private var interactions
 
     init(block: ToolCallBlock, basePath: String?) {
         self.block = block
@@ -28,7 +31,11 @@ struct ToolCallBlockView: View {
         VStack(alignment: .leading, spacing: 0) {
             headerRow(presentation)
             if let permission = block.tool.permission {
-                PermissionStateRow(permission: permission)
+                if permission.status == .pending, let interactions {
+                    pendingApprovalSection(permission: permission, interactions: interactions)
+                } else {
+                    PermissionStateRow(permission: permission)
+                }
             }
             if expanded {
                 ToolCallBody(tool: block.tool, basePath: basePath)
@@ -42,6 +49,28 @@ struct ToolCallBlockView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    /// Pending permission with a live interaction engine: highlighted banner
+    /// plus the actionable footer (approve buttons / answer forms).
+    private func pendingApprovalSection(
+        permission: ToolPermission,
+        interactions: ChatInteractor
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Label("Awaiting approval", systemImage: "hourglass")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
+            PendingPermissionFooter(
+                tool: block.tool,
+                requestId: permission.id,
+                interactions: interactions
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.10))
     }
 
     private func headerRow(_ presentation: ToolCardPresentation) -> some View {
@@ -154,25 +183,22 @@ private struct StatusChip: View {
 
 // MARK: - Permission (read-only)
 
-/// Read-only permission verdict: highlighted banner while pending (approval
-/// actions are M3b), subdued line once decided.
+/// Read-only permission verdict: highlighted banner while pending (shown only
+/// without a `\.chatInteractions` engine — previews/tests; the live chat
+/// renders `PendingPermissionFooter` instead), subdued line once decided.
 private struct PermissionStateRow: View {
     let permission: ToolPermission
 
     var body: some View {
         switch permission.status {
         case .pending:
-            VStack(alignment: .leading, spacing: 2) {
-                Label("Awaiting approval", systemImage: "hourglass")
-                    .font(.footnote.weight(.semibold))
-                Text("Respond from the hub web app — in-app approval arrives in the next milestone.")
-                    .font(.caption2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.orange.opacity(0.18))
-            .foregroundStyle(.orange)
+            Label("Awaiting approval", systemImage: "hourglass")
+                .font(.footnote.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.orange.opacity(0.18))
+                .foregroundStyle(.orange)
         case .approved:
             PermissionLine(text: "✓ Approved" + (permission.mode.map { " · \($0)" } ?? ""))
         case .denied:

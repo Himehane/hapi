@@ -1,3 +1,4 @@
+import HapiClient
 import HapiProtocol
 import HapiUI
 import SwiftUI
@@ -6,10 +7,13 @@ import SwiftUI
 
 /// Operator prompt: right-aligned bubble. Whitespace is preserved and the
 /// text is NOT rendered as markdown — matching the web user bubble and the
-/// Android port. Attachments render as chips; a restored failed optimistic
-/// row gets a "Not delivered" hint.
+/// Android port. Attachments render as chips; a failed optimistic row gets a
+/// "Not delivered" hint that retries the send when the interaction engine is
+/// present (A-M3a).
 struct UserTextBlockView: View {
     let block: UserTextBlock
+
+    @Environment(\.chatInteractions) private var interactions
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 0) {
@@ -39,10 +43,22 @@ struct UserTextBlockView: View {
                     )
                 )
                 if block.status == "failed" {
-                    Text("Not delivered")
-                        .font(.caption2)
-                        .foregroundStyle(.red)
-                        .padding(.trailing, 4)
+                    if let interactions, let retryLocalId = block.localId {
+                        Button {
+                            interactions.retryFailedMessage(localId: retryLocalId)
+                        } label: {
+                            Text("Not delivered — tap to retry")
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                                .padding(.trailing, 4)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Text("Not delivered")
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                            .padding(.trailing, 4)
+                    }
                 }
             }
         }

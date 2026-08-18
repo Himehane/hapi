@@ -421,11 +421,12 @@ public struct CodexModelSummary: Codable, Equatable, Sendable {
     }
 }
 
-/// Body of `GET /api/machines/:id/codex-models` (RPC envelope — check
-/// `success`). A runner that does not expose the machine-scoped RPC answers
-/// HTTP 503 `{success:false, code:'rpc_target_missing'}`, which surfaces as
-/// the transport error, not this body. Added in A-M3c for the new-session
-/// codex model picker; mirrors `CodexModelsResponse` (`shared/src/apiTypes.ts`).
+/// Body of `GET /api/machines/:id/codex-models` and the session-level twin
+/// `GET /api/sessions/:id/codex-models` (RPC envelope — check `success`). A
+/// runner that does not expose the machine-scoped RPC answers HTTP 503
+/// `{success:false, code:'rpc_target_missing'}`, which surfaces as the
+/// transport `APIError`, not this body. Mirrors `CodexModelsResponse`
+/// (`shared/src/apiTypes.ts`).
 public struct CodexModelsResponse: Codable, Equatable, Sendable {
     public var success: Bool
     public var models: [CodexModelSummary]?

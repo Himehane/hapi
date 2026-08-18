@@ -80,7 +80,22 @@ ios/
                                       per-tool bodies + knownTools-parity
                                       presentation, tool groups, event rows,
                                       cli output, generated images with
-                                      full-screen viewer, codex review),
+                                      full-screen viewer, codex review;
+                                      M3ab upgrades: pending permission cards
+                                      grow the approval footer — Allow/Deny,
+                                      codex Allow/Abort, overflow
+                                      allow-for-session / allow-all-edits,
+                                      AskUserQuestion option cards + Other
+                                      free text, request_user_input fields
+                                      with user_note — and failed user rows
+                                      become tap-to-retry; Composer/ —
+                                      multiline input with long-press
+                                      "Send & steer" while thinking, abort
+                                      button, M4 attachment-chip seam, and
+                                      the queued-messages bar with
+                                      Steer/Edit/Cancel; SessionConfigView —
+                                      the toolbar-gear sheet for permission
+                                      mode / model / effort per flavor),
                                       Links/ (app-wide \.hapiOpenURL handler:
                                       https/http → SFSafariViewController,
                                       confirm-first schemes → alert,
@@ -256,6 +271,31 @@ ios/
                                             recent-path LRU(8), worktree-name
                                             validation, codex catalog helpers,
                                             draft sanitization).
+                                            Since M3ab: ChatInteractor — the
+                                            per-session interaction engine
+                                            (optimistic composer sends with
+                                            queue/steer delivery + retry,
+                                            session_inactive resume→retry with
+                                            superseding-id window seed + draft
+                                            migration, queued-bar
+                                            cancel/edit/steer with the
+                                            invoked-race reconcile,
+                                            flavor-exact permission
+                                            approve/deny bodies with
+                                            optimistic Resolving/
+                                            AlreadyHandled overrides settled
+                                            by the agentState patch, config
+                                            switches with optimistic detail
+                                            update + reload-on-error, codex
+                                            model catalog); ChatDrafts
+                                            (UserDefaults per hub+session,
+                                            debounced) and PermissionInputs
+                                            (AskUserQuestion /
+                                            request_user_input parsers).
+                                            SSE/ adds VisibilityReporter:
+                                            POST /api/visibility per tracked
+                                            handshake subscriptionId on
+                                            scene-phase flips, 404 pruning.
                          Feature endpoints (git/files, scratchlist, voice,
                          usage) join Endpoints/ with their feature packages
                          in M3/M4.
@@ -308,6 +348,12 @@ and first-differing-line diffs. Since M2f, `HapiClientTests/ChatPipelineTests`
 drives the app-facing `ChatPipeline` runner with fixture-derived window rows:
 non-empty unique stable ids, memo-stable recomputes, the queued-row filter,
 and group-id stability across an older-page arrival (`previousGroups`).
+Since M3ab, `HapiClientTests/Chat/ChatInteractorTests` transcribes the
+Android interaction suite against the real client stack (only HTTP is
+scripted): canonical approve/deny/send/config wire bodies asserted
+byte-for-byte, optimistic send happy/fail/retry, 409 → resume → retry (same
+and superseding id), queued cancel invoked-race, steer reconcile, edit
+prefill, permission override lifecycle, and config optimistic + rollback.
 
 ## Pairing (M1d)
 

@@ -143,4 +143,10 @@ extension APIClient {
     public func skills(sessionId: String) async throws -> SkillsResponse {
         try await request(.get, "/api/sessions/\(encodePathComponent(sessionId))/skills")
     }
+
+    /// `GET /api/sessions/:id/codex-models` — the per-session codex model
+    /// catalog for the config sheet's model picker (A-M3ab).
+    public func sessionCodexModels(sessionId: String) async throws -> CodexModelsResponse {
+        try await request(.get, "/api/sessions/\(encodePathComponent(sessionId))/codex-models")
+    }
 }

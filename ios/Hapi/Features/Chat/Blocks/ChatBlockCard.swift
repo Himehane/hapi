@@ -82,6 +82,22 @@ extension EnvironmentValues {
     }
 }
 
+private struct ChatInteractionsKey: EnvironmentKey {
+    static let defaultValue: ChatInteractor? = nil
+}
+
+extension EnvironmentValues {
+    /// The open chat's interaction engine (A-M3ab), injected down the block
+    /// tree so deeply nested tool cards — groups, sidechains — reach the
+    /// permission actions and failed-send retry without prop threading. Nil
+    /// (previews/tests, read-only embeddings) keeps blocks in their M2
+    /// read-only rendering.
+    var chatInteractions: ChatInteractor? {
+        get { self[ChatInteractionsKey.self] }
+        set { self[ChatInteractionsKey.self] = newValue }
+    }
+}
+
 // MARK: - Dispatcher
 
 /// One thread entry: routes a reduced `VisibleChatBlock` to its card — the

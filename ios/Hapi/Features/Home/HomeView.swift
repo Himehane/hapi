@@ -26,7 +26,17 @@ struct HomeView: View {
                 }
             }
             .navigationDestination(for: String.self) { sessionId in
-                ChatView(session: session, sessionId: sessionId)
+                ChatView(session: session, sessionId: sessionId) { superseding in
+                    // Resume returned a different session id (A-M3a): replace
+                    // the current chat entry so back still pops to the list.
+                    if let last = path.indices.last, path[last] == sessionId {
+                        path[last] = superseding
+                    } else {
+                        path.append(superseding)
+                    }
+                }
+                // A replaced path element must rebuild the screen's @State.
+                .id(sessionId)
             }
             .navigationTitle(HubDisplay.host(session.hubUrl))
             .navigationBarTitleDisplayMode(.inline)
