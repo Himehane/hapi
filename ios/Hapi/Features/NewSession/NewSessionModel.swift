@@ -114,11 +114,11 @@ final class NewSessionModel {
     static let debounce: Duration = .milliseconds(250)
 
     static let msgWorktreeMissing =
-        "Worktree sessions require an existing repository directory."
+        String(localized: "Worktree sessions require an existing repository directory.")
     static let msgDirectoryMissing =
-        "Directory does not exist. Creating the session will create it automatically."
+        String(localized: "Directory does not exist. Creating the session will create it automatically.")
     static let msgDirectoryMissingConfirm =
-        "Directory does not exist. Tap Create again to create it automatically."
+        String(localized: "Directory does not exist. Tap Create again to create it automatically.")
 
     // MARK: Observable state
 
@@ -253,7 +253,7 @@ final class NewSessionModel {
 
     var modelsError: String? {
         if case .failed(let message) = codexModels {
-            return "Failed to load models: \(message)"
+            return String(format: String(localized: "Failed to load models: %@"), message)
         }
         return nil
     }
@@ -492,11 +492,13 @@ final class NewSessionModel {
                     self.persistOnSuccess(machineId: machineId, directory: directory)
                     self.onCreated(sessionId)
                 case .error(let message):
-                    self.spawnError = message.isEmpty ? "Failed to create session" : message
+                    self.spawnError = message.isEmpty
+                        ? String(localized: "Failed to create session")
+                        : message
                 }
             } catch {
                 self.spawnError = (error as? LocalizedError)?.errorDescription
-                    ?? "Failed to create session"
+                    ?? String(localized: "Failed to create session")
             }
         }
     }
@@ -623,14 +625,15 @@ final class NewSessionModel {
                 let response = try await self.session.api.machineCodexModels(machineId: machineId)
                 state = response.success
                     ? .loaded(response.models ?? [])
-                    : .failed(response.error ?? "Failed to load Codex models")
+                    : .failed(response.error ?? String(localized: "Failed to load Codex models"))
             } catch let error as APIError where error.code == "rpc_target_missing" {
                 state = .unsupported
             } catch is CancellationError {
                 return
             } catch {
                 state = .failed(
-                    (error as? LocalizedError)?.errorDescription ?? "Failed to load Codex models"
+                    (error as? LocalizedError)?.errorDescription
+                        ?? String(localized: "Failed to load Codex models")
                 )
             }
             guard !Task.isCancelled else { return }

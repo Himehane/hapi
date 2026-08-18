@@ -151,7 +151,7 @@ private func terminalTitle(_ input: JSONValue?, description: String?) -> String 
     if let description, description != command {
         return description
     }
-    return formatTerminalCommandTitle(command) ?? description ?? "Terminal"
+    return formatTerminalCommandTitle(command) ?? description ?? String(localized: "Terminal")
 }
 
 private func terminalSubtitle(_ input: JSONValue?, description: String?) -> String? {
@@ -163,10 +163,12 @@ private func terminalSubtitle(_ input: JSONValue?, description: String?) -> Stri
 
 private func questionTitle(_ input: JSONValue?) -> String {
     let questions = input?[chatKey: "questions"]?.chatArray ?? []
-    if questions.count > 1 { return "\(questions.count) Questions" }
+    if questions.count > 1 {
+        return String(format: String(localized: "%lld Questions"), Int64(questions.count))
+    }
     let header = questions.first?[chatKey: "header"]?.chatString?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return header.isEmpty ? "Question" : header
+    return header.isEmpty ? String(localized: "Question") : header
 }
 
 private func questionSubtitle(_ input: JSONValue?) -> String? {
@@ -174,7 +176,11 @@ private func questionSubtitle(_ input: JSONValue?) -> String? {
     let question = questions.first?[chatKey: "question"]?.chatString?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     if questions.count > 1, !question.isEmpty {
-        return chatTruncate(question, 100) + " (+\(questions.count - 1) more)"
+        return String(
+            format: String(localized: "%@ (+%lld more)"),
+            chatTruncate(question, 100),
+            Int64(questions.count - 1)
+        )
     }
     return question.isEmpty ? nil : chatTruncate(question, 120)
 }
@@ -245,33 +251,39 @@ func toolCardPresentation(_ tool: ChatToolCall, basePath: String?) -> ToolCardPr
     case "Read":
         return ToolCardPresentation(
             icon: ToolIcon.read,
-            title: filePathTitle(["file_path", "path", "file"], fallback: "Read file"),
+            title: filePathTitle(["file_path", "path", "file"], fallback: String(localized: "Read file")),
             subtitle: nil
         )
 
     case "NotebookRead":
         return ToolCardPresentation(
             icon: ToolIcon.read,
-            title: filePathTitle(["notebook_path"], fallback: "Read notebook"),
+            title: filePathTitle(["notebook_path"], fallback: String(localized: "Read notebook")),
             subtitle: nil
         )
 
     case "Edit":
         return ToolCardPresentation(
             icon: ToolIcon.edit,
-            title: filePathTitle(["file_path", "path"], fallback: "Edit file"),
+            title: filePathTitle(["file_path", "path"], fallback: String(localized: "Edit file")),
             subtitle: nil
         )
 
     case "MultiEdit":
         guard let file = chatInputString(input, ["file_path", "path"]) else {
-            return ToolCardPresentation(icon: ToolIcon.edit, title: "Edit file", subtitle: nil)
+            return ToolCardPresentation(
+                icon: ToolIcon.edit,
+                title: String(localized: "Edit file"),
+                subtitle: nil
+            )
         }
         let count = input?[chatKey: "edits"]?.chatArray?.count ?? 0
         let path = chatDisplayPath(file, basePath: basePath)
         return ToolCardPresentation(
             icon: ToolIcon.edit,
-            title: count > 1 ? "\(path) (\(count) edits)" : path,
+            title: count > 1
+                ? String(format: String(localized: "%@ (%lld edits)"), path, Int64(count))
+                : path,
             subtitle: nil
         )
 
@@ -279,25 +291,27 @@ func toolCardPresentation(_ tool: ChatToolCall, basePath: String?) -> ToolCardPr
         let content = chatInputString(input, ["content", "text"])
         let subtitle = content.map { text -> String in
             let lines = text.split(separator: "\n", omittingEmptySubsequences: false).count
-            return lines > 1 ? "\(lines) lines" : "\(text.count) chars"
+            return lines > 1
+                ? String(format: String(localized: "%lld lines"), Int64(lines))
+                : String(format: String(localized: "%lld chars"), Int64(text.count))
         }
         return ToolCardPresentation(
             icon: ToolIcon.edit,
-            title: filePathTitle(["file_path", "path"], fallback: "Write file"),
+            title: filePathTitle(["file_path", "path"], fallback: String(localized: "Write file")),
             subtitle: subtitle
         )
 
     case "NotebookEdit":
         return ToolCardPresentation(
             icon: ToolIcon.edit,
-            title: filePathTitle(["notebook_path"], fallback: "Edit notebook"),
+            title: filePathTitle(["notebook_path"], fallback: String(localized: "Edit notebook")),
             subtitle: chatInputString(input, ["edit_mode"]).map { "mode: \($0)" }
         )
 
     case "Glob":
         return ToolCardPresentation(
             icon: ToolIcon.search,
-            title: chatInputString(input, ["pattern"]) ?? "Search files",
+            title: chatInputString(input, ["pattern"]) ?? String(localized: "Search files"),
             subtitle: nil
         )
 
@@ -305,20 +319,24 @@ func toolCardPresentation(_ tool: ChatToolCall, basePath: String?) -> ToolCardPr
         let pattern = chatInputString(input, ["pattern"])
         return ToolCardPresentation(
             icon: ToolIcon.search,
-            title: pattern.map { "grep(pattern: \($0))" } ?? "Search content",
+            title: pattern.map { "grep(pattern: \($0))" } ?? String(localized: "Search content"),
             subtitle: nil
         )
 
     case "LS":
         return ToolCardPresentation(
             icon: ToolIcon.search,
-            title: filePathTitle(["path"], fallback: "List files"),
+            title: filePathTitle(["path"], fallback: String(localized: "List files")),
             subtitle: nil
         )
 
     case "WebFetch":
         guard let url = chatInputString(input, ["url"]) else {
-            return ToolCardPresentation(icon: ToolIcon.web, title: "Web fetch", subtitle: nil)
+            return ToolCardPresentation(
+                icon: ToolIcon.web,
+                title: String(localized: "Web fetch"),
+                subtitle: nil
+            )
         }
         let host = URL(string: url)?.host ?? url
         return ToolCardPresentation(icon: ToolIcon.web, title: host, subtitle: url)
@@ -327,7 +345,7 @@ func toolCardPresentation(_ tool: ChatToolCall, basePath: String?) -> ToolCardPr
         let query = chatInputString(input, ["query"])
         return ToolCardPresentation(
             icon: ToolIcon.web,
-            title: query ?? "Web search",
+            title: query ?? String(localized: "Web search"),
             subtitle: query.map { chatTruncate($0, 80) }
         )
 
@@ -336,10 +354,10 @@ func toolCardPresentation(_ tool: ChatToolCall, basePath: String?) -> ToolCardPr
         let teamName = chatInputString(input, ["team_name"])
         let title: String
         if name == "Task", let inputName, teamName != nil {
-            title = "Agent: \(inputName)"
+            title = String(format: String(localized: "Agent: %@"), inputName)
         } else {
             title = chatInputString(input, ["description"])
-                ?? (name == "Task" ? "Task" : "Launch Agent")
+                ?? (name == "Task" ? "Task" : String(localized: "Launch Agent"))
         }
         let subtitle = chatInputString(input, ["prompt"]).map { chatTruncate($0, 120) }
             ?? chatInputString(input, ["subagent_type"])
@@ -348,12 +366,12 @@ func toolCardPresentation(_ tool: ChatToolCall, basePath: String?) -> ToolCardPr
     case "CodexAgent", "spawn_agent", "resume_agent", "wait_agent", "close_agent", "interrupt_agent":
         let title: String
         switch name {
-        case "spawn_agent": title = "Spawn agent"
-        case "resume_agent": title = "Resume agent"
-        case "wait_agent": title = "Wait for agent"
-        case "close_agent": title = "Close agent"
-        case "interrupt_agent": title = "Interrupt agent"
-        default: title = "Agent"
+        case "spawn_agent": title = String(localized: "Spawn agent")
+        case "resume_agent": title = String(localized: "Resume agent")
+        case "wait_agent": title = String(localized: "Wait for agent")
+        case "close_agent": title = String(localized: "Close agent")
+        case "interrupt_agent": title = String(localized: "Interrupt agent")
+        default: title = String(localized: "Agent")
         }
         let prompt = chatInputString(input, ["prompt", "summary"])
         return ToolCardPresentation(
@@ -367,15 +385,15 @@ func toolCardPresentation(_ tool: ChatToolCall, basePath: String?) -> ToolCardPr
         let messageType = chatInputString(input, ["type"])
         let title: String
         if messageType == "broadcast" {
-            title = "Broadcast"
+            title = String(localized: "Broadcast")
         } else if messageType == "shutdown_request" {
-            title = "Shutdown: \(recipient ?? "agent")"
+            title = String(format: String(localized: "Shutdown: %@"), recipient ?? "agent")
         } else if messageType == "shutdown_response" {
-            title = "Shutdown Response"
+            title = String(localized: "Shutdown Response")
         } else if let recipient {
-            title = "Message: \(recipient)"
+            title = String(format: String(localized: "Message: %@"), recipient)
         } else {
-            title = "Message agent"
+            title = String(localized: "Message agent")
         }
         let summary = chatInputString(input, ["summary"])
         return ToolCardPresentation(
@@ -385,27 +403,28 @@ func toolCardPresentation(_ tool: ChatToolCall, basePath: String?) -> ToolCardPr
         )
 
     case "list_agents":
-        return ToolCardPresentation(icon: ToolIcon.team, title: "List agents", subtitle: nil)
+        return ToolCardPresentation(icon: ToolIcon.team, title: String(localized: "List agents"), subtitle: nil)
 
     case "TeamCreate":
         let teamName = chatInputString(input, ["team_name"])
         return ToolCardPresentation(
             icon: ToolIcon.team,
-            title: teamName.map { "Team: \($0)" } ?? "Create Team",
+            title: teamName.map { String(format: String(localized: "Team: %@"), $0) }
+                ?? String(localized: "Create Team"),
             subtitle: chatInputString(input, ["description"])
         )
 
     case "TeamDelete":
-        return ToolCardPresentation(icon: ToolIcon.team, title: "Delete Team", subtitle: nil)
+        return ToolCardPresentation(icon: ToolIcon.team, title: String(localized: "Delete Team"), subtitle: nil)
 
     case "TodoWrite":
-        return ToolCardPresentation(icon: ToolIcon.idea, title: "Todo list", subtitle: nil)
+        return ToolCardPresentation(icon: ToolIcon.idea, title: String(localized: "Todo list"), subtitle: nil)
 
     case "update_plan":
-        return ToolCardPresentation(icon: ToolIcon.plan, title: "Plan", subtitle: nil)
+        return ToolCardPresentation(icon: ToolIcon.plan, title: String(localized: "Plan"), subtitle: nil)
 
     case "ExitPlanMode", "exit_plan_mode":
-        return ToolCardPresentation(icon: ToolIcon.plan, title: "Plan proposal", subtitle: nil)
+        return ToolCardPresentation(icon: ToolIcon.plan, title: String(localized: "Plan proposal"), subtitle: nil)
 
     case "Skill":
         let skill = chatInputString(input, ["skill"])
@@ -418,7 +437,7 @@ func toolCardPresentation(_ tool: ChatToolCall, basePath: String?) -> ToolCardPr
     case "CodexReasoning":
         return ToolCardPresentation(
             icon: ToolIcon.idea,
-            title: chatInputString(input, ["title"]) ?? "Reasoning",
+            title: chatInputString(input, ["title"]) ?? String(localized: "Reasoning"),
             subtitle: nil
         )
 
@@ -426,7 +445,8 @@ func toolCardPresentation(_ tool: ChatToolCall, basePath: String?) -> ToolCardPr
         let permissionTool = chatInputString(input, ["tool"])
         return ToolCardPresentation(
             icon: ToolIcon.question,
-            title: permissionTool.map { "Permission: \($0)" } ?? "Permission request",
+            title: permissionTool.map { String(format: String(localized: "Permission: %@"), $0) }
+                ?? String(localized: "Permission request"),
             subtitle: chatInputString(input, ["message", "command"])
         )
 
@@ -436,7 +456,7 @@ func toolCardPresentation(_ tool: ChatToolCall, basePath: String?) -> ToolCardPr
             let display = chatBasename(chatDisplayPath(first, basePath: basePath))
             return files.count > 1 ? "\(display) (+\(files.count - 1))" : display
         }
-        return ToolCardPresentation(icon: ToolIcon.edit, title: "Apply changes", subtitle: subtitle)
+        return ToolCardPresentation(icon: ToolIcon.edit, title: String(localized: "Apply changes"), subtitle: subtitle)
 
     case "CodexDiff":
         let unified = chatInputString(input, ["unified_diff"])
@@ -454,19 +474,24 @@ func toolCardPresentation(_ tool: ChatToolCall, basePath: String?) -> ToolCardPr
         let task = chatInputString(input, ["task"])
         return ToolCardPresentation(
             icon: ToolIcon.message,
-            title: task.map { "\($0) log" } ?? "Inspecting task log",
+            title: task.map { String(format: String(localized: "%@ log"), $0) }
+                ?? String(localized: "Inspecting task log"),
             subtitle: nil
         )
 
     case "AgyAsyncTask":
         return ToolCardPresentation(
             icon: ToolIcon.plan,
-            title: description ?? "Background task",
+            title: description ?? String(localized: "Background task"),
             subtitle: nil
         )
 
     case "AgyError":
-        return ToolCardPresentation(icon: ToolIcon.warning, title: description ?? "Error", subtitle: nil)
+        return ToolCardPresentation(
+            icon: ToolIcon.warning,
+            title: description ?? String(localized: "Error"),
+            subtitle: nil
+        )
 
     default:
         break
@@ -485,15 +510,15 @@ func toolCardPresentation(_ tool: ChatToolCall, basePath: String?) -> ToolCardPr
     var title = description ?? name
     if let subtitle, subtitle == title {
         if filePath != nil {
-            title = "Read file"
+            title = String(localized: "Read file")
         } else if command != nil {
-            title = "Run shell"
+            title = String(localized: "Run shell")
         } else if pattern != nil {
-            title = "Search"
+            title = String(localized: "Search")
         } else if url != nil {
-            title = "Open URL"
+            title = String(localized: "Open URL")
         } else if query != nil {
-            title = "Query"
+            title = String(localized: "Query")
         }
     }
     return ToolCardPresentation(

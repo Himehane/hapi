@@ -60,7 +60,7 @@ enum ScratchlistAttachmentImport {
             return .ready(Prepared(filename: filename, data: data, mimeType: mimeType))
         case .downscale(let targetBytes):
             guard let compressed = downscaleToJPEG(data, targetBytes: targetBytes) else {
-                return .rejected(message: "Image is too large even after compression")
+                return .rejected(message: String(localized: "Image is too large even after compression"))
             }
             return .ready(Prepared(filename: jpegName(filename), data: compressed, mimeType: "image/jpeg"))
         case .reject(let reason):
@@ -85,13 +85,19 @@ enum ScratchlistAttachmentImport {
     ) -> String {
         switch reason {
         case .tooManyForEntry:
-            return "A note can hold at most \(limits.maxAttachmentsPerEntry) attachments"
+            return String(
+                format: String(localized: "A note can hold at most %lld attachments"),
+                Int64(limits.maxAttachmentsPerEntry)
+            )
         case .mimeNotAllowed:
-            return "That file type isn't allowed for scratchlist attachments"
+            return String(localized: "That file type isn't allowed for scratchlist attachments")
         case .tooLarge:
-            return "That file is over the \(limits.maxBytesPerFile / (1024 * 1024)) MB limit"
+            return String(
+                format: String(localized: "That file is over the %lld MB limit"),
+                Int64(limits.maxBytesPerFile / (1024 * 1024))
+            )
         case .entryBudgetExhausted:
-            return "This note's attachment budget is used up"
+            return String(localized: "This note's attachment budget is used up")
         }
     }
 

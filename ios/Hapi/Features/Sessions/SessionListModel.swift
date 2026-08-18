@@ -171,7 +171,10 @@ final class SessionListModel {
             do {
                 try await store.setPinMode(sessionId: sessionId, mode: mode)
             } catch {
-                self.actionError = "Pin failed: \(error.localizedDescription)"
+                self.actionError = String(
+                    format: String(localized: "Pin failed: %@"),
+                    error.localizedDescription
+                )
             }
         }
     }
@@ -184,7 +187,10 @@ final class SessionListModel {
             do {
                 try await store.archiveSession(sessionId: sessionId)
             } catch {
-                self.actionError = "Archive failed: \(error.localizedDescription)"
+                self.actionError = String(
+                    format: String(localized: "Archive failed: %@"),
+                    error.localizedDescription
+                )
             }
         }
     }
@@ -226,7 +232,7 @@ final class SessionListModel {
 /// the Android reference (`formatRelativeAge`).
 func formatRelativeAge(now: Date, thenEpochMs: Int) -> String {
     let delta = Int(now.timeIntervalSince1970 * 1000) - thenEpochMs
-    if delta < 60_000 { return "now" }
+    if delta < 60_000 { return String(localized: "now") }
     let minutes = delta / 60_000
     if minutes < 60 { return "\(minutes)m" }
     let hours = minutes / 60

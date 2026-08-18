@@ -27,9 +27,7 @@ struct ManualEntryView: View {
                 } header: {
                     Text("Hub URL")
                 } footer: {
-                    Text("The address the hub prints at startup — a LAN "
-                        + "address like http://192.168.1.20:3006, or the "
-                        + "public tunnel URL when running with --relay.")
+                    Text("The address the hub prints at startup — a LAN address like http://192.168.1.20:3006, or the public tunnel URL when running with --relay.")
                 }
 
                 Section {
@@ -40,9 +38,7 @@ struct ManualEntryView: View {
                 } header: {
                     Text("Access token")
                 } footer: {
-                    Text("Printed by the hub at startup, and shown in the web "
-                        + "app under Settings → Companion Pairing. Pasting a "
-                        + "full pairing link into either field also works.")
+                    Text("Printed by the hub at startup, and shown in the web app under Settings → Companion Pairing. Pasting a full pairing link into either field also works.")
                 }
 
                 Section {

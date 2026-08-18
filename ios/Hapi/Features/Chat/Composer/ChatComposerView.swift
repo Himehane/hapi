@@ -127,7 +127,7 @@ struct ChatComposerView: View {
             // Videos import as a temp file (capped read in the preparer) so a
             // multi-GB pick never has to fit in memory.
             guard let movie = try? await item.loadTransferable(type: PickedMovie.self) else {
-                interactor.postNotice("Couldn't read the selected video")
+                interactor.postNotice(String(localized: "Couldn't read the selected video"))
                 return
             }
             let result = await AttachmentPreparer.prepare(fileURL: movie.url)
@@ -137,7 +137,7 @@ struct ChatComposerView: View {
         }
         let naming = AttachmentPreparer.photoFilename(for: type)
         guard let data = try? await item.loadTransferable(type: Data.self) else {
-            interactor.postNotice("Couldn't read \(naming.filename)")
+            interactor.postNotice(String(format: String(localized: "Couldn't read %@"), naming.filename))
             return
         }
         await handle(AttachmentPreparer.prepare(
@@ -152,9 +152,9 @@ struct ChatComposerView: View {
         case .ready(let prepared):
             interactor.attachments.add(prepared)
         case .tooLarge(let filename, _):
-            interactor.postNotice("\(filename) is over the 50 MB upload limit")
+            interactor.postNotice(String(format: String(localized: "%@ is over the 50 MB upload limit"), filename))
         case .unreadable(let filename):
-            interactor.postNotice("Couldn't read \(filename)")
+            interactor.postNotice(String(format: String(localized: "Couldn't read %@"), filename))
         }
     }
 
@@ -217,7 +217,7 @@ struct ChatComposerView: View {
         }
         .buttonStyle(.plain)
         .disabled(busy)
-        .accessibilityLabel(recording ? "Stop dictation" : "Dictate")
+        .accessibilityLabel(recording ? String(localized: "Stop dictation") : String(localized: "Dictate"))
     }
 
     private func toggleDictation(_ dictation: DictationController) {
@@ -230,14 +230,14 @@ struct ChatComposerView: View {
         case .granted:
             dictation.toggle()
         case .denied:
-            interactor.postNotice("Microphone access is disabled — allow it in Settings to dictate")
+            interactor.postNotice(String(localized: "Microphone access is disabled — allow it in Settings to dictate"))
         case .undetermined:
             Task {
                 let granted = await AVAudioApplication.requestRecordPermission()
                 if granted {
                     dictation.toggle()
                 } else {
-                    interactor.postNotice("Microphone permission is needed for dictation")
+                    interactor.postNotice(String(localized: "Microphone permission is needed for dictation"))
                 }
             }
         @unknown default:
@@ -364,9 +364,9 @@ private struct ComposerAttachmentChipView: View {
     private var statusLine: String {
         switch attachment.status {
         case .uploading:
-            return "Uploading…"
+            return String(localized: "Uploading…")
         case .failed:
-            return "Failed — tap to retry"
+            return String(localized: "Failed — tap to retry")
         case .ready:
             return formatChipSize(attachment.sizeBytes)
         }

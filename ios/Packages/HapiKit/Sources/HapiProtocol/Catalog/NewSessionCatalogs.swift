@@ -11,33 +11,31 @@ public struct NewSessionOption: Equatable, Hashable, Sendable {
     }
 }
 
-/// Static option catalogs for the new-session form — data ports of
-/// `shared/src/models.ts` (`CLAUDE_MODEL_LABELS`), `shared/src/effort.ts`
-/// (`CLAUDE_EFFORT_LABELS`) and the web `CODEX_REASONING_EFFORT_OPTIONS`
-/// (`web/src/components/NewSession/types.ts`). Data mirrors the Android
-/// reference (`NewSessionCatalogs.kt`) exactly. They live in the catalog
-/// package (unlike Android's feature-local copy) so the pure form logic and
-/// the app UI share one source.
+/// Static option catalogs for the new-session form. The claude rows are
+/// **derived** from `ClaudeModels` / `ClaudeEfforts` (issue #39: one source
+/// of truth shared with `ModelCatalog`'s composer builders) rather than
+/// duplicating the preset/label tables. Only the codex reasoning list is its
+/// own data — a port of the web `CODEX_REASONING_EFFORT_OPTIONS`
+/// (`web/src/components/NewSession/types.ts`; the web drops `max` for codex
+/// — `EffortField.tsx`). Android keeps a feature-local copy
+/// (`NewSessionCatalogs.kt`); here the catalogs live in one package so the
+/// pure form logic and the app UI share one source.
 public enum NewSessionCatalogs {
-    /// `'auto'` sentinel rows use the web's "Default" label.
-    public static let claudeModels: [NewSessionOption] = [
-        NewSessionOption(value: "auto", label: "Default"),
-        NewSessionOption(value: "sonnet", label: "Sonnet"),
-        NewSessionOption(value: "sonnet[1m]", label: "Sonnet 1M"),
-        NewSessionOption(value: "opus", label: "Opus"),
-        NewSessionOption(value: "opus[1m]", label: "Opus 1M"),
-        NewSessionOption(value: "fable", label: "Fable"),
-        NewSessionOption(value: "fable[1m]", label: "Fable 1M"),
-    ]
+    /// `'auto'` sentinel row uses the web's "Default" label; preset rows come
+    /// from `ClaudeModels` in picker order.
+    public static let claudeModels: [NewSessionOption] =
+        [NewSessionOption(value: "auto", label: "Default")]
+            + ClaudeModels.presets.map {
+                NewSessionOption(value: $0, label: ClaudeModels.label(for: $0) ?? $0)
+            }
 
-    public static let claudeEfforts: [NewSessionOption] = [
-        NewSessionOption(value: "auto", label: "Auto"),
-        NewSessionOption(value: "low", label: "Low"),
-        NewSessionOption(value: "medium", label: "Medium"),
-        NewSessionOption(value: "high", label: "High"),
-        NewSessionOption(value: "xhigh", label: "XHigh"),
-        NewSessionOption(value: "max", label: "Max"),
-    ]
+    /// `'auto'` sentinel row, then the `ClaudeEfforts` levels in ascending
+    /// order.
+    public static let claudeEfforts: [NewSessionOption] =
+        [NewSessionOption(value: "auto", label: "Auto")]
+            + ClaudeEfforts.levels.map {
+                NewSessionOption(value: $0, label: ClaudeEfforts.label(for: $0) ?? effortLabel($0))
+            }
 
     /// Static codex fallback when the model row advertises no efforts
     /// (the web drops `max` for codex — `EffortField.tsx`).
@@ -51,7 +49,6 @@ public enum NewSessionCatalogs {
 
     /// Capitalized label for a server-advertised effort id (`high` → `High`).
     public static func effortLabel(_ value: String) -> String {
-        guard let first = value.first else { return value }
-        return String(first).uppercased() + value.dropFirst()
+        ModelCatalog.capitalizedFirst(value)
     }
 }

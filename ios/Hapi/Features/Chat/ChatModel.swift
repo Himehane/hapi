@@ -142,7 +142,7 @@ final class ChatModel {
             case .transcribed(let text):
                 self.interactor.appendDictatedText(text)
             case .noProvider:
-                self.showNotice("No transcription provider configured on hub")
+                self.showNotice(String(localized: "No transcription provider configured on hub"))
             case .error(let message):
                 self.showNotice(message)
             }

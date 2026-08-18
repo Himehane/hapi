@@ -55,8 +55,7 @@ struct QRScannerView: View {
             ContentUnavailableView {
                 Label("Scanning unavailable", systemImage: "camera")
             } description: {
-                Text("This device cannot scan QR codes (for example the "
-                    + "Simulator). Go back and use manual entry instead.")
+                Text("This device cannot scan QR codes (for example the Simulator). Go back and use manual entry instead.")
             } actions: {
                 Button("Close") {
                     dismiss()
@@ -68,9 +67,8 @@ struct QRScannerView: View {
 
     private var hintBar: some View {
         Text(sawForeignCode
-            ? "That code is not a HAPI pairing QR — scan one printed by the hub."
-            : "Point the camera at the pairing QR from the hub terminal or the "
-                + "web app's Companion Pairing settings.")
+            ? String(localized: "That code is not a HAPI pairing QR — scan one printed by the hub.")
+            : String(localized: "Point the camera at the pairing QR from the hub terminal or the web app's Companion Pairing settings."))
             .font(.footnote)
             .multilineTextAlignment(.center)
             .foregroundStyle(sawForeignCode ? Color.orange : Color.secondary)
@@ -83,8 +81,7 @@ struct QRScannerView: View {
         ContentUnavailableView {
             Label("Camera access denied", systemImage: "video.slash")
         } description: {
-            Text("Allow camera access in Settings to scan the pairing QR, "
-                + "or go back and use manual entry.")
+            Text("Allow camera access in Settings to scan the pairing QR, or go back and use manual entry.")
         } actions: {
             if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
                 Button("Open Settings") {

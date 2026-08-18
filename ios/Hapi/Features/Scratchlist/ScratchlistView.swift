@@ -167,9 +167,11 @@ struct ScratchlistView: View {
     private var countLine: String {
         let state = model.state
         if !model.isLoading, state.entries.isEmpty {
-            return "No notes"
+            return String(localized: "No notes")
         }
-        return state.entries.count == 1 ? "1 note" : "\(state.entries.count) notes"
+        return state.entries.count == 1
+            ? String(localized: "1 note")
+            : String(format: String(localized: "%lld notes"), Int64(state.entries.count))
     }
 
     /// "Park current draft": the composer draft becomes an entry (disabled
@@ -278,7 +280,7 @@ private struct ScratchlistEntryCard: View {
 /// Relative age like the session list's Android `formatRelativeAge`.
 private func scratchlistRelativeAge(nowMs: Int, thenMs: Int) -> String {
     let delta = nowMs - thenMs
-    if delta < 60_000 { return "now" }
+    if delta < 60_000 { return String(localized: "now") }
     let minutes = delta / 60_000
     if minutes < 60 { return "\(minutes)m" }
     let hours = minutes / 60
@@ -411,7 +413,7 @@ private struct ScratchlistEditorSheet: View {
     var body: some View {
         let editor = model.editor ?? ScratchlistEditorState()
         VStack(alignment: .leading, spacing: 12) {
-            Text(editor.entryId == nil ? "New note" : "Edit note")
+            Text(editor.entryId == nil ? String(localized: "New note") : String(localized: "Edit note"))
                 .font(.headline)
             TextField(
                 "Note, draft, parking-lot idea…",

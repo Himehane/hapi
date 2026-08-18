@@ -44,6 +44,7 @@ struct ThemePrefsTests {
         #expect(ThemeMode.light.storageKey == "light")
         #expect(ThemeMode.dark.storageKey == "dark")
         #expect(ThemeMode.oled.storageKey == "oled")
+        #expect(AppLanguage.system.storageKey == "system")
         #expect(AppLanguage.english.storageKey == "en")
         #expect(AppLanguage.simplifiedChinese.storageKey == "zh-Hans")
     }
@@ -68,22 +69,28 @@ struct ThemePrefsTests {
         let (defaults, suiteName) = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        #expect(LanguagePrefs(defaults: defaults).language == .english)
+        #expect(LanguagePrefs(defaults: defaults).language == .system)
 
         LanguagePrefs(defaults: defaults).setLanguage(.simplifiedChinese)
         #expect(LanguagePrefs(defaults: defaults).language == .simplifiedChinese)
+
+        LanguagePrefs(defaults: defaults).setLanguage(.english)
+        #expect(LanguagePrefs(defaults: defaults).language == .english)
     }
 
-    @Test func corruptStoredLanguageDegradesToEnglish() throws {
+    @Test func corruptStoredLanguageDegradesToFollowSystem() throws {
         let (defaults, suiteName) = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set("tlh", forKey: LanguagePrefs.languageKey)
-        #expect(LanguagePrefs(defaults: defaults).language == .english)
+        #expect(LanguagePrefs(defaults: defaults).language == .system)
     }
 
     @Test func languageNamesAreShownInTheirOwnLanguage() {
         #expect(AppLanguage.english.displayName == "English")
         #expect(AppLanguage.simplifiedChinese.displayName == "简体中文")
+        // The follow-system row's label is localized at the app layer; the
+        // package carries the English source string.
+        #expect(AppLanguage.system.displayName == "Follow system")
     }
 }

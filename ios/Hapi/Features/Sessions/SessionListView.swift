@@ -85,7 +85,7 @@ struct SessionListView: View {
                 }
             }
             if rows.count > pinnedCount {
-                Section(pinnedCount > 0 ? "Sessions" : "") {
+                Section(pinnedCount > 0 ? String(localized: "Sessions") : "") {
                     ForEach(rows.dropFirst(pinnedCount)) { row in
                         rowCell(row, now: now)
                     }
@@ -285,7 +285,9 @@ struct StatusDot: View {
                 dot
             }
         }
-        .accessibilityLabel(active ? (thinking ? "Thinking" : "Active") : "Inactive")
+        .accessibilityLabel(active
+            ? (thinking ? String(localized: "Thinking") : String(localized: "Active"))
+            : String(localized: "Inactive"))
     }
 }
 
@@ -300,11 +302,11 @@ struct PendingBadge: View {
         let needsInput = kinds.contains(.input) && !kinds.contains(.permission)
         let label: String
         if needsInput {
-            label = "needs input"
+            label = String(localized: "needs input")
         } else if let first = requests.first {
-            label = "approve \(first.tool)"
+            label = String(format: String(localized: "approve %@"), first.tool)
         } else {
-            label = "pending"
+            label = String(localized: "pending")
         }
         let text = count > 1 ? "\(count) · \(label)" : label
         return Text(text)
@@ -341,11 +343,11 @@ struct MachineFilterBar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                FilterChip(label: "All", selected: activeFilter == nil) {
+                FilterChip(label: String(localized: "All"), selected: activeFilter == nil) {
                     onSelect(nil)
                 }
                 ForEach(filters) { filter in
-                    let label = filter.label.isEmpty ? "Unknown machine" : filter.label
+                    let label = filter.label.isEmpty ? String(localized: "Unknown machine") : filter.label
                     FilterChip(
                         label: "\(label) · \(filter.sessionCount)",
                         selected: activeFilter == filter.id

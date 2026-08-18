@@ -68,8 +68,7 @@ struct StorageView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Disk footprint of the hub's SQLite database (database, "
-                    + "write-ahead log, shared memory).")
+                Text("Disk footprint of the hub's SQLite database (database, write-ahead log, shared memory).")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -86,7 +85,9 @@ struct StorageView: View {
                     StorageUsageCard(usage: usage)
                     HStack {
                         Spacer()
-                        Button(isRefreshing ? "Refreshing…" : "Refresh") {
+                        Button(isRefreshing
+                            ? String(localized: "Refreshing…")
+                            : String(localized: "Refresh")) {
                             model.refresh()
                         }
                         .buttonStyle(.borderedProminent)
@@ -201,9 +202,9 @@ private struct StorageUsageCard: View {
 
     private func sliceLabel(_ key: StorageMath.SliceKey) -> String {
         switch key {
-        case .database: return "Database"
-        case .wal: return "Write-ahead log"
-        case .shm: return "Shared memory"
+        case .database: return String(localized: "Database")
+        case .wal: return String(localized: "Write-ahead log")
+        case .shm: return String(localized: "Shared memory")
         }
     }
 }

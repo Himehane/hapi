@@ -60,7 +60,7 @@ private struct PermissionActionsRow: View {
                 Button {
                     interactions.resolvePermission(requestId: requestId, action: codex ? .abort : .deny)
                 } label: {
-                    Text(codex ? "Abort" : "Deny")
+                    Text(codex ? String(localized: "Abort") : String(localized: "Deny"))
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -244,7 +244,7 @@ private struct AskUserQuestionFooter: View {
         if questions.isEmpty {
             let text = (otherText[0] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else {
-                validationError = "Type an answer first"
+                validationError = String(localized: "Type an answer first")
                 return
             }
             answers["0"] = [text]
@@ -266,7 +266,7 @@ private struct AskUserQuestionFooter: View {
                     values.append(free)
                 }
                 guard !values.isEmpty else {
-                    validationError = "Answer every question first"
+                    validationError = String(localized: "Answer every question first")
                     return
                 }
                 answers[question.answerKey(index: index, useStableIds: cursorDialect)] = values
@@ -347,7 +347,9 @@ private struct RequestUserInputFooter: View {
     private func questionSection(_ question: RequestUserInputQuestion, enabled: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if !question.question.isEmpty {
-                Text(question.question + (question.required ? "" : " (optional)"))
+                Text(question.required
+                    ? question.question
+                    : String(format: String(localized: "%@ (optional)"), question.question))
                     .font(.subheadline)
             }
             ForEach(question.options.indices, id: \.self) { optionIndex in
@@ -363,7 +365,7 @@ private struct RequestUserInputFooter: View {
                 }
             }
             TextField(
-                question.placeholder ?? "Add a note…",
+                question.placeholder ?? String(localized: "Add a note…"),
                 text: Binding(
                     get: { notes[question.id] ?? "" },
                     set: { text in
@@ -394,7 +396,7 @@ private struct RequestUserInputFooter: View {
             let questionSelected = Array(selected[question.id] ?? [])
             let note = notes[question.id] ?? ""
             guard isRequestUserInputAnswered(question, selected: questionSelected, note: note) else {
-                validationError = "Answer every required question first"
+                validationError = String(localized: "Answer every required question first")
                 return
             }
         }

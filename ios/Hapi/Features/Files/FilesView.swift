@@ -29,13 +29,21 @@ struct FilesView: View {
         case search = "Search"
 
         var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .changes: String(localized: "Changes")
+            case .browse: String(localized: "Browse")
+            case .search: String(localized: "Search")
+            }
+        }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             Picker("Section", selection: $tab) {
                 ForEach(FilesTab.allCases) { tab in
-                    Text(tab.rawValue).tag(tab)
+                    Text(tab.label).tag(tab)
                 }
             }
             .pickerStyle(.segmented)
@@ -103,20 +111,20 @@ private struct ChangesTabView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let error = state.error {
-                ErrorBanner(message: error)
+                ErrorBanner(message: LocalizedNoticeMapper.map(error))
             }
             if state.isLoading && state.status == nil {
                 CenteredProgress()
             } else if let status = state.status {
                 header(status)
                 if status.stagedFiles.isEmpty && status.unstagedFiles.isEmpty {
-                    CenteredHint(text: "No changes in the working tree")
+                    CenteredHint(text: String(localized: "No changes in the working tree"))
                     Spacer(minLength: 0)
                 } else {
                     changesList(status)
                 }
             } else {
-                CenteredHint(text: "Git status unavailable for this session")
+                CenteredHint(text: String(localized: "Git status unavailable for this session"))
                 Spacer(minLength: 0)
             }
         }
@@ -128,7 +136,7 @@ private struct ChangesTabView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 1) {
-                Text(status.branch ?? "Detached HEAD")
+                Text(status.branch ?? String(localized: "Detached HEAD"))
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
                 Text("\(status.totalStaged) staged · \(status.totalUnstaged) unstaged")
@@ -202,7 +210,7 @@ private struct GitFileRow: View {
         if let oldPath = file.oldPath {
             return "\(oldPath) → \(file.fullPath)"
         }
-        return file.filePath.isEmpty ? "Project root" : file.filePath
+        return file.filePath.isEmpty ? String(localized: "Project root") : file.filePath
     }
 
     private var counts: String {
@@ -306,7 +314,7 @@ private struct BrowseTabView: View {
                 .controlSize(.small)
                 .padding(.leading, indent(depth) + 20)
         case .failure(_, let depth, let message):
-            Text(message)
+            Text(LocalizedNoticeMapper.map(message))
                 .font(.caption)
                 .foregroundStyle(.red)
                 .padding(.leading, indent(depth) + 20)
@@ -341,15 +349,15 @@ private struct SearchTabView: View {
             .padding(.vertical, 8)
 
             if state.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                CenteredHint(text: "Type to search files in the session directory")
+                CenteredHint(text: String(localized: "Type to search files in the session directory"))
                 Spacer(minLength: 0)
             } else if state.isLoading {
                 CenteredProgress()
             } else if let error = state.error {
-                ErrorBanner(message: error)
+                ErrorBanner(message: LocalizedNoticeMapper.map(error))
                 Spacer(minLength: 0)
             } else if state.hasSearched && state.results.isEmpty {
-                CenteredHint(text: "No files matched")
+                CenteredHint(text: String(localized: "No files matched"))
                 Spacer(minLength: 0)
             } else {
                 List(state.results, id: \.fullPath) { item in

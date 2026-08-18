@@ -65,8 +65,7 @@ struct HomeView: View {
                     model.signOut(hub: session.hubUrl)
                 }
             } message: {
-                Text("Removes the stored access token for this hub. "
-                    + "Pair again to reconnect.")
+                Text("Removes the stored access token for this hub. Pair again to reconnect.")
             }
         }
         .sheet(isPresented: $model.showAddHub) {
@@ -109,11 +108,11 @@ struct HomeView: View {
 
     private var connectionLabel: String {
         switch session.connectionState {
-        case .connected: "Live"
-        case .connecting: "Connecting…"
-        case .backoff: "Reconnecting…"
-        case .suspended: "Paused"
-        case .idle: "Offline"
+        case .connected: String(localized: "Live")
+        case .connecting: String(localized: "Connecting…")
+        case .backoff: String(localized: "Reconnecting…")
+        case .suspended: String(localized: "Paused")
+        case .idle: String(localized: "Offline")
         }
     }
 
@@ -159,9 +158,7 @@ struct HomeView: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
-            Text("\(HubDisplay.host(failedHub)) rejected its stored "
-                + "credentials and was signed out. Pair it again from the hub "
-                + "menu.")
+            Text("\(HubDisplay.host(failedHub)) rejected its stored credentials and was signed out. Pair it again from the hub menu.")
                 .font(.footnote)
             Spacer(minLength: 0)
             Button {

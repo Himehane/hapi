@@ -102,7 +102,7 @@ struct SessionConfigView: View {
         config.flavor == "claude" ? ModelCatalog.normalizeClaudeEffort(config.effort) : config.effort
     }
 
-    private func notice(_ text: String) -> some View {
+    private func notice(_ text: LocalizedStringKey) -> some View {
         Section {
             Label(text, systemImage: "info.circle")
                 .font(.footnote)
