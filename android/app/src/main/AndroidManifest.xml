@@ -52,6 +52,18 @@
             </intent-filter>
         </activity>
 
+        <!-- Composer attachments (B-M3f): scratch Uri for TakePicture camera
+             captures (cache/attachments/), granted to the camera app only. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.attachments"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/attachment_file_paths" />
+        </provider>
+
         <!-- zxing-android-embedded pins its stock CaptureActivity to
              sensorLandscape; this subclass keeps the pairing scan in portrait
              (selected via ScanOptions.setCaptureActivity). -->

@@ -2,7 +2,9 @@ package app.hapi.companion.feature.chat
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -50,6 +52,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +62,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import app.hapi.companion.feature.chat.attachments.AttachmentPickerSheet
+import app.hapi.companion.feature.chat.attachments.AttachmentPreparer
+import app.hapi.companion.feature.chat.attachments.CameraCapture
+import app.hapi.companion.feature.chat.attachments.PrepareResult
 import app.hapi.companion.feature.chat.composer.ChatComposer
 import app.hapi.companion.feature.chat.composer.DictationController
 import app.hapi.companion.feature.chat.composer.DictationEvent
@@ -68,10 +76,21 @@ import app.hapi.companion.feature.sessions.RenameSessionDialog
 import app.hapi.companion.ui.markdown.LocalMarkdownLinkHandler
 import app.hapi.companion.ui.theme.hapi
 import app.hapi.protocol.chat.VisibleChatBlock
+import java.io.File
 import kotlinx.coroutines.launch
 
 /** How close to the oldest rendered block the viewport may get before paging. */
 private const val LOAD_OLDER_PREFETCH_ITEMS = 4
+
+/** Pending camera capture across rotation/process death: uri + scratch path. */
+private val CameraCaptureSaver = listSaver<CameraCapture?, String>(
+    save = { capture ->
+        if (capture == null) emptyList() else listOf(capture.uri.toString(), capture.file.absolutePath)
+    },
+    restore = { saved ->
+        if (saved.size < 2) null else CameraCapture(Uri.parse(saved[0]), File(saved[1]))
+    },
+)
 
 /**
  * The chat screen: `LazyColumn(reverseLayout = true)` over the reduced
@@ -89,6 +108,12 @@ private const val LOAD_OLDER_PREFETCH_ITEMS = 4
  * append), the slash-command dropdown, and session ops: a top-bar overflow
  * menu (Rename / Reopen / Delete) plus an inactive-session affordance bar
  * above the composer (send already auto-resumes; Reopen is the explicit path).
+ *
+ * B-M3f adds composer attachments: the "+" sheet (photo library / camera /
+ * files), pick preparation ([AttachmentPreparer]: ContentResolver read +
+ * image downscale + 50 MB reject) feeding the ViewModel's upload tray, and
+ * the camera scratch capture (FileProvider Uri, `rememberSaveable` across
+ * rotation while the camera app is up).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -164,6 +189,79 @@ fun ChatScreen(
     }
     val slashSuggestions by viewModel.slashSuggestions.collectAsState()
 
+    // --------------------------------------------------------- attachments --
+    val attachmentItems by viewModel.attachments.items.collectAsState()
+    var attachmentSheetOpen by remember { mutableStateOf(false) }
+    val preparer = remember { AttachmentPreparer(context) }
+
+    /** Read + policy-apply one pick, then hand it to the upload tray. */
+    suspend fun ingestUri(uri: Uri) {
+        when (val result = preparer.prepare(uri)) {
+            is PrepareResult.Ready -> viewModel.attachments.add(result.attachment)
+            is PrepareResult.TooLarge -> snackbarHostState.showSnackbar(
+                "${result.filename} is over the 50 MB upload limit",
+            )
+            is PrepareResult.Unreadable -> snackbarHostState.showSnackbar(
+                "Couldn't read ${result.filename}",
+            )
+        }
+    }
+
+    fun ingestUris(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        scope.launch { uris.forEach { ingestUri(it) } }
+    }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(),
+    ) { uris -> ingestUris(uris) }
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris -> ingestUris(uris) }
+
+    // The camera app may rotate/kill us while open — keep the scratch target.
+    var pendingCapture by rememberSaveable(stateSaver = CameraCaptureSaver) {
+        mutableStateOf<CameraCapture?>(null)
+    }
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture(),
+    ) { success ->
+        val capture = pendingCapture
+        pendingCapture = null
+        if (capture == null) return@rememberLauncherForActivityResult
+        if (!success) {
+            capture.discard()
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            ingestUri(capture.uri)
+            capture.discard()
+        }
+    }
+
+    fun launchCamera() {
+        val capture = preparer.newCameraCapture()
+        pendingCapture = capture
+        takePictureLauncher.launch(capture.uri)
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            launchCamera()
+        } else {
+            scope.launch { snackbarHostState.showSnackbar("Camera permission is needed to take a photo") }
+        }
+    }
+    val onTakePhoto: () -> Unit = {
+        // The manifest declares CAMERA (QR pairing), which makes the runtime
+        // grant mandatory for ACTION_IMAGE_CAPTURE too.
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) launchCamera() else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+    }
+
     val interactions = remember(state.flavor, state.permissionOverrides, viewModel) {
         ChatInteractions(
             flavor = state.flavor,
@@ -216,6 +314,10 @@ fun ChatScreen(
                     onSend = { viewModel.sendMessage() },
                     onSendSteer = { viewModel.sendMessage(steer = true) },
                     onAbort = viewModel::abortSession,
+                    attachments = attachmentItems,
+                    onAddAttachment = { attachmentSheetOpen = true },
+                    onAttachmentRetry = viewModel.attachments::retry,
+                    onAttachmentRemove = viewModel.attachments::remove,
                     slashSuggestions = slashSuggestions,
                     onSlashCommandSelected = viewModel::selectSlashCommand,
                     dictation = if (dictation != null) dictationState else null,
@@ -250,6 +352,18 @@ fun ChatScreen(
         }
     }
 
+    if (attachmentSheetOpen) {
+        AttachmentPickerSheet(
+            onDismiss = { attachmentSheetOpen = false },
+            onPickPhotos = {
+                photoPickerLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+                )
+            },
+            onTakePhoto = onTakePhoto,
+            onPickFiles = { documentPickerLauncher.launch(arrayOf("*/*")) },
+        )
+    }
     if (configSheetOpen) {
         SessionConfigSheet(
             config = configState,

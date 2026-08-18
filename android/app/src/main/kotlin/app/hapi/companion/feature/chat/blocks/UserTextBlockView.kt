@@ -1,12 +1,15 @@
 package app.hapi.companion.feature.chat.blocks
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,14 +17,19 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.hapi.companion.feature.chat.LocalChatInteractions
+import app.hapi.companion.feature.chat.attachments.PreviewImage
+import app.hapi.companion.feature.chat.attachments.rememberPreviewImage
 import app.hapi.companion.ui.theme.HapiTheme
 import app.hapi.protocol.chat.ChatAttachment
 import app.hapi.protocol.chat.UserTextBlock
@@ -29,7 +37,10 @@ import app.hapi.protocol.chat.UserTextBlock
 /**
  * Operator prompt: right-aligned bubble (whitespace preserved — prompts are
  * not rendered as markdown, matching the web user bubble), attachments as
- * chips, failed-send hint when a snapshot restored a failed optimistic row.
+ * image thumbnails (decoded from the wire `previewUrl` data URL — both
+ * Android- and web-sent messages carry one, and optimistic rows do too, so
+ * thumbnails appear instantly on send) or filename chips, and a failed-send
+ * tap-to-retry hint (B-M3f upgrades the former chips-only rendering).
  */
 @Composable
 fun UserTextBlockView(block: UserTextBlock, modifier: Modifier = Modifier) {
@@ -52,8 +63,9 @@ fun UserTextBlockView(block: UserTextBlock, modifier: Modifier = Modifier) {
                         Column(
                             modifier = Modifier.padding(top = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalAlignment = Alignment.End,
                         ) {
-                            attachments.forEach { AttachmentChip(it) }
+                            attachments.forEach { AttachmentView(it) }
                         }
                     }
                 }
@@ -78,6 +90,40 @@ fun UserTextBlockView(block: UserTextBlock, modifier: Modifier = Modifier) {
                 )
             }
         }
+    }
+}
+
+/**
+ * One bubble attachment: image mimes with a decodable `previewUrl` render a
+ * thumbnail (web `MessageAttachments` split); everything else — plus decode
+ * failures — falls back to the filename chip.
+ */
+@Composable
+private fun AttachmentView(attachment: ChatAttachment) {
+    val isImage = attachment.mimeType.startsWith("image/")
+    if (!isImage || attachment.previewUrl == null) {
+        AttachmentChip(attachment)
+        return
+    }
+    val preview by rememberPreviewImage(attachment.previewUrl)
+    when (val state = preview) {
+        is PreviewImage.Ready -> Image(
+            bitmap = state.bitmap,
+            contentDescription = attachment.filename,
+            contentScale = ContentScale.Fit,
+            alignment = Alignment.CenterEnd,
+            modifier = Modifier
+                .heightIn(max = 180.dp)
+                .clip(RoundedCornerShape(10.dp)),
+        )
+        // Sized placeholder while decoding keeps the bubble from jumping.
+        PreviewImage.Loading -> Surface(
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
+            shape = RoundedCornerShape(10.dp),
+        ) {
+            Spacer(modifier = Modifier.size(width = 120.dp, height = 90.dp))
+        }
+        PreviewImage.Unavailable -> AttachmentChip(attachment)
     }
 }
 

@@ -520,7 +520,7 @@ class HapiApi(
      * multipart), ≤ 50 MB decoded → 413. The returned `path` feeds the
      * `attachments` of send-message.
      */
-    suspend fun uploadFile(
+    override suspend fun uploadFile(
         sessionId: String,
         filename: String,
         contentBase64: String,
@@ -533,7 +533,7 @@ class HapiApi(
         )
 
     /** `POST /api/sessions/:id/upload/delete`. */
-    suspend fun deleteUpload(sessionId: String, path: String): DeleteUploadResponse =
+    override suspend fun deleteUpload(sessionId: String, path: String): DeleteUploadResponse =
         request(
             "POST",
             url("api", "sessions", sessionId, "upload", "delete").build(),

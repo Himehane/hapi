@@ -1,5 +1,6 @@
 package app.hapi.companion.feature.chat
 
+import app.hapi.companion.feature.chat.attachments.ComposerAttachments
 import app.hapi.companion.feature.chat.composer.ChatDrafts
 import app.hapi.companion.feature.chat.composer.SlashCommands
 import app.hapi.companion.feature.chat.composer.appendTranscript
@@ -225,6 +226,18 @@ sealed interface PermissionAction {
  *   pickers with optimistic detail updates, rolled back to server truth on
  *   error; codex model catalog fetched per session ([loadModelOptions]).
  *
+ * B-M3f adds:
+ * - **Attachments** ([attachments], a [ComposerAttachments] tray): picks are
+ *   prepared by the screen (ContentResolver read + image downscale) and
+ *   uploaded immediately; [sendMessage] refuses while any chip is unsettled,
+ *   then rides the Ready set as `SendMessageRequest.attachments` — the
+ *   optimistic row carries them so the user bubble shows thumbnails at once,
+ *   and [retryFailedMessage] re-extracts them from the row's wire content.
+ *   Attachments are NOT part of drafts (v1 simplification vs the web's
+ *   IndexedDB attachment drafts): leaving the chat for good
+ *   ([discardAttachments], holder `onCleared`) drops un-sent chips after a
+ *   best-effort hub delete.
+ *
  * B-M3ce adds:
  * - **Slash commands** ([slashSuggestions]/[selectSlashCommand]): `/token`
  *   composer input opens the dropdown; sources = `metadata.slashCommands`
@@ -281,6 +294,12 @@ class ChatViewModel(
 
     private val composerText = MutableStateFlow("")
     private val sendInFlight = MutableStateFlow(false)
+
+    /**
+     * Composer attachment tray (B-M3f). The screen feeds prepared picks in
+     * and renders `attachments.items`; [sendMessage] consumes the Ready set.
+     */
+    val attachments = ComposerAttachments(api = api, sessionId = sessionId, scope = scope)
     private val queuedOpPending = MutableStateFlow(false)
     private val permissionOverrides = MutableStateFlow<Map<String, PermissionRowOverride>>(emptyMap())
     private val configOpPending = MutableStateFlow(false)
@@ -552,11 +571,24 @@ class ChatViewModel(
     /**
      * Submit the composer. Delivery defaults to durable queue; [steer] is the
      * explicit long-press intent that delivers into the active turn
-     * (`deliveryMode: "steer"` — `messageDelivery.ts` semantics).
+     * (`deliveryMode: "steer"` — `messageDelivery.ts` semantics; attachments
+     * may ride a steer, only `scheduledAt` excludes them).
+     *
+     * Ready attachments are consumed into `SendMessageRequest.attachments`;
+     * an unsettled chip (uploading/failed) blocks the send with a notice.
+     * Text may be empty when attachments exist (wire: text OR attachments).
      */
     fun sendMessage(steer: Boolean = false) {
+        if (sendInFlight.value) return
+        if (attachments.hasUnsettled()) {
+            _events.tryEmit(
+                ChatEvent.Notice("Attachments are still uploading — wait, or retry/remove the failed ones"),
+            )
+            return
+        }
         val text = composerText.value.trim()
-        if (text.isEmpty() || sendInFlight.value) return
+        val attachmentMetadata = attachments.consume()
+        if (text.isEmpty() && attachmentMetadata == null) return
         composerText.value = ""
         draftJob?.cancel()
         scope.launch {
@@ -566,9 +598,19 @@ class ChatViewModel(
                 localId = localIdGenerator(),
                 createdAt = now(),
                 deliveryMode = if (steer) "steer" else "queue",
+                attachments = attachmentMetadata,
                 isRetry = false,
             )
         }
+    }
+
+    /**
+     * The screen is going away for good (holder `onCleared`, not a config
+     * change): un-sent uploads are discarded after a best-effort hub delete.
+     * Attachments deliberately do not persist in drafts v1.
+     */
+    fun discardAttachments() {
+        attachments.discardAllDetached()
     }
 
     /** Tap-to-retry on a failed optimistic row: re-fires the send with the same localId. */
@@ -617,6 +659,12 @@ class ChatViewModel(
         scheduledAt: Long? = null,
         isRetry: Boolean,
     ) {
+        // Wire constraint (SendMessageRequestSchema): scheduled sends exclude
+        // attachments (and steer). No Android surface can produce the combo
+        // today — this trips loudly if a scheduled-send UI ever forgets it.
+        check(scheduledAt == null || attachments.isNullOrEmpty()) {
+            "scheduled sends cannot carry attachments"
+        }
         sendInFlight.value = true
         try {
             val store = awaitWindowStore()

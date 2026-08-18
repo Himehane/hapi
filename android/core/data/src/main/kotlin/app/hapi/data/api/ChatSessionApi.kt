@@ -3,10 +3,33 @@ package app.hapi.data.api
 import app.hapi.protocol.wire.ApprovePermissionRequest
 import app.hapi.protocol.wire.CancelMessageResponse
 import app.hapi.protocol.wire.CodexModelsResponse
+import app.hapi.protocol.wire.DeleteUploadResponse
 import app.hapi.protocol.wire.ResumeSessionResponse
 import app.hapi.protocol.wire.SendMessageRequest
 import app.hapi.protocol.wire.SlashCommandsResponse
 import app.hapi.protocol.wire.SteerQueuedMessageResponse
+import app.hapi.protocol.wire.UploadFileResponse
+
+/**
+ * Message-attachment upload seam (B-M3f). Split from [ChatSessionApi] so the
+ * composer attachment controller can be tested against a two-method fake.
+ */
+interface AttachmentUploadApi {
+    /**
+     * `POST /api/sessions/:id/upload` — JSON + base64 (NOT multipart),
+     * ≤ 50 MB decoded → 413. The returned `path` becomes
+     * `AttachmentMetadata.path` in the send-message body.
+     */
+    suspend fun uploadFile(
+        sessionId: String,
+        filename: String,
+        contentBase64: String,
+        mimeType: String,
+    ): UploadFileResponse
+
+    /** `POST /api/sessions/:id/upload/delete` — best-effort orphan cleanup. */
+    suspend fun deleteUpload(sessionId: String, path: String): DeleteUploadResponse
+}
 
 /**
  * The endpoint seam the chat interaction layer (B-M3ab) drives — send /
@@ -14,9 +37,10 @@ import app.hapi.protocol.wire.SteerQueuedMessageResponse
  * session config. [HapiApi] is the production implementation; ViewModel tests
  * substitute a scripted fake and assert the exact request bodies.
  *
- * Extends [MessagesApi] so one fake covers the window store's transport too.
+ * Extends [MessagesApi] so one fake covers the window store's transport too,
+ * and [AttachmentUploadApi] for the composer attachment flow (B-M3f).
  */
-interface ChatSessionApi : MessagesApi {
+interface ChatSessionApi : MessagesApi, AttachmentUploadApi {
     /** `POST /api/sessions/:id/messages` — `{ok:true}`; the row arrives via SSE. */
     suspend fun sendMessage(sessionId: String, message: SendMessageRequest)
 
