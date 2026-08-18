@@ -91,9 +91,24 @@ ios/
                                       become tap-to-retry; Composer/ —
                                       multiline input with long-press
                                       "Send & steer" while thinking, abort
-                                      button, M4 attachment-chip seam, and
-                                      the queued-messages bar with
-                                      Steer/Edit/Cancel; SessionConfigView —
+                                      button, the A-M3f attachment tray
+                                      ("+" → photo library / camera / files
+                                      pickers; upload-on-pick chips with
+                                      spinner / thumbnail / tap-to-retry,
+                                      ✕ removes; attachments-only sends
+                                      allowed) and mic dictation (recording
+                                      chip with elapsed + cancel,
+                                      AVAudioRecorder m4a/AAC → hub
+                                      transcription, transcript appended to
+                                      the draft), and the queued-messages
+                                      bar with Steer/Edit/Cancel;
+                                      Attachments/ — pick preparation
+                                      (capped reads, ImageIO downscale of
+                                      >4 MB images to 2048 px JPEG, 512 px
+                                      previewUrl thumbs), camera capture,
+                                      and user-bubble previewUrl thumbnails
+                                      (off-main decode, also for web-sent
+                                      attachments); SessionConfigView —
                                       the toolbar-gear sheet for permission
                                       mode / model / effort per flavor),
                                       Links/ (app-wide \.hapiOpenURL handler:
@@ -334,9 +349,35 @@ ios/
                                             the owner-only GET
                                             /api/usage/summary and GET
                                             /api/storage/sqlite.
-                         Feature endpoints (git/files, scratchlist, voice)
-                         join Endpoints/ with their feature packages in
-                         M3/M4.
+                                            Since A-M3f: Attachments/ —
+                                            AttachmentPolicy (the pure
+                                            compress/reject/preview policy,
+                                            constants shared verbatim with
+                                            the Android port: 4 MB image
+                                            compress threshold → 2048 px
+                                            JPEG q85, 50 MB hard cap, 512 px
+                                            previewUrl data-URL thumbs) and
+                                            ComposerAttachments (the
+                                            upload-on-pick tray:
+                                            uploading/ready/failed chips,
+                                            retained payloads for retry,
+                                            best-effort deletes on remove /
+                                            mid-upload removal / discard,
+                                            consume() → the send body's
+                                            AttachmentMetadata); Voice/ —
+                                            DictationController
+                                            (idle/starting/recording/
+                                            transcribing over recorder +
+                                            transport seams, provider
+                                            memoized from GET providers,
+                                            first standard-capable entry
+                                            wins) with VoiceEndpoints
+                                            (GET /api/voice/transcription/
+                                            providers + the one multipart
+                                            endpoint POST
+                                            /api/voice/transcription).
+                         Feature endpoints (git/files, scratchlist) join
+                         Endpoints/ with their feature packages in M4.
     HapiUI               Rendering foundation (M2e). SwiftUI, no app coupling:
                            Markdown/  MarkdownTransforms (string-level ports of
                                       the web remark plugins: table repair,
@@ -392,6 +433,16 @@ scripted): canonical approve/deny/send/config wire bodies asserted
 byte-for-byte, optimistic send happy/fail/retry, 409 → resume → retry (same
 and superseding id), queued cancel invoked-race, steer reconcile, edit
 prefill, permission override lifecycle, and config optimistic + rollback.
+Since A-M3f, `Attachments/AttachmentPolicyTests` ports the Android policy
+matrix, `Attachments/ComposerAttachmentsTests` drives the upload tray over
+the real client (exact base64 upload bodies, consume/retry/remove,
+mid-upload removal orphan delete, detached discard),
+`Voice/DictationControllerTests` transcribes the Android dictation suite
+(fake recorder + transport), `EndpointRequestTests` covers the voice
+endpoints (multipart shape included), and `ChatInteractorTests` gains the
+attachment-send matrix (metadata on the wire byte-for-byte, refuse while
+uploading, attachments-only sends, retry with identical attachments,
+remove/discard deletes).
 
 ## Pairing (M1d)
 
@@ -452,9 +503,12 @@ scan both `--relay` QR forms → open a `hapicompanion://bind` link from Notes
 
 ## Notes
 
-- The `hapicompanion://` URL scheme is registered via `Hapi/Info.plist`
-  (only `CFBundleURLTypes` lives there; everything else is generated through
-  `GENERATE_INFOPLIST_FILE` + `INFOPLIST_KEY_*` build settings).
+- The `hapicompanion://` URL scheme is registered via `Hapi/Info.plist`,
+  alongside the camera (QR pairing + attachment capture) and microphone
+  (dictation) usage strings; everything else is generated through
+  `GENERATE_INFOPLIST_FILE` + `INFOPLIST_KEY_*` build settings. The modern
+  out-of-process `PhotosPicker` needs **no** photo-library permission, so
+  there is no `NSPhotoLibraryUsageDescription`.
 - `run.hapi.companion` is the bundle id; signing is `Automatic` and CI builds
   with `CODE_SIGNING_ALLOWED=NO`.
 - CI uses the runner's default Xcode; each job prints `xcodebuild -version`
