@@ -33,6 +33,7 @@ import app.hapi.protocol.wire.SkillsResponse
 import app.hapi.protocol.wire.SlashCommandsResponse
 import app.hapi.protocol.wire.SpawnResponse
 import app.hapi.protocol.wire.SpawnSessionRequest
+import app.hapi.protocol.wire.SqliteStorageUsageResponse
 import app.hapi.protocol.wire.SteerQueuedMessageResponse
 import app.hapi.protocol.wire.TranscriptionProvidersResponse
 import app.hapi.protocol.wire.TranscriptionResponse
@@ -40,6 +41,7 @@ import app.hapi.protocol.wire.UnregisterDeviceRequest
 import app.hapi.protocol.wire.UpdateSessionSummaryRequest
 import app.hapi.protocol.wire.UploadFileRequest
 import app.hapi.protocol.wire.UploadFileResponse
+import app.hapi.protocol.wire.UsageSummaryResponse
 import app.hapi.protocol.wire.VisibilityRequest
 import java.io.IOException
 import kotlin.coroutines.resume
@@ -539,6 +541,26 @@ class HapiApi(
             url("api", "sessions", sessionId, "upload", "delete").build(),
             DeleteUploadRequest(path).toJsonBody(),
         )
+
+    // ---------------------------------------------------- usage & storage --
+    // Owner-only dashboards: both 403 unless the JWT namespace is `default`
+    // (`docs/api/client-contract/rest.md#usage--storage-owner-only`).
+
+    /**
+     * `GET /api/usage/summary?range=7d|30d|all&timeZone=<IANA>` — token-usage
+     * dashboard aggregates. The hub validates [timeZone] (400 when invalid)
+     * and buckets `daily` by that zone's calendar days.
+     */
+    suspend fun getUsageSummary(range: String = "7d", timeZone: String = "UTC"): UsageSummaryResponse {
+        val target = url("api", "usage", "summary")
+            .addQueryParameter("range", range)
+            .addQueryParameter("timeZone", timeZone)
+        return request("GET", target.build())
+    }
+
+    /** `GET /api/storage/sqlite` — hub db/wal/shm file sizes. */
+    suspend fun getSqliteStorageUsage(): SqliteStorageUsageResponse =
+        request("GET", url("api", "storage", "sqlite").build())
 
     // ------------------------------------------------------------- devices --
 

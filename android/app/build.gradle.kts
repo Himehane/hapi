@@ -41,6 +41,8 @@ android {
 
     buildFeatures {
         compose = true
+        // About screen surfaces BuildConfig.VERSION_NAME (B-M4e).
+        buildConfig = true
     }
 
     testOptions {
