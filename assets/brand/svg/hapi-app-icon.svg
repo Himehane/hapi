@@ -1,5 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
-    <title id="title">HAPI handoff robot mark</title>
+    <title id="title">HAPI handoff app icon</title>
+    <rect width="512" height="512" fill="#FFF8F8" />
     <g fill="#F25562">
         <rect x="72" y="240" width="24" height="12" rx="6" />
         <rect x="416" y="240" width="24" height="12" rx="6" />
@@ -11,5 +12,9 @@
         <path d="M153 306Q256 402 359 306L337 306Q256 362 175 306Z" />
         <circle cx="164" cy="306" r="11" />
         <circle cx="348" cy="306" r="11" />
+    </g>
+    <g fill="#FFF8F8">
+        <circle cx="182" cy="218" r="7" />
+        <circle cx="314" cy="218" r="7" />
     </g>
 </svg>
