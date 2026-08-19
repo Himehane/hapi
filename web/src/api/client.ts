@@ -8,6 +8,7 @@ import type {
     CodexDesktopSyncRequest,
     CodexDesktopStatusResponse,
     CodexArchiveSessionResponse,
+    DecryptedMessage,
     CodexCollaborationMode,
     CopilotAgentMode,
     FileSearchResponse,
@@ -59,6 +60,11 @@ import type {
 import type { AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
 import type { CancelMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
+
+export type RetryIndeterminateMessageResponse =
+    | { status: 'retried' | 'already-queued' | 'retry-unavailable'; localId: string | null }
+    | { status: 'invoked'; message: DecryptedMessage }
+    | { status: 'not-found' }
 
 export type ProviderCredentialSource = 'env' | 'settings' | 'none'
 
@@ -553,6 +559,13 @@ export class ApiClient {
             { method: 'POST' }
         )
         return response as SteerQueuedMessageResponse
+    }
+
+    async retryIndeterminateMessage(sessionId: string, messageId: string): Promise<RetryIndeterminateMessageResponse> {
+        return await this.request<RetryIndeterminateMessageResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/retry`,
+            { method: 'POST' }
+        )
     }
 
     async abortSession(sessionId: string): Promise<void> {

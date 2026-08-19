@@ -569,6 +569,40 @@ public enum MessageWindowLogic {
         return changed ? settingMessages(previous, messages) : previous
     }
 
+    public static func markIndeterminate(
+        _ previous: MessageWindowState,
+        localIds: [String]
+    ) -> MessageWindowState {
+        if localIds.isEmpty { return previous }
+        let idSet = Set(localIds)
+        var changed = false
+        let messages = previous.messages.map { message -> WindowMessage in
+            guard let localId = message.localId, idSet.contains(localId), message.status != .indeterminate else {
+                return message
+            }
+            changed = true
+            return message.withStatus(.indeterminate)
+        }
+        return changed ? settingMessages(previous, messages) : previous
+    }
+
+    public static func markRequeued(
+        _ previous: MessageWindowState,
+        localIds: [String]
+    ) -> MessageWindowState {
+        if localIds.isEmpty { return previous }
+        let idSet = Set(localIds)
+        var changed = false
+        let messages = previous.messages.map { message -> WindowMessage in
+            guard let localId = message.localId, idSet.contains(localId), message.status == .indeterminate else {
+                return message
+            }
+            changed = true
+            return message.withStatus(.queued)
+        }
+        return changed ? settingMessages(previous, messages) : previous
+    }
+
     /// `message-cancelled` / optimistic DELETE removal: matches localId OR
     /// id; idempotent.
     public static func removeByLocalIdOrId(

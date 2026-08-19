@@ -497,16 +497,64 @@ describe('MessageService.getQueuedState', () => {
             'local-other'
         ])).toEqual({
             queuedLocalIds: ['local-queued', 'local-future'],
+            indeterminateLocalIds: [],
             invokedLocalMessages: [{ localId: 'local-invoked', invokedAt: 1_000 }]
         })
         expect(service.getQueuedState(session.id, [])).toEqual({
             queuedLocalIds: [],
+            indeterminateLocalIds: [],
             invokedLocalMessages: []
         })
     })
 })
 
 describe('MessageService.cancelQueuedMessage race scenarios', () => {
+    describe('indeterminate cancel recheck', () => {
+        it('returns invoked when consumption wins during the cancel ACK wait', async () => {
+            const store = makeStore()
+            const session = makeSession(store, 'race-indeterminate-cancel')
+            const msg = store.messages.addMessage(
+                session.id,
+                { role: 'user', content: { type: 'text', text: 'hello' } },
+                'local-indeterminate-cancel'
+            )
+            store.messages.markMessagesIndeterminate(session.id, [msg.localId!])
+            const publisher = makePublisher()
+            const io = makeIo((callback) => {
+                store.messages.markMessagesInvoked(session.id, [msg.localId!], 2_000)
+                callback(null, [{ removed: false }])
+            })
+
+            const service = new MessageService(store, io, publisher as any)
+            const result = await service.cancelQueuedMessage(session.id, msg.id)
+
+            expect(result.status).toBe('invoked')
+            expect(publisher.events.some((event) => event.type === 'message-cancelled')).toBe(false)
+        })
+    })
+
+    describe('indeterminate explicit cancel', () => {
+        it('releases and deletes a held reservation after confirmed removal', async () => {
+            const store = makeStore()
+            const session = makeSession(store, 'indeterminate-cancel')
+            const msg = store.messages.addMessage(
+                session.id,
+                { role: 'user', content: { type: 'text', text: 'discard' } },
+                'local-indeterminate'
+            )
+            store.messages.markMessagesIndeterminate(session.id, [msg.localId!])
+            const publisher = makePublisher()
+            const service = new MessageService(store, makeIo((callback) => {
+                callback(null, [{ removed: true }])
+            }), publisher as any)
+
+            const result = await service.cancelQueuedMessage(session.id, msg.id)
+            expect(result).toEqual({ status: 'cancelled', localId: 'local-indeterminate' })
+            expect(store.messages.lookupQueuedMessage(session.id, msg.id)).toEqual({ status: 'absent' })
+            expect(publisher.events.some((event) => event.type === 'message-cancelled')).toBe(true)
+        })
+    })
+
     describe('Race-A: CLI ack removed:true → DELETE + status=cancelled', () => {
         it('returns cancelled and emits message-cancelled SSE after CLI confirms removal', async () => {
             const store = makeStore()
