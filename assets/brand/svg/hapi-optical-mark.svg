@@ -1,7 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
-    <title id="title">HAPI PWA maskable optical icon</title>
-    <rect width="512" height="512" fill="#FFF8F8" />
-    <g transform="translate(30.72 30.72) scale(.88)" fill="#F25562">
+    <title id="title">HAPI optical launcher foreground</title>
+    <g fill="#F25562">
         <rect x="67" y="240" width="47" height="16" rx="8" />
         <rect x="398" y="240" width="47" height="16" rx="8" />
         <path fill-rule="evenodd" d="M41 224H61A14 14 0 0 1 75 238V258A14 14 0 0 1 61 272H41A14 14 0 0 1 27 258V238A14 14 0 0 1 41 224ZM58 235L39 248L58 261H66L48 248L66 235Z" />
