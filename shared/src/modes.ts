@@ -190,12 +190,11 @@ export function getCodexCollaborationModeOptions(): CodexCollaborationModeOption
  * - Codex: app-server `turn/steer` (true mid-turn inject)
  * - Cursor ACP: concurrent `session/prompt` soft-send (no cancel). Legacy
  *   stream-json Cursor sessions are NOT steerable — gate with
- *   {@link isSteeringSupportedForSession}. (Cursor joins this list once its
- *   soft-steer handler lands.)
+ *   {@link isSteeringSupportedForSession}.
  *
  * Claude / others: not supported (no reachable soft-steer path) — UI hides Steer.
  */
-export const STEERING_SUPPORTED_FLAVORS = ['codex', 'pi'] as const
+export const STEERING_SUPPORTED_FLAVORS = ['codex', 'cursor', 'pi'] as const
 
 export function isSteeringSupportedForFlavor(flavor?: string | null): boolean {
     return (STEERING_SUPPORTED_FLAVORS as readonly string[]).includes(flavor ?? '')
@@ -217,5 +216,14 @@ export function isSteeringSupportedForSession(metadata?: {
     if (metadata?.flavor === 'codex' || metadata?.flavor === 'pi') {
         return true
     }
-    return false
+    if (metadata?.flavor !== 'cursor') {
+        return false
+    }
+    if (metadata.cursorSessionProtocol === 'stream-json') {
+        return false
+    }
+    if (!metadata.cursorSessionProtocol && metadata.cursorSessionId) {
+        return false
+    }
+    return true
 }
