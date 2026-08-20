@@ -637,6 +637,13 @@ export default {
   'queuedMessages.editCurrentDraftKept': 'Queued message cancelled — current draft and schedule were kept.',
   'queuedMessages.steer': 'Deliver into the running turn now',
   'queuedMessages.steerFailed': 'Steer failed — message stays queued',
+  'queuedMessages.steerOutcomeUnknown': 'Delivery outcome unknown — retry or cancel explicitly',
+  'queuedMessages.retryOutcome': 'Retry uncertain delivery',
+  'queuedMessages.retryFailed': 'Retry failed',
+  'queuedMessages.retryMissing': 'The message is no longer available',
+  'queuedMessages.retryUnavailable': 'The agent is still resolving this delivery',
+  'queuedMessages.steeredBadge': '↳ Steered',
+  'queuedMessages.steeredBadgeTitle': 'Steered into the active turn',
 
   // Scratchlist (per-session workbench, issue #11)
   'scratchlist.title': 'Scratchlist',

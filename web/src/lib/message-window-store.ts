@@ -1140,7 +1140,45 @@ export function removeOptimisticMessage(sessionId: string, localId: string): voi
     }, true)
 }
 
-export function markMessagesConsumed(sessionId: string, localIds: string[], invokedAt: number): void {
+export function markMessagesIndeterminate(sessionId: string, localIds: string[]): void {
+    if (localIds.length === 0) return
+    const idSet = new Set(localIds)
+    updateState(sessionId, (previous) => {
+        let changed = false
+        const messages = previous.messages.map((message) => {
+            if (!message.localId || !idSet.has(message.localId) || message.deliveryState === 'indeterminate') {
+                return message
+            }
+            changed = true
+            return { ...message, deliveryState: 'indeterminate' as const }
+        })
+        return changed ? buildState(previous, { messages }) : previous
+    }, true)
+}
+
+export function markMessagesRequeued(sessionId: string, localIds: string[]): void {
+    if (localIds.length === 0) return
+    const idSet = new Set(localIds)
+    updateState(sessionId, (previous) => {
+        let changed = false
+        const messages = previous.messages.map((message) => {
+            if (!message.localId || !idSet.has(message.localId) || message.deliveryState === undefined) {
+                return message
+            }
+            changed = true
+            const { deliveryState: _deliveryState, ...requeued } = message
+            return requeued
+        })
+        return changed ? buildState(previous, { messages }) : previous
+    }, true)
+}
+
+export function markMessagesConsumed(
+    sessionId: string,
+    localIds: string[],
+    invokedAt: number,
+    steered?: boolean
+): void {
     if (localIds.length === 0) return
     const idSet = new Set(localIds)
     updateState(sessionId, (previous) => {
@@ -1151,12 +1189,15 @@ export function markMessagesConsumed(sessionId: string, localIds: string[], invo
             }
             const needsStatus = message.status !== 'sent'
             const needsInvokedAt = message.invokedAt === null
-            if (!needsStatus && !needsInvokedAt) return message
+            const needsSteered = steered === true && message.steered !== true
+            if (!needsStatus && !needsInvokedAt && !needsSteered) return message
             changed = true
+            const { deliveryState: _deliveryState, ...withoutDeliveryState } = message
             return {
-                ...message,
+                ...withoutDeliveryState,
                 ...(needsStatus ? { status: 'sent' as MessageStatus } : {}),
-                ...(needsInvokedAt ? { invokedAt } : {})
+                ...(needsInvokedAt ? { invokedAt } : {}),
+                ...(needsSteered ? { steered: true } : {})
             }
         })
         if (!changed) return previous

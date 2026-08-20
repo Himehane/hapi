@@ -509,6 +509,37 @@ object MessageWindowLogic {
         return if (changed) previous.withMessages(messages) else previous
     }
 
+    /** Mark a row's native delivery outcome as unknown without invoking it. */
+    fun markIndeterminate(previous: MessageWindowState, localIds: List<String>): MessageWindowState {
+        if (localIds.isEmpty()) return previous
+        val ids = localIds.toSet()
+        var changed = false
+        val messages = previous.messages.map { message ->
+            if (message.localId == null || message.localId !in ids || message.status == MessageStatus.Indeterminate) {
+                message
+            } else {
+                changed = true
+                message.copy(status = MessageStatus.Indeterminate)
+            }
+        }
+        return if (changed) previous.withMessages(messages) else previous
+    }
+
+    fun markRequeued(previous: MessageWindowState, localIds: List<String>): MessageWindowState {
+        if (localIds.isEmpty()) return previous
+        val ids = localIds.toSet()
+        var changed = false
+        val messages = previous.messages.map { message ->
+            if (message.localId == null || message.localId !in ids || message.status != MessageStatus.Indeterminate) {
+                message
+            } else {
+                changed = true
+                message.copy(status = MessageStatus.Queued)
+            }
+        }
+        return if (changed) previous.withMessages(messages) else previous
+    }
+
     /** `message-cancelled` / optimistic DELETE removal: matches localId OR id; idempotent. */
     fun removeByLocalIdOrId(previous: MessageWindowState, localId: String): MessageWindowState {
         if (localId.isEmpty()) return previous

@@ -636,6 +636,13 @@ export default {
   'queuedMessages.editCurrentDraftKept': '队列消息已取消，已保留当前草稿和定时设置。',
   'queuedMessages.steer': '立即插入当前回合',
   'queuedMessages.steerFailed': '插入失败，消息仍在队列中',
+  'queuedMessages.steerOutcomeUnknown': '发送结果未知，请明确重试或取消',
+  'queuedMessages.retryOutcome': '重试不确定的消息发送',
+  'queuedMessages.retryFailed': '重试失败',
+  'queuedMessages.retryMissing': '消息已不存在',
+  'queuedMessages.retryUnavailable': '代理仍在处理这条消息的发送结果',
+  'queuedMessages.steeredBadge': '↳ 已介入',
+  'queuedMessages.steeredBadgeTitle': '已介入当前进行中的回合',
 
   // Scratchlist (per-session workbench, issue #11)
   'scratchlist.title': '草稿夹',

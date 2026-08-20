@@ -546,4 +546,53 @@ describe('content codec integration', () => {
         const delivered = scheduled[0]!.content as { content: { text: string } }
         expect(delivered.content.text).toBe(text)
     })
+
+    it('requeues an indeterminate delivery only on explicit request', () => {
+        const store = makeStore()
+        const session = makeSession(store, 'requeue-indeterminate')
+        const msg = store.messages.addMessage(
+            session.id,
+            { role: 'user', content: { type: 'text', text: 'retry me' } },
+            'lid-retry'
+        )
+        expect(store.messages.setMessagesDeliveryState(session.id, ['lid-retry'], 'dispatching')).toBe(1)
+        expect(store.messages.setMessagesDeliveryState(session.id, ['lid-retry'], 'indeterminate')).toBe(1)
+        expect(store.messages.getDeliverableMessagesAfter(session.id, 0, Date.now())).toHaveLength(0)
+        const claimed = store.messages.claimIndeterminateMessage(session.id, msg.id)
+        expect(claimed).toMatchObject({ id: msg.id, invokedAt: null, deliveryState: 'indeterminate' })
+        expect(store.messages.claimIndeterminateMessage(session.id, msg.id)).toBeNull()
+        expect(store.messages.getDeliverableMessagesAfter(session.id, 0, Date.now())).toHaveLength(0)
+        expect(store.messages.setMessagesDeliveryState(session.id, ['lid-retry'], 'queued')).toBe(1)
+        expect(store.messages.getDeliverableMessagesAfter(session.id, 0, Date.now())).toHaveLength(1)
+    })
+
+    it('holds indeterminate delivery out of replay without stamping invoked_at', () => {
+        const store = makeStore()
+        const session = makeSession(store, 'indeterminate')
+        const msg = store.messages.addMessage(
+            session.id,
+            { role: 'user', content: { type: 'text', text: 'uncertain' } },
+            'lid-uncertain'
+        )
+
+        expect(store.messages.markMessagesIndeterminate(session.id, ['lid-uncertain'])).toBe(1)
+        expect(store.messages.markMessagesIndeterminate(session.id, ['lid-uncertain'])).toBe(0)
+        expect(store.messages.getDeliverableMessagesAfter(session.id, 0, Date.now())).toHaveLength(0)
+        expect(store.messages.getImmediateQueuedLocalMessages(session.id)).toHaveLength(0)
+        expect(store.messages.getUninvokedLocalMessages(session.id)[0]).toMatchObject({
+            id: msg.id,
+            deliveryState: 'indeterminate',
+            invokedAt: null
+        })
+        expect(store.messages.lookupQueuedMessage(session.id, msg.id)).toEqual({
+            status: 'indeterminate',
+            localId: 'lid-uncertain',
+            resolvedId: msg.id,
+            scheduledAt: null
+        })
+
+        const invokedAt = Date.now()
+        expect(store.messages.markMessagesInvoked(session.id, ['lid-uncertain'], invokedAt)).toBe(1)
+        expect(store.messages.getMessages(session.id)[0]).toMatchObject({ invokedAt })
+    })
 })

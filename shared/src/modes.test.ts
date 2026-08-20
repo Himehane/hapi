@@ -8,6 +8,8 @@ import {
     getPermissionModeTone,
     getPermissionModesForFlavor,
     isPermissionModeAllowedForFlavor,
+    isSteeringSupportedForFlavor,
+    isSteeringSupportedForSession,
 } from './modes'
 
 describe('Gemini CLI sunset (read-only, not creatable)', () => {
@@ -127,5 +129,38 @@ describe('claude auto permission mode', () => {
     it('has a label and tone', () => {
         expect(getPermissionModeLabel('auto')).toBe('Auto')
         expect(getPermissionModeTone('auto')).toBe('warning')
+    })
+})
+
+describe('isSteeringSupportedForFlavor', () => {
+    it('supports codex and pi only', () => {
+        expect(isSteeringSupportedForFlavor('codex')).toBe(true)
+        expect(isSteeringSupportedForFlavor('pi')).toBe(true)
+        expect(isSteeringSupportedForFlavor('cursor')).toBe(false)
+        expect(isSteeringSupportedForFlavor('claude')).toBe(false)
+        expect(isSteeringSupportedForFlavor('opencode')).toBe(false)
+        expect(isSteeringSupportedForFlavor(undefined)).toBe(false)
+        expect(isSteeringSupportedForFlavor(null)).toBe(false)
+    })
+})
+
+describe('isSteeringSupportedForSession', () => {
+    it('supports codex and pi sessions', () => {
+        expect(isSteeringSupportedForSession({ flavor: 'codex' })).toBe(true)
+        expect(isSteeringSupportedForSession({ flavor: 'pi' })).toBe(true)
+    })
+
+    it('rejects cursor until its steer handler lands', () => {
+        expect(isSteeringSupportedForSession({
+            flavor: 'cursor',
+            cursorSessionProtocol: 'acp',
+            cursorSessionId: 'sess-1',
+        })).toBe(false)
+        expect(isSteeringSupportedForSession({ flavor: 'cursor' })).toBe(false)
+    })
+
+    it('rejects non-steerable flavors', () => {
+        expect(isSteeringSupportedForSession({ flavor: 'claude' })).toBe(false)
+        expect(isSteeringSupportedForSession(null)).toBe(false)
     })
 })
