@@ -1210,8 +1210,12 @@ function selectImportTargetSession(
 
         const candidateIsBusy = isImportTargetBusyForCodexSync(store, candidate)
         if (
-            comparableMessages.length > bestPrefixCount
-            || (comparableMessages.length === bestPrefixCount && bestIsBusy && !candidateIsBusy)
+            bestSessionId === null
+            || (bestIsBusy && !candidateIsBusy)
+            || (
+                bestIsBusy === candidateIsBusy
+                && comparableMessages.length > bestPrefixCount
+            )
         ) {
             bestPrefixCount = comparableMessages.length
             bestSessionId = candidate.sessionId
