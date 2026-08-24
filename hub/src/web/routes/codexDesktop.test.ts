@@ -744,6 +744,66 @@ describe('Codex Desktop import routes', () => {
         }
     })
 
+    it('prefers an idle Codex import target over a newer busy duplicate with the same prefix', async () => {
+        const codexHome = mkdtempSync(join(tmpdir(), 'hapi-codex-home-busy-equal-prefix-sync-test-'))
+        const store = new Store(':memory:')
+        const codexSessionId = '22222222-2222-4222-8222-222222222222'
+        process.env.CODEX_HOME = codexHome
+
+        try {
+            createTranscript(codexHome, codexSessionId)
+            const first = await importSelectedCodexSessions({
+                codexSessionIds: [codexSessionId],
+                store,
+                namespace: 'default',
+                getSyncEngine: () => null
+            })
+            expect(first.success).toBe(true)
+
+            const idleTarget = store.sessions.getSessionsByNamespace('default')[0]
+            expect(idleTarget).toBeDefined()
+            const busyDuplicate = store.sessions.getOrCreateSession('busy-equal-prefix-session', {
+                path: 'C:/work/project',
+                flavor: 'codex',
+                codexSessionId,
+                codexSourceSessionId: codexSessionId
+            }, {}, 'default')
+            for (const message of store.messages.getAllMessages(idleTarget.id)) {
+                store.messages.addMessage(busyDuplicate.id, message.content)
+            }
+            appendAssistantResponseItem(codexHome, codexSessionId, 'new desktop assistant message')
+
+            const engine = {
+                getOnlineMachinesByNamespace: () => [],
+                handleRealtimeEvent: () => {},
+                recordSessionActivity: () => {},
+                getSessionsByNamespace: () => [{
+                    ...store.sessions.getSession(busyDuplicate.id),
+                    active: true,
+                    thinking: true,
+                    thinkingAt: Date.now(),
+                    backgroundTaskCount: 0,
+                    updatedAt: Date.now() + 10_000
+                }]
+            } as unknown as SyncEngine
+
+            const second = await importSelectedCodexSessions({
+                codexSessionIds: [codexSessionId],
+                store,
+                namespace: 'default',
+                getSyncEngine: () => engine
+            })
+
+            expect(second.success).toBe(true)
+            expect(second.hapiSessionIds).toEqual([idleTarget.id])
+            expect(store.messages.getAllMessages(idleTarget.id)).toHaveLength(3)
+            expect(store.messages.getAllMessages(busyDuplicate.id)).toHaveLength(2)
+        } finally {
+            store.close()
+            rmSync(codexHome, { recursive: true, force: true })
+        }
+    })
+
     it('deduplicates mirrored event_msg and response_item user messages', async () => {
         const codexHome = mkdtempSync(join(tmpdir(), 'hapi-codex-home-mirror-test-'))
         const store = new Store(':memory:')
